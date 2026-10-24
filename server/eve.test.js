@@ -15,6 +15,18 @@ const { createApp } = await import('./index.js');
 const { recordAgentPayment, recordPending, listPending } = await import('./store.js');
 const { answerEve } = await import('./eve.js');
 
+for (const name of [
+  'AWS_REGION',
+  'AWS_DEFAULT_REGION',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'AWS_BEARER_TOKEN_BEDROCK',
+  'BEDROCK_MODEL_ID',
+]) {
+  delete process.env[name];
+}
+
 function listen(app) {
   const server = app.listen(0, '127.0.0.1');
   return new Promise((resolve, reject) => {
@@ -65,6 +77,7 @@ describe('Eve', { concurrency: false }, () => {
       fetchImpl: () => { called = true; },
     });
     assert.equal(called, false);
+    assert.equal(spent.source, 'rules');
     assert.match(spent.reply, /1\.00 RLUSD/);
     const why = await answerEve('Why was the last one blocked?', context, { env: {} });
     assert.match(why.reply, /per-purchase cap/);
@@ -102,6 +115,7 @@ describe('Eve', { concurrency: false }, () => {
     try {
       const spent = await (await ask('What did my agent spend today?')).json();
       assert.match(spent.reply, /spent/i);
+      assert.equal(spent.bedrock, false);
       assert.equal(spent.confirmation, null);
 
       const why = await (await ask('Why was the last one blocked?')).json();

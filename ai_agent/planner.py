@@ -1,3 +1,10 @@
+"""Catalog selection for a task.
+
+The live allowance app ports this in agent/planner.js and calls Bedrock
+through the Converse API. This file stays as the reference. It never
+authorizes a payment.
+"""
+
 import json
 import os
 

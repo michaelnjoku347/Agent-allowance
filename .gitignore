@@ -160,3 +160,10 @@ merchant/state-*/
 
 # Local channel-cap diagnostic evidence
 agent/receipts/
+
+# JetBrains
+.idea/
+
+# Python bytecode
+__pycache__/
+*.pyc
