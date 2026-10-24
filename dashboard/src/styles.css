@@ -886,6 +886,7 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
 }
 .eve-window .transcript {
   flex: 1;
+  align-content: start;
   min-height: 0;
   max-height: none;
 }
@@ -985,9 +986,14 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
     right: 24px;
     bottom: 24px;
     width: 360px;
-    height: min(480px, calc(100vh - 48px));
+    height: auto;
+    max-height: min(480px, calc(100vh - 48px));
     border: 1px solid var(--line-strong);
     border-radius: 20px;
+  }
+  .eve-window .transcript {
+    flex: 0 1 auto;
+    max-height: 220px;
   }
   .eve-pill {
     right: 24px;
