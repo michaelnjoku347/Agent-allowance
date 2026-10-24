@@ -22,9 +22,10 @@
   --eve-line: transparent;
   --eve-chip: #F7F4EC;
   --focus: #143D31;
-  --shadow: 0 16px 40px rgba(26, 24, 20, 0.08);
+  --track: #9A8E7C;
+  --shadow: 0 16px 40px rgba(26, 24, 20, 0.12);
+  --wash: radial-gradient(900px 280px at 0% -10%, rgba(27, 77, 62, 0.08), transparent 55%);
   --font: Outfit, "Avenir Next", "Segoe UI", sans-serif;
-  --serif: Fraunces, "Iowan Old Style", Palatino, "Palatino Linotype", serif;
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.5;
@@ -56,7 +57,9 @@
   --eve-line: #34584C;
   --eve-chip: #F4F0E6;
   --focus: #C6E6D6;
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  --track: #9A8E7C;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --wash: none;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -84,7 +87,9 @@
     --eve-line: #34584C;
     --eve-chip: #F4F0E6;
     --focus: #C6E6D6;
+    --track: #8A8174;
     --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    --wash: none;
   }
 }
 
@@ -92,9 +97,7 @@
 html { scroll-padding-bottom: 120px; scroll-padding-top: 16px; }
 body {
   margin: 0;
-  background:
-    radial-gradient(900px 280px at 0% -10%, rgba(27, 77, 62, 0.08), transparent 55%),
-    var(--bg);
+  background: var(--wash), var(--bg);
   color: var(--ink);
 }
 button, input { font: inherit; color: inherit; }
@@ -106,7 +109,7 @@ code { overflow-wrap: anywhere; font-size: 0.875rem; font-family: ui-monospace, 
 .shell {
   width: min(100%, 520px);
   margin: 0 auto;
-  padding: 20px 16px 88px;
+  padding: 16px 16px 132px;
   flex: 1 0 auto;
 }
 main:focus { outline: none; }
@@ -137,13 +140,13 @@ main { display: grid; gap: 16px; }
 }
 
 h1 {
-  font-size: 1.65rem;
-  line-height: 1.05;
-  letter-spacing: -0.035em;
-  font-weight: 650;
+  font-size: 1.375rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 600;
   margin: 0;
 }
-h2 { font-size: 1.05rem; margin: 0; letter-spacing: -0.02em; }
+h2 { font-size: 1rem; margin: 0; letter-spacing: -0.02em; font-weight: 600; }
 h3 { font-size: 1rem; margin: 0; }
 p { margin: 0; }
 
@@ -238,20 +241,7 @@ p { margin: 0; }
 .section-head { display: grid; gap: 4px; margin-bottom: 14px; }
 .card > h2 { margin-bottom: 12px; }
 
-.hero {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 70%, white) 0%, var(--surface) 100%);
-}
-:root[data-theme="dark"] .hero,
-:root[data-theme="system"] .hero {
-  background: var(--surface);
-}
-@media (prefers-color-scheme: light) {
-  :root[data-theme="system"] .hero {
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--surface) 70%, white) 0%, var(--surface) 100%);
-  }
-}
+.hero { background: var(--surface); }
 .hero-main {
   display: flex;
   align-items: center;
@@ -261,13 +251,12 @@ p { margin: 0; }
 .hero-copy { min-width: 0; }
 .hero .eyebrow { margin-bottom: 8px; }
 .figure {
-  font-family: var(--serif);
-  font-weight: 560;
-  font-size: 3.35rem;
-  line-height: 0.92;
-  letter-spacing: -0.045em;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 2.75rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
-  font-optical-sizing: auto;
   margin: 0;
   display: flex;
   align-items: baseline;
@@ -320,7 +309,7 @@ p { margin: 0; }
 }
 .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 8; }
-.ring-track { stroke: #9A8E7C; }
+.ring-track { stroke: var(--track); }
 .ring-value {
   stroke: var(--pine);
   stroke-linecap: round;
@@ -334,7 +323,7 @@ p { margin: 0; }
   line-height: 1.05;
 }
 .ring-label strong {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 1.35rem;
   font-weight: 560;
   letter-spacing: -0.03em;
@@ -435,6 +424,12 @@ p { margin: 0; }
   color: var(--on-pine);
 }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn:hover:not(:disabled) { background: var(--pine-soft); }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--pine) 86%, var(--ink)); }
+.btn:active:not(:disabled), .chip:active, .icon-btn:active, .eve-pill:active { transform: translateY(1px); }
+.chip, .icon-btn, .tabbar button, .sidenav button, .row, .eve-pill {
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
 
 .mic-btn {
   display: inline-flex;
@@ -529,7 +524,12 @@ p { margin: 0; }
   align-items: center;
   flex-wrap: wrap;
 }
-.note.warn { color: var(--danger); }
+.note.warn {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
 .note svg { flex: none; }
 
 .tabbar {
@@ -546,7 +546,7 @@ p { margin: 0; }
 .tabbar-inner {
   width: min(100%, 520px);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
 }
 .tabbar button {
@@ -799,13 +799,13 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
   }
   .frame { margin-left: 232px; }
   .shell {
-    width: min(920px, calc(100% - 80px));
-    padding: 32px 0 48px;
+    width: min(880px, calc(100% - 80px));
+    padding: 28px 0 40px;
   }
   .tabbar, .fab { display: none; }
   .split { grid-template-columns: 1fr 1fr; align-items: stretch; }
   .split > .card { height: 100%; }
-  .hero .figure { font-size: 4.75rem; }
+  .hero .figure { font-size: 3.5rem; }
   .ring { width: 128px; height: 128px; }
   .hero-actions .btn.primary { flex: 0 0 auto; min-width: 180px; }
   .sheet {
@@ -817,6 +817,173 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
   .sheet-back { align-items: center; }
   .sheet-handle { display: none; }
   html { scroll-padding-bottom: 32px; }
+}
+
+.hero-skeleton {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  min-height: 168px;
+}
+.sk-copy { display: grid; gap: 0; }
+.sk {
+  display: block;
+  background: linear-gradient(90deg, var(--line), var(--surface), var(--line));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+.sk-label { width: 72px; height: 10px; }
+.sk-figure { width: 148px; height: 36px; margin-top: 12px; }
+.sk-line { width: 168px; height: 12px; margin-top: 12px; }
+.sk-ring { width: 96px; height: 96px; border-radius: 50%; flex: none; }
+.sk-block { height: 64px; }
+
+.eve-dock { pointer-events: none; }
+.eve-window,
+.eve-pill { pointer-events: auto; }
+.eve-window {
+  position: fixed;
+  z-index: 24;
+  left: 0;
+  right: 0;
+  bottom: calc(68px + env(safe-area-inset-bottom));
+  height: min(54vh, 460px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: eve-in 160ms ease;
+}
+.eve-window[hidden] { display: none; }
+.eve-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.eve-id { min-width: 0; }
+.eve-id h2 { font-size: 0.9375rem; }
+.eve-id p { color: var(--muted); font-size: 0.75rem; }
+.eve-id p.is-live { color: var(--pine-ink); font-weight: 600; }
+.eve-min { width: 44px; height: 44px; }
+.eve-window .eve {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+  padding: 10px 12px 12px;
+}
+.eve-window .transcript {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.eve-window .chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.eve-window .chip { flex: none; }
+.eve-window .composer { flex-wrap: nowrap; }
+.eve-window .composer .mic-btn { width: 48px; padding: 0; }
+.eve-window .confirm { background: var(--surface); }
+.eve-pill {
+  position: fixed;
+  z-index: 24;
+  right: 16px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 6px 14px 6px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-weight: 600;
+  animation: eve-in 160ms ease;
+}
+.eve-pill[hidden] { display: none; }
+.eve-pill-name { font-size: 0.9375rem; }
+.eve-pill-state { color: var(--pine-ink); font-size: 0.75rem; font-weight: 600; }
+.eve-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--pine);
+  color: var(--on-pine);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
+.voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  position: relative;
+  flex: none;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform 140ms ease;
+}
+.voice-toggle[aria-pressed="true"] { color: var(--ink); }
+.voice-toggle[aria-pressed="true"] .switch { background: var(--pine); }
+.voice-toggle[aria-pressed="true"] .switch::after { transform: translateX(16px); }
+@keyframes eve-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (min-width: 960px) {
+  .eve-window {
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+    height: min(480px, calc(100vh - 48px));
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+  }
+  .eve-pill {
+    right: 24px;
+    bottom: 24px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

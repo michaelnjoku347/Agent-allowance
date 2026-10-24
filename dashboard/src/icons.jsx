@@ -89,6 +89,23 @@ export function IconReceipt() {
   );
 }
 
+export function EveMark({ size = 28 }) {
+  return (
+    <svg className="eve-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="9" fill="#1B4D3E" />
+      <path d="M10.5 10.5h11M10.5 16h7.5M10.5 21.5h11" stroke="#F4F0E6" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconMinus({ size = 22 }) {
+  return (
+    <Stroke size={size}>
+      <path {...pen} d="M6 12h12" />
+    </Stroke>
+  );
+}
+
 export function IconAlert() {
   return (
     <Stroke>

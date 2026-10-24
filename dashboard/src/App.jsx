@@ -2,14 +2,12 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
 import { approvePurchase, declinePurchase, fetchSnapshot, runAgent } from './api.js';
 import CountUp from './CountUp.jsx';
-import EvePanel from './EvePanel.jsx';
+import { EveDock } from './EvePanel.jsx';
 import {
   IconActivity,
   IconAlert,
   IconCheck,
-  IconEve,
   IconHome,
-  IconMic,
   IconReceipt,
   IconSettings,
   LogoMark,
@@ -22,7 +20,6 @@ import { plainReason } from '../../shared/words.js';
 const TABS = [
   ['home', 'Home', IconHome],
   ['activity', 'Activity', IconActivity],
-  ['eve', 'Eve', IconEve],
 ];
 
 const FILTERS = [
@@ -30,11 +27,6 @@ const FILTERS = [
   ['paid', 'Paid'],
   ['blocked', 'Blocked'],
   ['waiting', 'Waiting'],
-];
-
-const PROMPTS = [
-  'What did my agent spend today?',
-  'Why was the last one blocked?',
 ];
 
 function expiresOn(iso) {
@@ -47,17 +39,6 @@ function expiresOn(iso) {
     day: 'numeric',
     year: 'numeric',
   }).format(date);
-}
-
-function greeting(now = new Date()) {
-  const hour = Number(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    hourCycle: 'h23',
-  }).format(now));
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
 }
 
 function pill(item) {
@@ -103,7 +84,6 @@ function initial(label) {
 export default function App() {
   const [theme, setTheme] = useTheme();
   const [tab, setTab] = useState('home');
-  const [eveOpen, setEveOpen] = useState(false);
   const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
@@ -180,19 +160,12 @@ export default function App() {
 
   function askEvePrompt(text) {
     setEveSeed({ id: `${Date.now()}-${text}`, text });
-    setTab('eve');
-    setEveOpen(false);
   }
 
   const shown = view.activity.filter((item) => matchesFilter(item, filter));
   const latest = view.activity.slice(0, 5);
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
-  const hello = snapshot
-    ? (view.spentNumber > 0
-      ? `${greeting()}. ${money(view.left)} RLUSD is left of the ${money(view.budget)} allowance.`
-      : `${greeting()}. The allowance is intact: ${money(view.left)} RLUSD is available.`)
-    : `${greeting()}. I can explain a block, total a spend, or prepare a rule change.`;
 
   return (
     <div className="app">
@@ -234,7 +207,7 @@ export default function App() {
             </div>
             <ThemeControl theme={theme} setTheme={setTheme} />
           </header>
-          <p className="lede">Every quote is checked before a voucher is signed.</p>
+          <p className="lede">Each purchase is checked against your rules before it is paid.</p>
 
           <main id="main" tabIndex={-1}>
             {connection === 'loading' && !snapshot ? <Skeletons /> : null}
@@ -275,11 +248,11 @@ export default function App() {
                   <dl className="rule-grid">
                     <div>
                       <dt>Per purchase</dt>
-                      <dd>{money(snapshot.rules.maxPerPurchase)} RLUSD cap</dd>
+                      <dd>{money(snapshot.rules.maxPerPurchase)} RLUSD</dd>
                     </div>
                     <div>
                       <dt>Expires</dt>
-                      <dd>{expiresOn(snapshot.rules.expiresAt) || 'No date set'}</dd>
+                      <dd>{expiresOn(snapshot.rules.expiresAt) || 'No date'}</dd>
                     </div>
                     <div>
                       <dt>Merchants</dt>
@@ -292,39 +265,19 @@ export default function App() {
                   </div>
                 </section>
 
-                <section className="eve-hello" aria-labelledby="eve-hello-title">
-                  <div className="eve-hello-top">
-                    <LogoMark tone="cream" size={40} />
-                    <div>
-                      <h2 id="eve-hello-title">Eve</h2>
-                      <p>{hello}</p>
-                    </div>
-                    <button type="button" className="mic-btn" aria-label="Open Eve" onClick={() => setEveOpen(true)}>
-                      <IconMic />
-                    </button>
-                  </div>
-                  <div className="prompt-row">
-                    {PROMPTS.map((prompt) => (
-                      <button key={prompt} type="button" className="chip" onClick={() => askEvePrompt(prompt)}>
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
                 <div className="split">
                   <section className="card" aria-labelledby="needs-title">
                     <div className="section-head">
                       <h2 id="needs-title">Needs you</h2>
-                      <p>Approving records the decision. It does not sign a voucher or move RLUSD.</p>
+                      <p>An approval is recorded here. It does not sign a voucher or move RLUSD.</p>
                     </div>
                     {view.pending.length === 0 ? (
                       <EmptyState
                         icon={<IconCheck />}
-                        title="Nothing needs you"
+                        title="Nothing is waiting"
                         action={<button type="button" className="btn" onClick={() => askEvePrompt('What is waiting for approval?')}>Ask Eve</button>}
                       >
-                        A quote outside the rules shows up here.
+                        A quote outside the rules will land here.
                       </EmptyState>
                     ) : (
                       <ul className="needs">
@@ -360,7 +313,7 @@ export default function App() {
                       empty={(
                         <EmptyState
                           icon={<IconReceipt />}
-                          title="No purchases yet"
+                          title="No payments yet"
                           action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
                         >
                           Paid and blocked quotes will show up here.
@@ -394,7 +347,7 @@ export default function App() {
                   empty={filter === 'all' ? (
                     <EmptyState
                       icon={<IconReceipt />}
-                      title="No purchases yet"
+                      title="No payments yet"
                       action={<button type="button" className="btn" onClick={() => askEvePrompt('What should the agent do next?')}>Ask Eve</button>}
                     >
                       Run the agent, or ask Eve what to do next.
@@ -408,7 +361,6 @@ export default function App() {
               </section>
             ) : null}
 
-            {tab === 'eve' ? <EvePanel seed={eveSeed} onSeedHandled={() => setEveSeed(null)} /> : null}
           </main>
         </div>
 
@@ -429,17 +381,7 @@ export default function App() {
         </nav>
       </div>
 
-      {tab === 'activity' ? (
-        <button type="button" className="fab" aria-label="Open Eve" onClick={() => setEveOpen(true)}>
-          <IconMic size={24} />
-        </button>
-      ) : null}
-
-      {eveOpen ? (
-        <Sheet title="Eve" onClose={() => setEveOpen(false)}>
-          <EvePanel showHeading={false} />
-        </Sheet>
-      ) : null}
+      <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
       {detail ? (
         <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
@@ -589,6 +531,12 @@ function ActivityList({ items, onOpen, empty }) {
   );
 }
 
+function settlementLabel(status) {
+  if (status === 'settled') return 'Settled';
+  if (status === 'processing') return 'Processing';
+  return 'Not recorded';
+}
+
 function Detail({ item, currency }) {
   const status = pill(item);
   const name = item.merchantLabel || 'Merchant';
@@ -615,6 +563,18 @@ function Detail({ item, currency }) {
         <div>
           <dt>Transaction</dt>
           <dd>{item.txHash ? <code>{item.txHash}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Merchant payout transaction</dt>
+          <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Channel</dt>
+          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Settlement</dt>
+          <dd>{settlementLabel(item.settlementStatus)}</dd>
         </div>
         <div>
           <dt>Claim ID</dt>
@@ -693,11 +653,17 @@ function Skeletons() {
   return (
     <div className="stack" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
-      <div className="card skeleton tall" />
-      <div className="card skeleton" />
+      <div className="card hero-skeleton" aria-hidden="true">
+        <div className="sk-copy">
+          <span className="sk sk-label" />
+          <span className="sk sk-figure" />
+          <span className="sk sk-line" />
+        </div>
+        <span className="sk sk-ring" />
+      </div>
       <div className="split">
-        <div className="card skeleton short" />
-        <div className="card skeleton short" />
+        <div className="card"><span className="sk sk-block" /></div>
+        <div className="card"><span className="sk sk-block" /></div>
       </div>
     </div>
   );
