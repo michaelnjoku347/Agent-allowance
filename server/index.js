@@ -15,7 +15,9 @@ import express from 'express';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { loadRules } from '../agent/rules.js';
+import { createQuoteApp } from '../merchant/index.js';
 import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
 import { approvePending, declinePending, listPayments, listPending, readStore, summarize } from './store.js';
 
@@ -133,6 +135,30 @@ export function createApp() {
       res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.post('/api/demo/over-cap', async (req, res, next) => {
+    const rules = loadRules();
+    const payout = rules.allowedMerchants[0];
+    if (!payout) return res.status(500).json({ error: 'The allowance has no merchant to quote.' });
+    const quoteServer = createQuoteApp({ payout }).listen(0, '127.0.0.1');
+    try {
+      await new Promise((resolve, reject) => {
+        quoteServer.once('listening', resolve);
+        quoteServer.once('error', reject);
+      });
+      const { port } = quoteServer.address();
+      const result = await demonstrateOverCap({
+        resourceUrl: `http://127.0.0.1:${port}/demo/over-cap-6`,
+        rules,
+      });
+      res.json({ ...result, contract: latestContractCap() });
+    } catch (error) {
+      next(error);
+    } finally {
+      quoteServer.closeAllConnections?.();
+      quoteServer.close();
     }
   });
 

@@ -65,6 +65,14 @@ export async function fetchSnapshot() {
   return { ...status, payments, pending };
 }
 
+/** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
+export async function runOverCap() {
+  const response = await fetch('/api/demo/over-cap', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'The over-cap demo did not run.');
+  return body;
+}
+
 /** Ask the API to start the agent. A missing wallet still returns 200 with an error the page can show. */
 export async function runAgent(task) {
   const response = await fetch('/api/run-agent', {

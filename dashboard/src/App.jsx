@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { approvePurchase, declinePurchase, fetchSnapshot, runAgent } from './api.js';
+import { approvePurchase, declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
 import {
@@ -21,6 +21,8 @@ const TABS = [
   ['home', 'Home', IconHome],
   ['activity', 'Activity', IconActivity],
 ];
+
+const EXPLORER = 'https://explorer.testnet.xrplevm.org';
 
 const FILTERS = [
   ['all', 'All'],
@@ -81,6 +83,15 @@ function initial(label) {
   return text.slice(0, 1).toUpperCase();
 }
 
+function txUrl(explorer, hash) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash || '')) return null;
+  return `${String(explorer || EXPLORER).replace(/\/$/, '')}/tx/${hash}`;
+}
+
+function receiptHref(url) {
+  return /^https?:\/\//i.test(url || '') ? url : null;
+}
+
 export default function App() {
   const [theme, setTheme] = useTheme();
   const [tab, setTab] = useState('home');
@@ -92,6 +103,8 @@ export default function App() {
   const [busyId, setBusyId] = useState('');
   const [actionError, setActionError] = useState('');
   const [runNote, setRunNote] = useState('');
+  const [overCap, setOverCap] = useState(null);
+  const [overCapBusy, setOverCapBusy] = useState(false);
   const [announce, setAnnounce] = useState('');
   const seen = useRef(null);
 
@@ -155,6 +168,20 @@ export default function App() {
       setRunNote(body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
+    }
+  }
+
+  async function onOverCap() {
+    setOverCapBusy(true);
+    setOverCap(null);
+    try {
+      const body = await runOverCap();
+      setOverCap(body);
+      await load();
+    } catch (error) {
+      setOverCap({ error: error.message || 'The over-cap demo did not run.' });
+    } finally {
+      setOverCapBusy(false);
     }
   }
 
@@ -261,9 +288,39 @@ export default function App() {
                   </dl>
                   <div className="hero-actions">
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
+                    <button type="button" className="btn" onClick={onOverCap} disabled={overCapBusy}>
+                      {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
+                    </button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
+
+                {overCap ? (
+                  <section className="card rejection" role="alert" aria-labelledby="over-cap-title">
+                    <div className="rejection-top">
+                      <span className="empty-icon" aria-hidden="true"><IconAlert /></span>
+                      <div>
+                        <h2 id="over-cap-title">{overCap.error ? 'The over-cap demo did not finish' : 'Rejected before signing'}</h2>
+                        {overCap.error ? <p>{overCap.error}</p> : (
+                          <p>
+                            The agent requested a {money(overCap.amount)} RLUSD quote. The {money(overCap.cap)} RLUSD per-purchase cap stopped it. No voucher was signed.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {overCap.reason ? <p className="rejection-reason">{plainReason(overCap.reason)}</p> : null}
+                    {overCap.contract ? (
+                      <div className="contract-note">
+                        {overCap.contract.ran ? (
+                          <>
+                            <p>The ledger rejected a {overCap.contract.rejectedCumulativeRlusd || '6'} RLUSD cumulative voucher in simulation. Redeemed balance stayed {overCap.contract.redeemedBefore}.</p>
+                            <p className="meta">Block {overCap.contract.blockNumber}. Revert <code>{overCap.contract.rejectionData}</code></p>
+                          </>
+                        ) : <p>{overCap.contract.reason}</p>}
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
 
                 <div className="split">
                   <section className="card" aria-labelledby="needs-title">
@@ -284,6 +341,7 @@ export default function App() {
                         {view.pending.map((item) => (
                           <li key={item.id} className="need">
                             <div className="need-top">
+                              <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
                               <h3>{item.merchantLabel || 'Merchant'}</h3>
                               <p className="amount">{money(item.amount)} RLUSD</p>
                             </div>
@@ -309,6 +367,7 @@ export default function App() {
                     <h2 id="latest-title">Latest activity</h2>
                     <ActivityList
                       items={latest}
+                      explorer={snapshot.network?.explorerUrl}
                       onOpen={setDetail}
                       empty={(
                         <EmptyState
@@ -343,6 +402,7 @@ export default function App() {
                 </div>
                 <ActivityList
                   items={shown}
+                  explorer={snapshot.network?.explorerUrl}
                   onOpen={setDetail}
                   empty={filter === 'all' ? (
                     <EmptyState
@@ -500,7 +560,61 @@ function EmptyState({ icon, title, children, action }) {
   );
 }
 
-function ActivityList({ items, onOpen, empty }) {
+function ReceiptCard({ item, explorer }) {
+  const voucher = txUrl(explorer, item.txHash);
+  const payout = txUrl(explorer, item.payoutTx);
+  const receipt = receiptHref(item.receiptUrl);
+  const kitReceipt = /^https?:\/\/.+\/public\/evidence\/claims\/0x[0-9a-f]{64}\/0x[0-9a-f]{64}\.json$/i.test(receipt || '');
+  const settled = item.settlementStatus === 'settled';
+  return (
+    <article className="receipt">
+      <div className="receipt-top">
+        <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
+        <div className="receipt-id">
+          <p className="receipt-merchant">{item.merchantLabel || 'Merchant'}</p>
+          <p className="meta">{when(item.createdAt)}</p>
+        </div>
+        <p className="amount">{money(item.amount)} RLUSD</p>
+        {settled ? (
+          <span className="settled-check" role="img" aria-label="Settled"><IconCheck /></span>
+        ) : (
+          <span className="pill warn">Processing</span>
+        )}
+      </div>
+      <dl className="receipt-facts">
+        <div>
+          <dt>Voucher</dt>
+          <dd>{voucher ? <a href={voucher} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Payout</dt>
+          <dd>{payout ? <a href={payout} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Settlement</dt>
+          <dd>{receipt ? <a href={receipt} target="_blank" rel="noreferrer noopener">Settlement receipt</a> : 'Not recorded'}</dd>
+        </div>
+      </dl>
+      {kitReceipt ? (
+        <a className="explorer" href={receipt} target="_blank" rel="noreferrer noopener">Verify receipt</a>
+      ) : null}
+    </article>
+  );
+}
+
+function RowSkeleton() {
+  return (
+    <div className="sk-row">
+      <span className="sk sk-avatar" />
+      <span className="sk-lines">
+        <span className="sk sk-line" />
+        <span className="sk sk-line sk-short" />
+      </span>
+    </div>
+  );
+}
+
+function ActivityList({ items, onOpen, empty, explorer }) {
   if (!items.length) return empty;
   return (
     <ul className="activity">
@@ -519,11 +633,7 @@ function ActivityList({ items, onOpen, empty }) {
               </span>
               <span className="amount">{money(item.amount)} RLUSD</span>
             </button>
-            {item.explorerUrl ? (
-              <a className="explorer" href={item.explorerUrl} target="_blank" rel="noreferrer noopener">
-                View on explorer
-              </a>
-            ) : null}
+            {item.status === 'paid' ? <ReceiptCard item={item} explorer={explorer} /> : null}
           </li>
         );
       })}
@@ -543,7 +653,9 @@ function Detail({ item, currency }) {
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
+      {item.status === 'paid' ? <ReceiptCard item={item} explorer={EXPLORER} /> : (
+        <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
+      )}
       <p className="detail-name">{name}</p>
       <p className="meta"><code>{item.merchant}</code></p>
       <p className="meta">{when(item.createdAt)}</p>
@@ -662,8 +774,16 @@ function Skeletons() {
         <span className="sk sk-ring" />
       </div>
       <div className="split">
-        <div className="card"><span className="sk sk-block" /></div>
-        <div className="card"><span className="sk sk-block" /></div>
+        <div className="card sk-card" aria-hidden="true">
+          <span className="sk sk-title" />
+          <RowSkeleton />
+          <RowSkeleton />
+        </div>
+        <div className="card sk-card" aria-hidden="true">
+          <span className="sk sk-title" />
+          <RowSkeleton />
+          <RowSkeleton />
+        </div>
       </div>
     </div>
   );

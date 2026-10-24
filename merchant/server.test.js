@@ -35,6 +35,11 @@ test('demo quotes are 402s the rules block before any payment', async () => {
     assert.equal(over.resourceUrl, overUrl);
     assert.equal(checkRules({ merchant: over.merchant, amount: over.amount, spent: '0' }, rules).reason, 'over per-purchase cap');
 
+    const sixUrl = `http://127.0.0.1:${port}/demo/over-cap-6`;
+    const six = await requestQuote(sixUrl, channelId);
+    assert.equal(six.amount, '6');
+    assert.equal(checkRules({ merchant: six.merchant, amount: six.amount, spent: '0' }, rules).reason, 'over per-purchase cap');
+
     const outsideUrl = `http://127.0.0.1:${port}/demo/unlisted`;
     const outside = await requestQuote(outsideUrl, channelId);
     assert.equal(outside.amount, '1');
