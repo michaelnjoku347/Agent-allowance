@@ -111,6 +111,18 @@ function activateAgent(store) {
   store.pending = store.pending.filter((item) => !item.sample);
 }
 
+function presentJev(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    source: value.source ?? null,
+    needed: value.needed ?? null,
+    risk: value.risk ?? null,
+    review: value.review ?? null,
+    confidence: value.confidence ?? null,
+    reason: value.reason ?? null,
+  };
+}
+
 function presentPayment(payment) {
   const explorerUrl = !payment.sample && payment.txHash
     ? `${network.explorerUrl}/tx/${payment.txHash}`
@@ -133,12 +145,14 @@ function presentPayment(payment) {
     payoutTx: payment.payoutTx ?? null,
     receiptUrl: payment.receiptUrl ?? null,
     resourceUrl: payment.resourceUrl ?? null,
+    jev: presentJev(payment.jev),
   };
 }
 
 function presentPending(item) {
   return {
     id: item.id,
+    status: item.status || 'pending',
     task: item.task,
     merchant: item.merchant,
     merchantLabel: item.merchantLabel ?? null,
@@ -148,6 +162,7 @@ function presentPending(item) {
     resourceUrl: item.resourceUrl ?? null,
     createdAt: item.createdAt,
     sample: Boolean(item.sample),
+    jev: presentJev(item.jev),
   };
 }
 
@@ -223,6 +238,7 @@ export async function recordAgentPayment(input) {
       claimId: input.claimId ?? null,
       channelId: input.channelId ?? null,
       payoutTx: input.payoutTx ?? null,
+      jev: presentJev(input.jev),
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
@@ -246,6 +262,7 @@ export async function recordPending(input) {
       reason: String(input.reason ?? 'needs approval'),
       description: String(input.description ?? ''),
       resourceUrl: input.resourceUrl ?? null,
+      jev: presentJev(input.jev),
       createdAt: new Date().toISOString(),
     };
     store.pending.unshift(pending);
@@ -274,6 +291,27 @@ export async function approvePending(id) {
     };
     store.payments.unshift(approved);
     return { approved: presentPayment(approved) };
+  });
+}
+
+/** Record a decline. Nothing is signed or paid. */
+export async function declinePending(id) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+    return { error: 'invalid' };
+  }
+  return updateStore((store) => {
+    const index = store.pending.findIndex((item) => item.id === id && item.status === 'pending');
+    if (index === -1) return { missing: true };
+    const [item] = store.pending.splice(index, 1);
+    const declined = {
+      ...item,
+      status: 'declined',
+      txHash: null,
+      declinedAt: new Date().toISOString(),
+      note: 'Declined. Nothing was signed or paid.',
+    };
+    store.payments.unshift(declined);
+    return { declined: presentPayment(declined) };
   });
 }
 

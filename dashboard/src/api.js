@@ -65,7 +65,7 @@ export async function fetchSnapshot() {
   return { ...status, payments, pending };
 }
 
-/** Ask the API to start the agent. A missing wallet still returns 200 so the page can play the sequence. */
+/** Ask the API to start the agent. A missing wallet still returns 200 with an error the page can show. */
 export async function runAgent(task) {
   const response = await fetch('/api/run-agent', {
     method: 'POST',
@@ -76,5 +76,41 @@ export async function runAgent(task) {
   if (response.status >= 500) {
     throw new Error(body.error || 'Could not start the agent.');
   }
+  return body;
+}
+
+export async function approvePurchase(id) {
+  const response = await fetch(`/api/approve/${encodeURIComponent(id)}`, { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not approve that purchase.');
+  return body;
+}
+
+export async function declinePurchase(id) {
+  const response = await fetch(`/api/decline/${encodeURIComponent(id)}`, { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not decline that purchase.');
+  return body;
+}
+
+export async function askEve(message) {
+  const response = await fetch('/api/eve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Eve could not answer.');
+  return body;
+}
+
+export async function confirmEve(token) {
+  const response = await fetch('/api/eve/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'That confirmation did not go through.');
   return body;
 }

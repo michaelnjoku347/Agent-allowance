@@ -6,12 +6,17 @@
  * and a price one wei over the cap does not slip through.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCALE = 10n ** 18n;
 const RULES_PATH = join(dirname(fileURLToPath(import.meta.url)), 'rules.json');
+
+/** Rules file. Tests point ALLOWANCE_RULES at a copy so the repo file stays put. */
+export function rulesFile() {
+  return process.env.ALLOWANCE_RULES || RULES_PATH;
+}
 
 /** RLUSD display amount or integer string → 18-decimal base units. */
 export function toUnits(value) {
@@ -42,7 +47,7 @@ export function canonicalAddress(value) {
   return address.toLowerCase();
 }
 
-export function loadRules(file = RULES_PATH) {
+export function loadRules(file = rulesFile()) {
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const budget = toUnits(raw.budget);
   const maxPerPurchase = toUnits(raw.maxPerPurchase);
@@ -97,6 +102,29 @@ export function presentRules(rules) {
       label: rules.merchantLabels[address] ?? null,
     })),
   };
+}
+
+/**
+ * Change the cap or the budget. The cap has to stay above zero and within the
+ * budget. Nothing here signs a payment.
+ */
+export function updateAllowance({ maxPerPurchase, budget } = {}, file = rulesFile()) {
+  const current = loadRules(file);
+  let nextBudget = current.budget;
+  let nextCap = current.maxPerPurchase;
+  if (budget !== undefined) nextBudget = toUnits(budget);
+  if (maxPerPurchase !== undefined) nextCap = toUnits(maxPerPurchase);
+  if (nextBudget <= 0n || nextCap <= 0n) {
+    return { error: 'Amount must be greater than 0.' };
+  }
+  if (nextCap > nextBudget) {
+    return { error: 'The per-purchase cap cannot be larger than the budget.' };
+  }
+  const raw = JSON.parse(readFileSync(file, 'utf8'));
+  if (budget !== undefined) raw.budget = formatRlusd(nextBudget);
+  if (maxPerPurchase !== undefined) raw.maxPerPurchase = formatRlusd(nextCap);
+  writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
+  return { ok: true, rules: presentRules(loadRules(file)) };
 }
 
 /**
