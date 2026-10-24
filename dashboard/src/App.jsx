@@ -674,6 +674,16 @@ function ReceiptDrawer({ receipt, currency, explorerBase, onClose, reduced }) {
             </dd>
           </div>
           <div>
+            <dt>Receipt</dt>
+            <dd>
+              {receipt.receiptUrl ? (
+                <a href={receipt.receiptUrl} target="_blank" rel="noreferrer noopener">View receipt</a>
+              ) : (
+                <span className="muted">Not recorded</span>
+              )}
+            </dd>
+          </div>
+          <div>
             <dt>Explorer</dt>
             <dd>
               {receipt.explorerUrl ? (

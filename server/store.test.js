@@ -114,6 +114,7 @@ describe('allowance API', { concurrency: false }, () => {
       amount: '1',
       txHash: `0x${'ab'.repeat(32)}`,
       claimId: 'claim-demo',
+      receiptUrl: 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json',
     });
     assert.equal(paid.status, 'paid');
     assert.equal(paid.amount, '1');
@@ -124,6 +125,8 @@ describe('allowance API', { concurrency: false }, () => {
       const payments = await (await fetch(`http://127.0.0.1:${port2}/api/payments`)).json();
       const live = payments.find((payment) => payment.id === paid.id);
       assert.equal(live.explorerUrl, `https://explorer.testnet.xrplevm.org/tx/${paid.txHash}`);
+      assert.equal(live.receiptUrl, 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json');
+      assert.equal(live.claimId, 'claim-demo');
       const status = await (await fetch(`http://127.0.0.1:${port2}/api/status`)).json();
       assert.equal(status.spent, '1');
       assert.equal(status.remaining, '19');

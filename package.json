@@ -10,7 +10,7 @@
     "agent": "node agent/agent.js",
     "server": "node server/index.js",
     "dashboard": "npm --prefix dashboard run dev",
-    "test": "node --test --test-timeout=20000 agent/rules.test.js agent/quote.test.js server/store.test.js"
+    "test": "node --test --test-timeout=20000 agent/rules.test.js agent/quote.test.js agent/channel.test.js agent/net.test.js server/store.test.js"
   },
   "dependencies": {
     "@ap4m/sdk": "https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz",
