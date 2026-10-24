@@ -1,0 +1,13 @@
+.idea/.gitignore
+.idea/Agent-allowance.iml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+ai_agent/__pycache__/bedrock_check.cpython-314.pyc
+ai_agent/__pycache__/planner.cpython-314.pyc
+ai_agent/bedrock_check.py
+ai_agent/demo.py
+ai_agent/planner.py
+h -u origin daniel-agent
