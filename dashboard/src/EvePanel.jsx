@@ -208,7 +208,7 @@ export function EveDock({ seed, onSeedHandled }) {
         type="button"
         className="eve-pill"
         ref={pillRef}
-        hidden={mode === 'open'}
+        hidden={mode !== 'min'}
         aria-expanded="false"
         aria-controls={panelId}
         aria-label={pillLabel}
