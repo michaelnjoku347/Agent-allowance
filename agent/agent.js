@@ -20,6 +20,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { selectOpenChannel } from './channel.js';
+import { pendingPurchase, validateRecovery } from './recovery.js';
 import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
@@ -243,11 +244,16 @@ export async function finishQuote({
   }
   console.log('Redemption tx:', txHash);
   console.log('Resource received.');
+  // Account for the on-chain spend before waiting on a service response.
+  // recordAgentPayment upserts by tx hash so recovery cannot spend the budget twice locally.
+  let saved = await recordPayment({
+    task, merchant, merchantLabel: label, amount: quote.amount, txHash,
+    claimId: purchase.claimId ?? null, channelId, resourceUrl, jev: verdict.jev,
+  });
   const settled = await report(purchase);
   const claimId = settled?.claimId ?? purchase.claimId ?? null;
   const receiptUrl = settled?.receiptUrl ?? null;
   const payoutTx = settled?.payoutTx ?? null;
-  let saved;
   try {
     saved = await recordPayment({
       task,
@@ -290,17 +296,21 @@ export async function finishQuote({
   };
 }
 
-async function openSession(apiUrl, rules) {
+async function openSession(apiUrl, rules, resourceUrl) {
   const teamName = requiredEnv('TEAM_NAME');
   const privateKey = readPrivateKey();
-  const requestedChannel = process.env.CHANNEL_ID?.trim().toLowerCase() ?? '';
+  let requestedChannel = process.env.CHANNEL_ID?.trim().toLowerCase() ?? '';
   if (requestedChannel && !/^0x[0-9a-f]{64}$/.test(requestedChannel)) {
     throw new Error('CHANNEL_ID must be 0x followed by 64 hex characters.');
   }
 
   const config = await serviceConfig(apiUrl);
-  const provider = new ethers.JsonRpcProvider(config.network.rpcUrl);
+  const provider = new ethers.JsonRpcProvider(process.env.AP4M_RPC_URL || config.network.rpcUrl);
+  if ((await provider.getNetwork()).chainId !== TESTNET_CHAIN_ID) throw new Error('RPC must be XRPL EVM Testnet.');
   const wallet = new ethers.Wallet(privateKey, provider);
+  const pending = pendingPurchase(join(rootDir, 'agent/state/purchase.json'));
+  validateRecovery(pending, { agent: wallet.address, resourceUrl, channelId: requestedChannel });
+  if (pending) requestedChannel = pending.channelId;
   console.log('Agent wallet:', wallet.address);
   console.log('Signing in…');
   const { token } = await signIn(apiUrl, teamName, wallet);
@@ -314,7 +324,7 @@ async function openSession(apiUrl, rules) {
     console.log('Reusing open Channel', channel.channel_id);
   }
   const context = await loadX402Context(apiUrl);
-  return { config, provider, wallet, token, channel, context };
+  return { config, provider, wallet, token, channel, context, pending };
 }
 
 async function payWithX402({ session, quote, resourceUrl, task }) {
@@ -327,7 +337,10 @@ async function payWithX402({ session, quote, resourceUrl, task }) {
   if (toUnits(quote.amount) !== thisPayment) {
     throw new Error('Merchant quote amount does not match its wei price.');
   }
-  if (BigInt(state.redeemed) + thisPayment > BigInt(state.cap)) {
+  const pending = session.pending ?? null;
+  validateRecovery(pending, { agent: session.wallet.address, resourceUrl, channelId: session.channel.channel_id });
+  if (pending && pending.maximumAmount !== quote.amountWei) throw new Error('Resume the unresolved purchase at its original price.');
+  if (!pending && BigInt(state.redeemed) + thisPayment > BigInt(state.cap)) {
     const error = new Error('over channel cap');
     error.code = 'OVER_CHANNEL_CAP';
     throw error;
@@ -340,7 +353,7 @@ async function payWithX402({ session, quote, resourceUrl, task }) {
     resourceUrl,
     channelId: session.channel.channel_id.toLowerCase(),
     maximumAmount: quote.amountWei,
-    operation: operationName(task),
+    operation: pending?.operation ?? operationName(task),
   });
 }
 
@@ -390,7 +403,7 @@ export async function runOnce({
   globalThis.fetch = retryingFetch(previousFetch.bind(globalThis));
   try {
     console.log('Task:', task);
-    const active = session ?? await openSession(apiUrl, rules);
+    const active = session ?? await openSession(apiUrl, rules, url);
     const channelId = String(active.channel.channel_id).toLowerCase();
     const quote = await readQuote(url, channelId);
     if (new URL(quote.resourceUrl).href !== url) {

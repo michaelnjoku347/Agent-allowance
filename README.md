@@ -79,7 +79,7 @@ Fill in `.env` (it is gitignored — do not commit it):
 
 The merchant listens on `MERCHANT_PORT` (4308). `PORT` (8787) is only the allowance API.
 
-`MERCHANT_PAYOUT_ADDRESS` has to be in `agent/rules.json` or the 1 RLUSD sale is saved instead of paid, and the 8 RLUSD quote fails the allowlist instead of the cap. Add the address locally. Leave the sample addresses in the committed file.
+`MERCHANT_PAYOUT_ADDRESS` has to be in `agent/rules.json` or the 1 RLUSD sale is saved instead of paid, and the 8 RLUSD quote fails the allowlist instead of the cap. Use setup:payments to create the local merchant rules, or edit your configured ALLOWANCE_RULES file. Leave the committed sample rules unchanged.
 
 The AP4M helpers in `agent/` come from the hackathon service. This project is ESM, so `agent/agent.js` loads the CommonJS helper with `createRequire`. Refresh the helpers if the kit changes:
 
@@ -88,6 +88,47 @@ curl -fsSL -o agent/ap4m-hackathon-sdk.cjs https://hackathon.ap4m.build/sdk/ap4m
 curl -fsSL -o agent/ap4m-x402.mjs https://hackathon.ap4m.build/sdk/ap4m-x402.mjs
 npm install ethers@6.17.0 https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz
 ```
+
+## Combine the tested payments with the team app
+
+The standalone payment reference was merged in PR #5 and subsequently removed by the team to avoid duplicate implementations. The integrated app uses the same AP4M service and merchant, and writes decisions and receipts into the dashboard API's local ledger.
+
+After installing the root and dashboard dependencies, reuse the settings from the working payment-starter folder. This setup only writes local, gitignored configuration; it does not transfer funds:
+
+```powershell
+npm.cmd run setup:payments -- --from "C:\Users\amanp\Documents\Codex\2026-10-24\i-am-doing-xrp-hackothon-with-5\outputs\payment-starter" --use-agent-as-submitter
+```
+
+The explicit submitter flag preserves the existing local demo arrangement: the agent/funding wallet submits the merchant redemption and pays its gas; RLUSD still goes to the separate merchant wallet. A separate MERCHANT_SUBMITTER_KEY in the local settings takes precedence. The setup does not register a different agent or change AP4M's budget.
+
+Setup writes the registered merchant ID and payout into .env and creates agent/rules.local.json with that payout allowed. The agent and API both use ALLOWANCE_RULES to load that local file. The committed sample rules stay available for tests and preview data. Existing custom rules are not overwritten.
+
+Stop the standalone merchant on port 4308 before starting the integrated merchant. Then use four terminals, all from the repository root:
+
+```powershell
+npm.cmd run server
+npm.cmd run merchant
+npm.cmd run dashboard
+npm.cmd run demo
+```
+
+The first three commands are long-running services; run one per terminal. The fourth performs one real 1 RLUSD purchase and saves two blocked quotes. Open http://127.0.0.1:5173 to watch the dashboard. A receipt distinguishes a recorded payout from redemption whose settlement is still processing.
+
+The local dashboard budget counts integrated purchases recorded in its ledger, not every historical payment from the AP4M funding account. Earlier standalone transactions remain in the original local payment starter and PR #5 history; they are not silently added as newly purchased data.
+
+### Recovery and contract-cap proof
+
+If an x402 payment response is lost before purchase completion, the integrated payer reuses the retained channel, operation and price. It refuses a different wallet/resource/channel while that purchase is unresolved. Each redemption is recorded by transaction hash, so saving settlement evidence again cannot double-count local spend. Changing the task after a completed purchase starts a new purchase.
+
+The 8 RLUSD demo quote demonstrates a local rule block. To separately test the on-chain channel cap:
+
+```powershell
+npm.cmd run test:channel-cap -- --open --close
+```
+
+This opens a 5 RLUSD test channel (uses test XRP gas), simulates an in-cap voucher and a 6 RLUSD cumulative voucher against the same block, and requires the second to return contract revert data. Neither payment is broadcast. It checks that redeemed state and merchant balance stay unchanged, writes a JSON result under agent/receipts/, and requests channel closure. A network failure, a closed channel, or a failed in-cap control does not count as a passing result. This command is prepared and tested with mocks; the team still needs to run it live on testnet.
+
+Ledger hardware signing and AWS deployment remain separate team integrations. The dashboard approval endpoint currently records a placeholder decision and does not authorize an exceptional payment.
 
 ## How a purchase is decided
 
@@ -144,3 +185,6 @@ Eve is the assistant in the dashboard. She can say what was spent today and why 
 - The key is only used to sign. It is not sent to the AP4M service.
 - This project targets XRPL EVM Testnet only. The agent stops if the service reports another chain id.
 - Do not send RLUSD or XRP straight to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
+If another merchant already uses port 4308, choose a free MERCHANT_PORT and update RESOURCE_URL to the same port. Set MERCHANT_STATE_DIRECTORY to a separate local folder such as merchant/state-4309 when changing the merchant resource URL; keep the original state for recovery. Restart the API after local environment changes.
+
+If WebShield blocks the testnet RPC with URL:Blacklist, the live payment has not succeeded. Have the hackathon staff or security administrator review that classification before retrying. Keep the dashboard marked Sample until real decisions are recorded.

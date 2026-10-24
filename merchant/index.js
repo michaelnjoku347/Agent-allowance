@@ -144,7 +144,7 @@ async function main() {
     context,
     provider,
     submitter: new ethers.Wallet(submitterKey, provider),
-    stateDirectory: join(rootDir, 'merchant/state'),
+    stateDirectory: process.env.MERCHANT_STATE_DIRECTORY || join(rootDir, 'merchant/state'),
     resourceUrl,
     merchantParticipantId: merchantId,
     payout,
@@ -162,6 +162,11 @@ async function main() {
     console.log(`Merchant selling ${resourceUrl} for ${price} RLUSD`);
     console.log(`Payout ${payout}`);
     console.log(`Demo quotes at http://127.0.0.1:${port}/demo/over-cap and /demo/unlisted`);
+  });
+
+  server.on('error', (error) => {
+    console.error(error.message);
+    merchant.close().finally(() => process.exit(1));
   });
 
   const shutdown = () => {
