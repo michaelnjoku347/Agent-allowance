@@ -1,741 +1,487 @@
-import { AnimatePresence, motion, MotionConfig, useReducedMotion } from 'framer-motion';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { fetchSnapshot, runAgent, sampleSnapshot } from './api.js';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { approvePurchase, declinePurchase, fetchSnapshot, runAgent } from './api.js';
 import CountUp from './CountUp.jsx';
-import { DEMO_TASK, STEP_DEFS, STEP_MS, liveSteps, selectFeed } from './feed.js';
-import { clock, money, shortAddress, when } from './format.js';
+import EvePanel from './EvePanel.jsx';
+import JevCard from './JevCard.jsx';
+import { money, shortAddress, when } from './format.js';
+import { useTheme } from './theme.js';
+import { plainReason } from '../../shared/words.js';
 
-const POLL_MS = 3000;
-const EASE = [0.22, 1, 0.36, 1];
-const TWEEN = { type: 'tween', duration: 0.32, ease: EASE };
+const TABS = [
+  ['home', 'Home'],
+  ['activity', 'Activity'],
+  ['eve', 'Eve'],
+];
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+const FILTERS = [
+  ['all', 'All'],
+  ['paid', 'Paid'],
+  ['blocked', 'Blocked'],
+  ['waiting', 'Waiting'],
+];
+
+function expiresOn(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function pill(item) {
+  if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
+  if (item.status === 'approved') return { label: 'Waiting', tone: 'warn' };
+  if (item.status === 'declined' || item.status === 'pending') return { label: 'Blocked', tone: 'danger' };
+  return { label: item.status || 'Waiting', tone: 'warn' };
+}
+
+function matchesFilter(item, filter) {
+  if (filter === 'paid') return item.status === 'paid';
+  if (filter === 'waiting') return item.status === 'approved';
+  if (filter === 'blocked') return item.status === 'pending' || item.status === 'declined';
+  return true;
+}
+
+function ruleRows(item) {
+  const rows = [
+    ['amount must be positive', 'Amount is positive'],
+    ['expired', 'Allowance has not expired'],
+    ['merchant not allowed', 'Merchant is allowed'],
+    ['over per-purchase cap', 'Within the per-purchase cap'],
+    ['over budget', 'Within the budget'],
+  ];
+  if (item.reason === 'over channel cap') rows.push(['over channel cap', 'Channel can cover this payment']);
+  if (item.jev || item.reason === 'Jev flagged for review') rows.push(['Jev flagged for review', 'Jev did not ask for a review']);
+  const settled = item.status === 'paid' || item.status === 'approved';
+  const fail = settled ? -1 : rows.findIndex(([reason]) => reason === item.reason);
+  return rows.map(([reason, label], index) => {
+    let state = 'pass';
+    if (fail !== -1 && index === fail) state = 'fail';
+    else if (fail !== -1 && index > fail) state = 'skip';
+    const text = state === 'pass' ? 'Pass' : state === 'fail' ? 'Fail' : 'Not checked';
+    return { reason, label, state, text };
   });
 }
 
-function bannerCopy(connection, agentConnected) {
-  if (connection === 'loading') return 'Loading the allowance…';
-  if (connection === 'offline') return 'Server offline. Showing sample data until it is back.';
-  if (connection === 'stale') return 'Server not responding. Showing the last update.';
-  if (agentConnected) return 'Live. Checking for new payments every 3 seconds.';
-  return 'Sample data. These purchases are not on-chain. They clear when the agent runs.';
-}
-
-function bandFor(ratio) {
-  if (ratio >= 0.9) return 'hot';
-  if (ratio >= 0.7) return 'warn';
-  return 'ok';
-}
-
-function toneFor(reason) {
-  return /expired/i.test(reason ?? '') ? 'hot' : 'wait';
+function realRows(snapshot) {
+  const payments = (snapshot?.payments ?? []).filter((item) => !item.sample);
+  const pending = (snapshot?.pending ?? [])
+    .filter((item) => !item.sample)
+    .map((item) => ({ ...item, status: item.status || 'pending' }));
+  const budget = Number(snapshot?.rules?.budget ?? snapshot?.budget ?? 0);
+  const spent = payments
+    .filter((item) => item.status === 'paid')
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const activity = [...payments, ...pending].sort((a, b) => (
+    Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0)
+  ));
+  return { payments, pending, budget, spent, activity };
 }
 
 export default function App() {
-  return (
-    <MotionConfig reducedMotion="user" transition={TWEEN}>
-      <Dashboard />
-    </MotionConfig>
-  );
-}
-
-function Dashboard() {
-  const reduced = useReducedMotion();
+  const [theme, setTheme] = useTheme();
+  const [tab, setTab] = useState('home');
+  const [eveOpen, setEveOpen] = useState(false);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
-  const [updatedAt, setUpdatedAt] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [resolvedId, setResolvedId] = useState(null);
-  const [approveError, setApproveError] = useState(null);
-  const [playing, setPlaying] = useState(false);
-  const [runNote, setRunNote] = useState(null);
-  const [liveFeed, setLiveFeed] = useState(null);
-  const [runStartedAt, setRunStartedAt] = useState(null);
-  const [travel, setTravel] = useState({ key: 0, to: '0%' });
-  const [freshIds, setFreshIds] = useState(() => new Set());
-  const [receipt, setReceipt] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [detail, setDetail] = useState(null);
+  const [busyId, setBusyId] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [runNote, setRunNote] = useState('');
+  const [announce, setAnnounce] = useState('');
   const seen = useRef(null);
-  const opened = useRef(false);
-  const hold = useRef(false);
-  const playToken = useRef(0);
+
+  async function load() {
+    try {
+      const next = await fetchSnapshot();
+      setSnapshot(next);
+      setConnection('online');
+    } catch {
+      setConnection('error');
+    }
+  }
 
   useEffect(() => {
-    let stopped = false;
-    let timer;
-
-    async function tick() {
-      try {
-        const next = await fetchSnapshot();
-        if (stopped || hold.current) return;
-        setSnapshot(next);
-        setConnection('online');
-        setUpdatedAt(new Date().toISOString());
-      } catch {
-        if (stopped) return;
-        setConnection((current) => (current === 'online' || current === 'stale' ? 'stale' : 'offline'));
-      } finally {
-        if (!stopped) timer = setTimeout(tick, POLL_MS);
-      }
-    }
-
+    let stop = false;
+    const tick = () => {
+      if (!stop) load();
+    };
     tick();
+    const timer = window.setInterval(tick, 3000);
     return () => {
-      stopped = true;
-      clearTimeout(timer);
+      stop = true;
+      window.clearInterval(timer);
     };
   }, []);
 
-  useEffect(() => {
-    if (!snapshot || opened.current) return;
-    opened.current = true;
-    const feed = selectFeed(snapshot);
-    setTravel({ key: 1, to: feed?.blocked ? '50%' : '100%' });
-  }, [snapshot]);
+  const view = useMemo(() => realRows(snapshot), [snapshot]);
 
   useEffect(() => {
-    if (!snapshot) return;
-    const ids = snapshot.payments.map((payment) => payment.id);
+    const ids = view.activity.map((item) => item.id);
     if (seen.current === null) {
       seen.current = new Set(ids);
       return;
     }
-    const added = ids.filter((id) => !seen.current.has(id));
+    const added = view.activity.filter((item) => !seen.current.has(item.id));
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
-    setFreshIds(new Set(added));
-    const paid = snapshot.payments.some((payment) => added.includes(payment.id) && payment.status === 'paid');
-    if (paid) setTravel((current) => ({ key: current.key + 1, to: '100%' }));
-    const addedIds = added;
-    window.setTimeout(() => {
-      setFreshIds((current) => {
-        const next = new Set(current);
-        for (const id of addedIds) next.delete(id);
-        return next;
-      });
-    }, 1600);
-  }, [snapshot]);
+    const newest = added[0];
+    const status = pill(newest).label;
+    setAnnounce(`${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
+  }, [view.activity]);
 
-  useEffect(() => {
-    if (!runStartedAt || !snapshot || playing) return;
-    const paid = snapshot.payments.find((payment) => (
-      payment.status === 'paid'
-      && !payment.sample
-      && payment.explorerUrl
-      && Date.parse(payment.createdAt) >= runStartedAt - 2000
-    ));
-    if (paid) {
-      setLiveFeed((current) => {
-        if (!current) return current;
-        const settled = current.steps.find((step) => step.key === 'settled');
-        if (settled?.href === paid.explorerUrl) return current;
-        return {
-          ...current,
-          id: paid.id,
-          blocked: false,
-          steps: current.steps.map((step) => (
-            step.key === 'settled' ? { ...step, href: paid.explorerUrl, detail: null } : step
-          )),
-        };
-      });
-      return;
-    }
-    const blocked = snapshot.pending.find((item) => (
-      !item.sample && Date.parse(item.createdAt) >= runStartedAt - 2000
-    ));
-    if (!blocked) return;
-    setLiveFeed((current) => (current?.id === blocked.id ? current : {
-      id: blocked.id,
-      title: blocked.task,
-      blocked: true,
-      reason: blocked.reason,
-      steps: [
-        { key: 'requested', label: 'Requested resource', at: blocked.createdAt, detail: null },
-        { key: 'challenge', label: '402 received', at: blocked.createdAt, detail: null },
-        { key: 'rules', label: 'Rules checked', at: blocked.createdAt, detail: blocked.reason, blocked: true },
-      ],
-    }));
-  }, [snapshot, runStartedAt, playing]);
-
-  const closeReceipt = useCallback(() => setReceipt(null), []);
-
-  async function approve(id) {
-    hold.current = true;
+  async function decide(id, kind) {
     setBusyId(id);
-    setApproveError(null);
+    setActionError('');
     try {
-      const response = await fetch(`/api/approve/${id}`, { method: 'POST' });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || 'Approval failed.');
-      setBusyId(null);
-      setResolvedId(id);
-      await wait(reduced ? 0 : 420);
-      const next = await fetchSnapshot();
-      setSnapshot(next);
-      setConnection('online');
-      setUpdatedAt(new Date().toISOString());
-      setResolvedId(null);
+      if (kind === 'approve') await approvePurchase(id);
+      else await declinePurchase(id);
+      await load();
     } catch (error) {
-      setApproveError({ id, message: error.message });
-      setBusyId(null);
-      setResolvedId(null);
+      setActionError(error.message || 'That did not save.');
     } finally {
-      hold.current = false;
+      setBusyId('');
     }
   }
 
   async function onRun() {
-    if (playing) return;
-    const token = playToken.current + 1;
-    playToken.current = token;
-    const startedAt = Date.now();
-    setPlaying(true);
-    setRunNote(null);
-    setRunStartedAt(startedAt);
-    setTravel((current) => ({ key: current.key + 1, to: '100%' }));
-    setLiveFeed({
-      id: `run-${startedAt}`,
-      title: DEMO_TASK,
-      blocked: false,
-      live: true,
-      steps: [],
-    });
-
-    const request = runAgent(DEMO_TASK).then((result) => {
-      if (playToken.current !== token) return;
-      if (result.demo) setRunNote(result.error);
-      else if (result.ok) setRunNote('Agent started. A paid purchase shows up on the next refresh.');
-      else setRunNote(result.error || 'The agent did not start.');
-    }).catch(() => {
-      if (playToken.current === token) {
-        setRunNote('Server offline. Playing the sequence on this page.');
-      }
-    });
-
-    for (let count = 1; count <= STEP_DEFS.length; count += 1) {
-      if (count > 1) await wait(reduced ? 0 : STEP_MS);
-      if (playToken.current !== token) return;
-      setLiveFeed({
-        id: `run-${startedAt}`,
-        title: DEMO_TASK,
-        blocked: false,
-        live: true,
-        steps: liveSteps(startedAt, count),
-      });
+    setRunNote('');
+    try {
+      const body = await runAgent('Buy the morning market brief');
+      setRunNote(body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
+    } catch (error) {
+      setRunNote(error.message || 'Could not start the agent.');
     }
-    await request;
-    if (playToken.current === token) setPlaying(false);
   }
 
-  const loading = connection === 'loading' && !snapshot;
-  const view = snapshot ?? (connection === 'offline' ? sampleSnapshot : null);
-  const showSample = view ? (connection === 'offline' || !view.agentConnected) : false;
-  const paymentRows = view ? view.payments.filter((payment) => showSample || !payment.sample) : [];
-  const pendingRows = view ? view.pending.filter((item) => showSample || !item.sample) : [];
-  const ratio = view ? Math.max(0, Math.min(1, Number(view.spentRatio) || 0)) : 0;
-  const canApprove = connection === 'online' || connection === 'stale';
-  const feed = liveFeed ?? (view ? selectFeed({ ...view, payments: paymentRows, pending: pendingRows }) : null);
+  const shown = view.activity.filter((item) => matchesFilter(item, filter));
+  const latest = view.activity.slice(0, 5);
+  const ratio = view.budget > 0 ? Math.max(0, Math.min(1, view.spent / view.budget)) : 0;
+  const left = Math.max(0, view.budget - view.spent);
+  const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
 
   return (
-    <div className="page">
-      <header className="topbar">
-        <div>
+    <div className="app">
+      <a className="skip" href="#main">Skip to content</a>
+      <div className="sr-only" aria-live="polite">{announce}</div>
+      <div className="shell">
+        <header className="top">
           <p className="kicker">Mastercard × XRPL Hackathon</p>
-          <h1>Agent Allowance</h1>
-          <p className="lede">
-            A spending account for an AI agent. Every quote is checked against the rules before a voucher is signed.
-          </p>
-        </div>
-        <div className="actions">
-          {view ? (
-            <div className="topbar-meta">
-              <p className="network">
-                {view.network.name}
-                <span>Chain ID {view.network.chainId}</span>
-              </p>
-              <p className={showSample ? 'tag' : 'tag tag-live'}>{showSample ? 'Sample' : 'Live'}</p>
+          <div className="top-row">
+            <h1>Agent Allowance</h1>
+            <fieldset className="theme">
+              <legend className="sr-only">Color theme</legend>
+              {['light', 'dark', 'system'].map((choice) => (
+                <label key={choice} className={theme === choice ? 'is-on' : ''}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={choice}
+                    checked={theme === choice}
+                    onChange={() => setTheme(choice)}
+                  />
+                  {choice[0].toUpperCase() + choice.slice(1)}
+                </label>
+              ))}
+            </fieldset>
+          </div>
+          <p className="lede">Every quote is checked before a voucher is signed.</p>
+        </header>
+
+        <main id="main" tabIndex={-1}>
+          {connection === 'loading' && !snapshot ? <Skeletons /> : null}
+          {connection === 'error' && !snapshot ? (
+            <div className="card empty" role="alert">
+              <h2>The allowance server is not responding</h2>
+              <p>Start it with npm run server, then try again.</p>
+              <button type="button" className="btn primary" onClick={load}>Retry</button>
             </div>
-          ) : (
-            <span className="bone bone-chip" />
-          )}
-          <button
-            type="button"
-            className="run"
-            onClick={onRun}
-            disabled={playing || loading}
-            aria-busy={playing}
-          >
-            {playing ? 'Running…' : 'Run Agent'}
-          </button>
-        </div>
-      </header>
-
-      {loading || !view ? (
-        <Skeleton />
-      ) : (
-        <motion.div
-          initial={reduced ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...TWEEN, duration: reduced ? 0 : 0.32 }}
-        >
-          <p className="banner" role="status">
-            {bannerCopy(connection, view.agentConnected)}
-            {updatedAt && connection !== 'offline' ? <span> Updated {when(updatedAt)}.</span> : null}
-          </p>
-
-          <section className="layout">
-            <article className="card budget">
-              <div className="card-head">
-                <h2>Budget</h2>
-                <p>{view.currency} on {view.network.name}</p>
-              </div>
-              <p className="hero-label">Remaining</p>
-              <p className="hero">
-                <CountUp value={view.remaining} className="hero-num" />
-                <span>{view.currency}</span>
-              </p>
-              <div className="stats">
-                <p>
-                  <span>Total</span>
-                  <strong><CountUp value={view.budget} /></strong>
+          ) : null}
+          {snapshot && tab === 'home' ? (
+            <div className="stack">
+              {connection === 'error' ? (
+                <p className="note warn" role="alert">
+                  Could not refresh. Showing the last numbers.
+                  <button type="button" className="btn" onClick={load}>Retry</button>
                 </p>
-                <p>
-                  <span>Spent</span>
-                  <strong><CountUp value={view.spent} /></strong>
-                </p>
-              </div>
-              <div
-                className="bar"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={Number(view.budget) || 0}
-                aria-valuenow={Number(view.spent) || 0}
-                aria-label="Budget spent"
-              >
-                <motion.span
-                  className={`bar-fill is-${bandFor(ratio)}`}
-                  initial={reduced ? false : { width: 0 }}
-                  animate={{ width: `${ratio * 100}%` }}
-                  transition={{ ...TWEEN, duration: reduced ? 0 : 0.4 }}
-                />
-              </div>
-              <p className="bar-label">
-                {money(view.spent)} of {money(view.budget)} {view.currency} spent
-              </p>
-            </article>
-
-            <article className="card rules">
-              <div className="card-head">
-                <h2>Rules</h2>
-                <p>{view.rules.summary}</p>
-              </div>
-              <dl>
-                <div>
-                  <dt>Budget</dt>
-                  <dd>{money(view.rules.budget)} {view.currency}</dd>
+              ) : null}
+              <section className="card allowance" aria-labelledby="allowance-title">
+                <h2 id="allowance-title">RLUSD left</h2>
+                <p className="figure"><CountUp value={left} /> <span>RLUSD</span></p>
+                <div
+                  className="meter"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(ratio * 100)}
+                  aria-label={`${money(view.spent)} of ${money(view.budget)} RLUSD spent`}
+                >
+                  <span style={{ width: `${ratio * 100}%` }} />
                 </div>
-                <div>
-                  <dt>Per purchase</dt>
-                  <dd>{money(view.rules.maxPerPurchase)} {view.currency}</dd>
-                </div>
-                <div>
-                  <dt>Expires</dt>
-                  <dd>{when(view.rules.expiresAt)}</dd>
-                </div>
-              </dl>
-              <h3>Allowed merchants</h3>
-              {view.rules.allowedMerchants.length === 0 ? (
-                <p className="muted">Add payout addresses to <code>agent/rules.json</code>.</p>
-              ) : (
-                <ul className="merchants">
-                  {view.rules.allowedMerchants.map((merchant) => (
-                    <li key={merchant.address}>
-                      <span>{merchant.label || 'Merchant'}</span>
-                      <code title={merchant.address}>{shortAddress(merchant.address)}</code>
-                    </li>
-                  ))}
+                <p className="meter-caption">{money(view.spent)} of {money(view.budget)} RLUSD spent</p>
+                <ul className="chips" aria-label="Allowance rules">
+                  <li>{snapshot.rules.maxPerPurchase} per purchase cap</li>
+                  <li>expires {expiresOn(snapshot.rules.expiresAt)}</li>
+                  <li>{merchantCount} merchant{merchantCount === 1 ? '' : 's'} allowed</li>
                 </ul>
-              )}
-            </article>
+              </section>
 
-            <article className="card flow-card span-2">
-              <div className="card-head">
-                <h2>Payment path</h2>
-                <p>Agent to merchant to XRPL. The dot travels once for each payment.</p>
-              </div>
-              <Flow travel={travel} reduced={reduced} />
-            </article>
-
-            <article className="card feed-card">
-              <div className="card-head">
-                <h2>Live Agent Feed</h2>
-                <p>{feed?.title || 'Waiting for a purchase.'}</p>
-              </div>
-              {runNote ? <p className="run-note">{runNote}</p> : null}
-              {feed?.steps?.length ? (
-                <ol className="feed-list" aria-live="polite">
-                  <AnimatePresence>
-                    {feed.steps.map((step, index) => (
-                      <motion.li
-                        key={`${feed.id}-${step.key}`}
-                        initial={reduced ? false : { opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{
-                          ...TWEEN,
-                          duration: reduced ? 0 : 0.32,
-                          delay: feed.live || reduced ? 0 : index * 0.04,
-                        }}
-                        className={step.blocked ? 'is-blocked' : undefined}
-                      >
-                        <span className="feed-icon"><Icon name={step.key} /></span>
-                        <span className="feed-copy">
-                          <span className="feed-label">{step.label}</span>
-                          {step.detail ? <span className="sub">{step.detail}</span> : null}
-                          {step.href ? (
-                            <a href={step.href} target="_blank" rel="noreferrer noopener">
-                              View transaction
-                              <span className="sr-only"> on the XRPL EVM Testnet explorer</span>
-                            </a>
-                          ) : null}
-                        </span>
-                        <time dateTime={step.at}>{clock(step.at)}</time>
-                      </motion.li>
-                    ))}
-                  </AnimatePresence>
-                </ol>
-              ) : (
-                <p className="empty">{playing ? 'Starting…' : 'Run the agent to watch a purchase move through the rules.'}</p>
-              )}
-            </article>
-
-            <article className="card approvals" id="approvals">
-              <div className="card-head">
-                <h2>Approval needed</h2>
-                <p>
-                  The agent refused to pay. Approve records a placeholder for a Ledger check.
-                  No voucher is signed and no RLUSD moves.
-                </p>
-              </div>
-              {pendingRows.length === 0 ? (
-                <p className="empty">Nothing is waiting. A quote that breaks the rules shows up here.</p>
-              ) : (
-                <ul className="queue">
-                  {pendingRows.map((item) => {
-                    const tone = toneFor(item.reason);
-                    const done = resolvedId === item.id;
-                    return (
-                      <li key={item.id} className={`queue-card is-${tone}${done ? ' is-done' : ''}`}>
-                        <div className="queue-top">
-                          <span className={`pill pill-${tone === 'hot' ? 'hot' : 'pending'}`}>{item.reason}</span>
-                          <strong>{money(item.amount)} {view.currency}</strong>
+              <section className="card" aria-labelledby="needs-title">
+                <div className="section-head">
+                  <h2 id="needs-title">Needs you</h2>
+                  <p>Approving records the decision. It does not sign a voucher or move RLUSD.</p>
+                </div>
+                {view.pending.length === 0 ? (
+                  <p className="empty-copy">Nothing needs you. A quote outside the rules shows up here.</p>
+                ) : (
+                  <ul className="needs">
+                    {view.pending.map((item) => (
+                      <li key={item.id} className="need">
+                        <div className="need-top">
+                          <h3>{item.merchantLabel || 'Merchant'}</h3>
+                          <p className="amount">{money(item.amount)} RLUSD</p>
                         </div>
-                        <h3>{item.task}</h3>
-                        <p className="merchant-line">
-                          {item.merchantLabel || 'Merchant'}
-                          <code title={item.merchant}>{shortAddress(item.merchant)}</code>
-                        </p>
-                        {item.description ? <p className="sub">{item.description}</p> : null}
-                        <p className="sub">{when(item.createdAt)}</p>
-                        {done ? (
-                          <motion.p
-                            className="approved-mark"
-                            initial={reduced ? false : { opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ ...TWEEN, duration: reduced ? 0 : 0.35 }}
-                          >
-                            <Icon name="settled" />
-                            Approved
-                          </motion.p>
-                        ) : (
-                          <>
-                            <p className={`awaiting${tone === 'hot' ? ' is-hot' : ''}`}>Awaiting Ledger approval</p>
-                            <button
-                              type="button"
-                              className="approve"
-                              onClick={() => approve(item.id)}
-                              disabled={!canApprove || busyId === item.id || Boolean(resolvedId)}
-                            >
-                              {busyId === item.id ? 'Approving…' : 'Approve'}
-                            </button>
-                          </>
-                        )}
-                        {approveError?.id === item.id ? <p className="form-error">{approveError.message}</p> : null}
-                        {connection === 'offline' ? <p className="sub">Start the server to record an approval.</p> : null}
+                        <p>{plainReason(item.reason)}</p>
+                        <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
+                        <JevCard jev={item.jev} />
+                        <div className="pair">
+                          <button type="button" className="btn primary" disabled={busyId === item.id} onClick={() => decide(item.id, 'approve')}>
+                            {busyId === item.id ? 'Saving…' : 'Approve'}
+                          </button>
+                          <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id, 'decline')}>
+                            Decline
+                          </button>
+                        </div>
                       </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </article>
+                    ))}
+                  </ul>
+                )}
+                {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
+              </section>
 
-            <article className="card table-card span-2">
-              <div className="card-head">
-                <h2>Payments</h2>
-                <p>Live payments link to the XRPL EVM Testnet explorer. Click a row for the receipt.</p>
+              <section className="card" aria-labelledby="latest-title">
+                <h2 id="latest-title">Latest activity</h2>
+                <ActivityList items={latest} onOpen={setDetail} empty="Run the agent to record a purchase. Paid and blocked quotes will show up here." />
+              </section>
+
+              <div className="run">
+                <button type="button" className="btn primary wide" onClick={onRun}>Run agent</button>
+                {runNote ? <p className="note" role="status">{runNote}</p> : null}
               </div>
-              {paymentRows.length === 0 ? (
-                <p className="empty">No payments yet. Run the agent on a quote inside the allowance.</p>
-              ) : (
-                <div className="table-wrap">
-                  <table className="pay-table">
-                    <caption className="sr-only">Agent payments</caption>
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Task</th>
-                        <th>Merchant</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                        <th>Explorer</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paymentRows.map((payment) => (
-                        <motion.tr
-                          key={payment.id}
-                          className={freshIds.has(payment.id) ? 'is-fresh' : undefined}
-                          initial={freshIds.has(payment.id) && !reduced ? { opacity: 0, y: 8 } : false}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ ...TWEEN, duration: reduced ? 0 : 0.32 }}
-                          onClick={() => setReceipt(payment)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault();
-                              setReceipt(payment);
-                            }
-                          }}
-                          tabIndex={0}
-                          aria-label={`Open receipt for ${payment.task}`}
-                        >
-                          <td data-label="When">{when(payment.createdAt)}</td>
-                          <td data-label="Task">
-                            <span className="task">{payment.task}</span>
-                            {payment.note ? <span className="sub">{payment.note}</span> : null}
-                          </td>
-                          <td data-label="Merchant">
-                            <span className="task">{payment.merchantLabel || 'Merchant'}</span>
-                            <code title={payment.merchant}>{shortAddress(payment.merchant)}</code>
-                          </td>
-                          <td data-label="Amount" className="num">{money(payment.amount)} {view.currency}</td>
-                          <td data-label="Status">
-                            <span className={`pill pill-${payment.status}`}>{payment.status}</span>
-                          </td>
-                          <td data-label="Explorer">
-                            {payment.explorerUrl ? (
-                              <a
-                                href={payment.explorerUrl}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                {shortAddress(payment.txHash)}
-                                <span className="sr-only"> on the XRPL EVM Testnet explorer</span>
-                              </a>
-                            ) : (
-                              <span className="muted">{payment.sample ? 'Sample' : '—'}</span>
-                            )}
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </article>
-          </section>
-        </motion.div>
-      )}
+            </div>
+          ) : null}
 
-      <footer>
-        <p>
-          {view ? `${view.network.name} · chain ID ${view.network.chainId} · ` : ''}
-          RLUSD uses 18 decimals · hackathon testnet only
-        </p>
-      </footer>
+          {snapshot && tab === 'activity' ? (
+            <section className="card" aria-labelledby="activity-title">
+              <h2 id="activity-title">Activity</h2>
+              <div className="filters" role="toolbar" aria-label="Filter activity">
+                {FILTERS.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={filter === id ? 'chip is-on' : 'chip'}
+                    aria-pressed={filter === id}
+                    onClick={() => setFilter(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <ActivityList
+                items={shown}
+                onOpen={setDetail}
+                empty={filter === 'all'
+                  ? 'No purchases yet. Run the agent, or ask Eve what to do next.'
+                  : `Nothing is ${filter} right now.`}
+              />
+            </section>
+          ) : null}
 
-      <AnimatePresence>
-        {receipt && view ? (
-          <ReceiptDrawer
-            key={receipt.id}
-            receipt={receipt}
-            currency={view.currency}
-            explorerBase={view.network.explorerUrl}
-            onClose={closeReceipt}
-            reduced={reduced}
-          />
-        ) : null}
-      </AnimatePresence>
+          {tab === 'eve' ? <EvePanel active /> : null}
+        </main>
+      </div>
+
+      <nav className="tabbar" aria-label="Sections">
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={tab === id ? 'is-on' : ''}
+            aria-current={tab === id ? 'page' : undefined}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <button type="button" className="fab" aria-label="Open Eve" onClick={() => setEveOpen(true)}>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
+        </svg>
+      </button>
+
+      {eveOpen ? (
+        <Sheet title="Eve" onClose={() => setEveOpen(false)}>
+          <EvePanel active />
+        </Sheet>
+      ) : null}
+      {detail ? (
+        <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
+          <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
+        </Sheet>
+      ) : null}
     </div>
   );
 }
 
-function Flow({ travel, reduced }) {
+function ActivityList({ items, onOpen, empty }) {
+  if (!items.length) return <p className="empty-copy">{empty}</p>;
   return (
-    <div className="flow" aria-hidden={travel.key === 0}>
-      <div className="flow-labels">
-        <span>Agent</span>
-        <span>Merchant</span>
-        <span>XRPL</span>
-      </div>
-      <div className="flow-rail">
-        <span className="flow-line" />
-        <span className="flow-stop" style={{ left: '0%' }} />
-        <span className="flow-stop" style={{ left: '50%' }} />
-        <span className="flow-stop" style={{ left: '100%' }} />
-        {travel.key > 0 ? (
-          <motion.span
-            key={travel.key}
-            className="flow-dot"
-            initial={reduced ? { left: travel.to } : { left: '0%' }}
-            animate={{ left: travel.to }}
-            transition={{ ...TWEEN, duration: reduced ? 0 : 0.4 }}
-          />
-        ) : null}
-      </div>
+    <ul className="activity">
+      {items.map((item) => {
+        const status = pill(item);
+        return (
+          <li key={item.id}>
+            <button type="button" className="row" onClick={() => onOpen(item)}>
+              <span className={`pill ${status.tone}`}>{status.label}</span>
+              <span className="row-main">
+                <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
+                <span className="meta">{item.task || 'Purchase'} · {when(item.createdAt)}</span>
+              </span>
+              <span className="amount">{money(item.amount)} RLUSD</span>
+            </button>
+            {item.explorerUrl ? (
+              <a className="explorer" href={item.explorerUrl} target="_blank" rel="noreferrer noopener">
+                View on explorer
+              </a>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function Detail({ item, currency }) {
+  const status = pill(item);
+  const name = item.merchantLabel || 'Merchant';
+  return (
+    <div className="detail">
+      <p className={`pill ${status.tone}`}>{status.label}</p>
+      <p className="figure">{money(item.amount)} <span>{currency}</span></p>
+      <p>{name}</p>
+      <p className="meta"><code>{item.merchant}</code></p>
+      <p className="meta">{when(item.createdAt)}</p>
+      {item.reason ? <p>{plainReason(item.reason)}</p> : null}
+      <h3>Rule checks</h3>
+      <ul className="checks">
+        {ruleRows(item).map((row) => (
+          <li key={row.label} className={row.state}>
+            <span aria-hidden="true">{row.state === 'pass' ? '✓' : row.state === 'fail' ? '✗' : '–'}</span>
+            <span>{row.text}</span>
+            <span>{row.label}</span>
+          </li>
+        ))}
+      </ul>
+      <JevCard jev={item.jev} />
+      <dl className="facts">
+        <div>
+          <dt>Transaction</dt>
+          <dd>{item.txHash ? <code>{item.txHash}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Merchant payout transaction</dt>
+          <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Channel</dt>
+          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Claim ID</dt>
+          <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Receipt</dt>
+          <dd>{item.receiptUrl ? <a href={item.receiptUrl} target="_blank" rel="noreferrer noopener">View receipt</a> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Explorer</dt>
+          <dd>{item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
+        </div>
+      </dl>
     </div>
   );
 }
 
-function ReceiptDrawer({ receipt, currency, explorerBase, onClose, reduced }) {
-  const closeRef = useRef(null);
+function Sheet({ title, onClose, children }) {
   const titleId = useId();
-  const payoutHref = !receipt.sample && receipt.payoutTx && explorerBase
-    ? `${explorerBase.replace(/\/$/, '')}/tx/${receipt.payoutTx}`
-    : null;
-
+  const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
+    const root = ref.current;
     const previous = document.activeElement;
-    closeRef.current?.focus();
+    const focusable = () => [...root.querySelectorAll('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
+      .filter((node) => !node.disabled);
+    focusable()[0]?.focus();
     function onKey(event) {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
       if (previous instanceof HTMLElement) previous.focus();
     };
-  }, [onClose]);
-
+  }, []);
   return (
-    <div className="drawer-layer">
-      <motion.button
-        type="button"
-        className="backdrop"
-        aria-label="Close receipt"
-        onClick={onClose}
-        initial={reduced ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={reduced ? undefined : { opacity: 0 }}
-        transition={{ ...TWEEN, duration: reduced ? 0 : 0.24 }}
-      />
-      <motion.aside
-        className="drawer"
+    <div className="sheet-back" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div
+        className="sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        initial={reduced ? false : { x: '100%' }}
-        animate={{ x: 0 }}
-        exit={reduced ? undefined : { x: '100%' }}
-        transition={{ ...TWEEN, duration: reduced ? 0 : 0.34 }}
+        ref={ref}
       >
-        <div className="drawer-top">
-          <p className="kicker">Receipt</p>
-          <button type="button" className="ghost" ref={closeRef} onClick={onClose}>Close</button>
+        <div className="sheet-top">
+          <h2 id={titleId}>{title}</h2>
+          <button type="button" className="btn" onClick={onClose}>Close</button>
         </div>
-        <h2 id={titleId}>{receipt.task}</h2>
-        <p className="drawer-amount">{money(receipt.amount)} {currency}</p>
-        <p className="merchant-line">
-          {receipt.merchantLabel || 'Merchant'}
-          <code title={receipt.merchant}>{shortAddress(receipt.merchant)}</code>
-        </p>
-        <p className="sub">{when(receipt.createdAt)}</p>
-        <span className={`pill pill-${receipt.status}`}>{receipt.status}</span>
-        {receipt.status === 'paid' && !receipt.sample ? <p className="sub">{receipt.payoutTx ? 'Merchant payout recorded' : 'Redeemed; merchant settlement is processing'}</p> : null}
-        <dl className="receipt">
-          <div>
-            <dt>Channel</dt>
-            <dd>{receipt.channelId ? <code>{receipt.channelId}</code> : <span className="muted">Not recorded</span>}</dd>
-          </div>
-          <div>
-            <dt>Claim</dt>
-            <dd>{receipt.claimId ? <code>{receipt.claimId}</code> : <span className="muted">Not recorded</span>}</dd>
-          </div>
-          <div>
-            <dt>Payout</dt>
-            <dd>
-              {receipt.payoutTx ? (
-                payoutHref ? (
-                  <a href={payoutHref} target="_blank" rel="noreferrer noopener"><code>{receipt.payoutTx}</code></a>
-                ) : (
-                  <code>{receipt.payoutTx}</code>
-                )
-              ) : (
-                <span className="muted">Not recorded</span>
-              )}
-              {receipt.sample && receipt.payoutTx ? <span className="sub">Sample. Not on-chain.</span> : null}
-            </dd>
-          </div>
-          <div>
-            <dt>Receipt</dt>
-            <dd>
-              {receipt.receiptUrl ? (
-                <a href={receipt.receiptUrl} target="_blank" rel="noreferrer noopener">View receipt</a>
-              ) : (
-                <span className="muted">Not recorded</span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Explorer</dt>
-            <dd>
-              {receipt.explorerUrl ? (
-                <a href={receipt.explorerUrl} target="_blank" rel="noreferrer noopener">
-                  View on XRPL EVM Testnet
-                </a>
-              ) : (
-                <span className="muted">{receipt.sample ? 'Sample. Not on-chain.' : 'Not recorded'}</span>
-              )}
-            </dd>
-          </div>
-        </dl>
-      </motion.aside>
+        {children}
+      </div>
     </div>
   );
 }
 
-function Skeleton() {
+function Skeletons() {
   return (
-    <div className="layout skeleton" aria-hidden="true">
-      <div className="card"><span className="bone bone-lg" /><span className="bone" /><span className="bone bone-bar" /></div>
-      <div className="card"><span className="bone" /><span className="bone" /><span className="bone" /></div>
-      <div className="card span-2"><span className="bone bone-bar" /></div>
-      <div className="card"><span className="bone" /><span className="bone" /><span className="bone" /></div>
-      <div className="card"><span className="bone" /><span className="bone" /></div>
-      <div className="card span-2"><span className="bone" /><span className="bone" /><span className="bone" /></div>
+    <div className="stack" aria-busy="true" aria-live="polite">
+      <p className="sr-only">Loading the allowance</p>
+      <div className="card skeleton" />
+      <div className="card skeleton short" />
+      <div className="card skeleton" />
     </div>
-  );
-}
-
-function Icon({ name }) {
-  const paths = {
-    requested: 'M5 12h12M13 6l6 6-6 6',
-    challenge: 'M12 3.5l7 3v5.8c0 4.2-2.8 6.4-7 7.7-4.2-1.3-7-3.5-7-7.7V6.5l7-3z',
-    rules: 'M8 7h8M8 12h8M8 17h5',
-    voucher: 'M7 4.5h10v15H7zM10 9h4M10 13h4',
-    released: 'M12 4l8 4-8 4-8-4 8-4zM4 8v8l8 4 8-4V8',
-    settled: 'M5 12.5l4.5 4.5L19 7.5',
-  };
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-      <path
-        d={paths[name] || paths.settled}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

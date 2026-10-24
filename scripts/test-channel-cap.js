@@ -73,11 +73,11 @@ async function main() {
       acceptedCumulativeRlusd: ethers.formatUnits(acceptedAmount, 18), rejectedCumulativeRlusd: '6',
       rejectionData, redeemedBefore: state[8].toString(), redeemedAfter: after[8].toString(),
       merchantBalanceBefore: merchantBefore.toString(), merchantBalanceAfter: merchantAfter.toString() };
-    const evidenceDir = join(root, 'payments/receipts');
+    const evidenceDir = join(root, 'agent/receipts');
     mkdirSync(evidenceDir, { recursive: true });
     writeFileSync(join(evidenceDir, 'cap-test-' + channelId + '.json'), JSON.stringify(evidence, null, 2) + '\n');
     console.log('PASS: in-cap voucher accepted; 6 RLUSD voucher rejected against 5 RLUSD cap at the same block.');
-    console.log('Redeemed amount and merchant balance unchanged. Evidence saved under payments/receipts/.');
+    console.log('Redeemed amount and merchant balance unchanged. Evidence saved under agent/receipts/.');
     if (process.argv.includes('--close')) {
       if (!token) ({ token } = await signIn(api, process.env.TEAM_NAME, wallet));
       const closed = await closeChannel(api, token, wallet, channelId);

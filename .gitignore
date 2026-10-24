@@ -157,3 +157,6 @@ vite.config.ts.timestamp-*
 agent/rules.local.json
 
 merchant/state-*/
+
+# Local channel-cap diagnostic evidence
+agent/receipts/

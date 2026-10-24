@@ -16,12 +16,14 @@ import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadRules } from '../agent/rules.js';
-import { approvePending, listPayments, listPending, readStore, summarize } from './store.js';
+import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
+import { approvePending, declinePending, listPayments, listPending, readStore, summarize } from './store.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: join(rootDir, '.env') });
 
 let agentChild = null;
+const confirmations = createConfirmations();
 
 export function createApp() {
   const app = express();
@@ -77,6 +79,63 @@ export function createApp() {
     }
   });
 
+  app.post('/api/decline/:id', async (req, res, next) => {
+    try {
+      const result = await declinePending(req.params.id);
+      if (result.error === 'invalid') {
+        return res.status(400).json({ error: 'That decline id is not valid.' });
+      }
+      if (result.missing) {
+        return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
+      }
+      res.json({
+        ok: true,
+        payment: result.declined,
+        note: 'Declined. Nothing was signed or paid.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/eve', async (req, res, next) => {
+    try {
+      const message = typeof req.body?.message === 'string' ? req.body.message.slice(0, 2000) : '';
+      const context = await loadEveContext();
+      const result = await answerEve(message, context);
+      if (!result.action) return res.json({ reply: result.reply, confirmation: null });
+      const token = confirmations.issue(result.action);
+      res.json({
+        reply: result.reply,
+        confirmation: {
+          token,
+          summary: confirmationSummary(result.action, context),
+          action: result.action,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/eve/confirm', async (req, res, next) => {
+    try {
+      const token = typeof req.body?.token === 'string' ? req.body.token : '';
+      const action = confirmations.take(token);
+      if (!action) {
+        return res.status(400).json({ error: 'That confirmation expired. Ask Eve again.' });
+      }
+      const result = await executeConfirmed(action);
+      if (result.error === 'missing') {
+        return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
+      }
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/run-agent', (req, res) => {
     const raw = typeof req.body?.task === 'string' ? req.body.task : '';
     const task = raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Buy the morning weather brief';
@@ -90,7 +149,7 @@ export function createApp() {
         ok: false,
         demo: true,
         task,
-        error: 'Add AGENT_PRIVATE_KEY, TEAM_NAME, and RESOURCE_URL to .env to pay a merchant. The dashboard will still play the sequence.',
+        error: 'Add AGENT_PRIVATE_KEY, TEAM_NAME, and RESOURCE_URL to .env to pay a merchant.',
       });
     }
     if (agentChild && agentChild.exitCode === null && !agentChild.killed) {

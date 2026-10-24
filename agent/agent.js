@@ -21,11 +21,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { selectOpenChannel } from './channel.js';
 import { pendingPurchase, validateRecovery } from './recovery.js';
+import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
-import { recordAgentPayment, recordPending, spentRlusd } from '../server/store.js';
+import { recordAgentPayment, recordPending, spentRlusd, listPayments } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -111,7 +112,8 @@ async function serviceConfig(apiUrl) {
   return config;
 }
 
-async function hold({ recordHold, task, quote, label, resourceUrl, reason, description }) {
+async function hold({ recordHold, task, quote, label, resourceUrl, reason, description, jev }) {
+  const record = jev ?? rulesOnlyJev(reason).jev;
   await recordHold({
     task,
     merchant: quote.merchant,
@@ -120,6 +122,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     reason,
     description,
     resourceUrl,
+    jev: record,
   });
   console.log('Not paying. Saved for approval.');
   return {
@@ -131,6 +134,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     claimId: null,
     receiptUrl: null,
     explorerUrl: null,
+    jev: record,
     line: resultLine({ decision: 'needs_approval', reason }),
   };
 }
@@ -150,6 +154,8 @@ export async function finishQuote({
   report = async () => ({ claimId: null, payoutTx: null, receiptUrl: null }),
   recordPayment = recordAgentPayment,
   recordHold = recordPending,
+  recentPayments = [],
+  review = askJev,
 }) {
   const label = merchantLabel(rules, quote.merchant);
   const merchant = canonicalAddress(quote.merchant);
@@ -169,6 +175,46 @@ export async function finishQuote({
       resourceUrl,
       reason: decision.reason,
       description: quote.description,
+      jev: rulesOnlyJev(decision.reason).jev,
+    });
+  }
+
+  let verdict;
+  try {
+    verdict = await review({
+      rulesDecision: decision,
+      purchase: {
+        merchant,
+        amount: quote.amount,
+        description: quote.description,
+        resourceUrl,
+      },
+      task,
+      merchant,
+      amount: quote.amount,
+      rulesSummary: {
+        budget: formatRlusd(rules.budget),
+        maxPerPurchase: formatRlusd(rules.maxPerPurchase),
+        expiresAt: rules.expiresAt,
+        merchants: rules.allowedMerchants.length,
+      },
+      recentPayments,
+    });
+  } catch {
+    verdict = fallbackJev();
+  }
+  if (!verdict?.jev) verdict = fallbackJev();
+  console.log(`Jev: ${verdict.jev.reason}`);
+  if (verdict.decision !== 'allow') {
+    return hold({
+      recordHold,
+      task,
+      quote,
+      label,
+      resourceUrl,
+      reason: verdict.jev.reason,
+      description: quote.description,
+      jev: verdict.jev,
     });
   }
 
@@ -186,6 +232,7 @@ export async function finishQuote({
         resourceUrl,
         reason: 'over channel cap',
         description: 'The Channel cannot cover this payment on top of what it has already redeemed.',
+        jev: rulesOnlyJev('over channel cap').jev,
       });
     }
     throw error;
@@ -201,7 +248,7 @@ export async function finishQuote({
   // recordAgentPayment upserts by tx hash so recovery cannot spend the budget twice locally.
   let saved = await recordPayment({
     task, merchant, merchantLabel: label, amount: quote.amount, txHash,
-    claimId: purchase.claimId ?? null, channelId, resourceUrl,
+    claimId: purchase.claimId ?? null, channelId, resourceUrl, jev: verdict.jev,
   });
   const settled = await report(purchase);
   const claimId = settled?.claimId ?? purchase.claimId ?? null;
@@ -219,6 +266,7 @@ export async function finishQuote({
       payoutTx,
       receiptUrl,
       resourceUrl,
+      jev: verdict.jev,
     });
   } catch (error) {
     console.error('Payment is on-chain but the local ledger was not updated.');
@@ -362,6 +410,15 @@ export async function runOnce({
       throw new Error('Merchant quote is for a different resource than the one requested.');
     }
     const spentNow = spent ?? await spentRlusd();
+    const recentPayments = (await listPayments())
+      .filter((item) => !item.sample)
+      .slice(0, 5)
+      .map((item) => ({
+        amount: item.amount,
+        merchant: item.merchant,
+        status: item.status,
+        task: item.task,
+      }));
     return finishQuote({
       task,
       resourceUrl: url,
@@ -369,6 +426,7 @@ export async function runOnce({
       channelId,
       rules,
       spent: spentNow,
+      recentPayments,
       pay: (args) => payWithX402({ session: active, ...args }),
       report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
     });

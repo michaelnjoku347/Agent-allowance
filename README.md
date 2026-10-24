@@ -32,7 +32,7 @@ Sells market data at [http://127.0.0.1:4308/resource](http://127.0.0.1:4308/reso
 npm run dashboard
 ```
 
-Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls the API every 3 seconds. Paid rows link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Click a payment for the receipt (channel, claim, payout, receipt URL, explorer). While the ledger is still the sample set, the page says Sample. After `npm run demo` it says Live and shows only the real rows.
+Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls the API every 3 seconds and shows only real rows. Until the agent records a purchase, Home says what to do next. Paid rows link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Open a row for the rule checks, Jev's decision, the claim, the receipt, and the explorer link. Eve is the third tab, and the mic button opens her from anywhere.
 
 ```bash
 npm run demo
@@ -70,6 +70,12 @@ Fill in `.env` (it is gitignored — do not commit it):
 | `RESOURCE_URL` | `http://127.0.0.1:4308/resource` |
 | `MERCHANT_ID` | Your Merchant id from the participant portal |
 | `MERCHANT_SUBMITTER_KEY` | Wallet that submits redemptions. Needs test XRP. Never commit it. |
+| `JEV_API_KEY` | Optional. From thejevai.com, account settings, API Keys. Blank means the rules decide alone. |
+| `JEV_API_URL` | Optional. `https://thejevai.com`, or a self-hosted Kev URL. |
+| `JEV_MODEL` | Optional. Defaults to `typesafe/jev-1.13`. |
+| `LLM_API_KEY` | Optional. Eve's model. Stays on the server. |
+| `LLM_BASE_URL` | Optional. OpenAI-compatible base URL, such as `https://api.openai.com/v1`. |
+| `LLM_MODEL` | Optional. Model name for that endpoint. |
 
 The merchant listens on `MERCHANT_PORT` (4308). `PORT` (8787) is only the allowance API.
 
@@ -85,7 +91,7 @@ npm install ethers@6.17.0 https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz
 
 ## Combine the tested payments with the team app
 
-The standalone payment reference is merged in PR #5. The integrated app uses the same AP4M service and merchant, and writes decisions and receipts into the dashboard API's local ledger.
+The standalone payment reference was merged in PR #5 and subsequently removed by the team to avoid duplicate implementations. The integrated app uses the same AP4M service and merchant, and writes decisions and receipts into the dashboard API's local ledger.
 
 After installing the root and dashboard dependencies, reuse the settings from the working payment-starter folder. This setup only writes local, gitignored configuration; it does not transfer funds:
 
@@ -108,7 +114,7 @@ npm.cmd run demo
 
 The first three commands are long-running services; run one per terminal. The fourth performs one real 1 RLUSD purchase and saves two blocked quotes. Open http://127.0.0.1:5173 to watch the dashboard. A receipt distinguishes a recorded payout from redemption whose settlement is still processing.
 
-The local dashboard budget counts integrated purchases recorded in its ledger, not every historical payment from the AP4M funding account. Earlier standalone transactions remain linked in payments/evidence.json; they are not silently added as newly purchased data.
+The local dashboard budget counts integrated purchases recorded in its ledger, not every historical payment from the AP4M funding account. Earlier standalone transactions remain in the original local payment starter and PR #5 history; they are not silently added as newly purchased data.
 
 ### Recovery and contract-cap proof
 
@@ -120,7 +126,7 @@ The 8 RLUSD demo quote demonstrates a local rule block. To separately test the o
 npm.cmd run test:channel-cap -- --open --close
 ```
 
-This opens a 5 RLUSD test channel (uses test XRP gas), simulates an in-cap voucher and a 6 RLUSD cumulative voucher against the same block, and requires the second to return contract revert data. Neither payment is broadcast. It checks that redeemed state and merchant balance stay unchanged, writes a JSON result under payments/receipts/, and requests channel closure. A network failure, a closed channel, or a failed in-cap control does not count as a passing result. This command is prepared and tested with mocks; the team still needs to run it live on testnet.
+This opens a 5 RLUSD test channel (uses test XRP gas), simulates an in-cap voucher and a 6 RLUSD cumulative voucher against the same block, and requires the second to return contract revert data. Neither payment is broadcast. It checks that redeemed state and merchant balance stay unchanged, writes a JSON result under agent/receipts/, and requests channel closure. A network failure, a closed channel, or a failed in-cap control does not count as a passing result. This command is prepared and tested with mocks; the team still needs to run it live on testnet.
 
 Ledger hardware signing and AWS deployment remain separate team integrations. The dashboard approval endpoint currently records a placeholder decision and does not authorize an exceptional payment.
 
@@ -133,8 +139,8 @@ Ledger hardware signing and AWS deployment remain separate team integrations. Th
    - **merchant not allowed** — the payout is not in `agent/rules.json`
    - **over per-purchase cap** — the price is above 5 RLUSD
    - **over budget** — paying would take the running total above 20 RLUSD
-4. **allow** — `buyResource` signs one x402 voucher and the merchant returns the market data. The agent reports the redemption, settles, and saves the tx hash, claim id, receipt URL, and explorer link. The Channel stays open for the next purchase.
-5. **needs_approval** — the quote is written to the local ledger and nothing is paid.
+4. **allow** — Jev reviews the quote. If Jev is unavailable, the rules still pay and the record says "Jev unavailable — rules only". If Jev's review score is 0.5 or higher, the purchase looks unnecessary (needed under 0.4), or the risk is 4/5 or 5/5, the quote is saved as **Jev flagged for review** and nothing is paid. Otherwise `buyResource` signs one x402 voucher and the merchant returns the market data. The agent reports the redemption, settles, and saves the tx hash, claim id, receipt URL, and explorer link. The Channel stays open for the next purchase.
+5. **needs_approval** — the quote is written to the local ledger and nothing is paid. The rules always win: Jev cannot allow a quote the rules blocked.
 
 A single purchase that is inside the rules:
 
@@ -150,8 +156,11 @@ A dropped connection (`fetch failed`) is retried up to 3 times. An HTTP error is
 | --- | --- | --- |
 | GET | `/api/status` | Budget, spent, remaining, rules |
 | GET | `/api/payments` | Tx hash, merchant, amount, status |
-| GET | `/api/pending` | Purchases waiting for approval |
+| GET | `/api/pending` | Purchases waiting for approval, including the Jev record |
 | POST | `/api/approve/:id` | Record a placeholder approval |
+| POST | `/api/decline/:id` | Record a decline. Nothing is signed or paid |
+| POST | `/api/eve` | Ask Eve. A change comes back as a confirmation, not an edit |
+| POST | `/api/eve/confirm` | Apply a confirmation token Eve just issued |
 | POST | `/api/run-agent` | Start one purchase against `RESOURCE_URL` |
 
 The ledger file is `server/data/store.json`. It is created on first run and is not committed. Merchant state (`merchant/state/`) and agent purchase state (`agent/state/`) are not committed either.
@@ -162,19 +171,20 @@ The ledger file is `server/data/store.json`. It is created on first run and is n
 npm test
 ```
 
-That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, and that 8 RLUSD and an unlisted merchant are saved without paying.
+That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that Jev cannot override a blocked rule, and that Eve asks before she approves or changes the cap.
+
+## Jev and Eve
+
+Jev looks at a purchase only after the rules allow it. Set `JEV_API_KEY` from [thejevai.com](https://thejevai.com) (account settings, then API Keys). `JEV_API_URL` defaults to `https://thejevai.com`. Point it at a self-hosted Kev server if you run one; the API is the same. With no key, a timeout, or an error, the agent pays on the rules and records "Jev unavailable — rules only". The dashboard card shows Needed, Risk (1–5), and Human review, plus whether the source was Jev, Kev, or the rules.
+
+Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Approving, declining, or changing the cap or budget returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are optional and stay on the server. Without them Eve uses a built-in parser.
 
 ## Safety
 
-- Do not commit `.env` or put a private key in source.
+- The agent key, the merchant submitter key, `JEV_API_KEY`, and `LLM_API_KEY` stay in `.env`. They are not committed and they are not sent to the browser.
 - The key is only used to sign. It is not sent to the AP4M service.
 - This project targets XRPL EVM Testnet only. The agent stops if the service reports another chain id.
 - Do not send RLUSD or XRP straight to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
-
-## Person 1 payment reference
-
-The standalone direct-payment and x402 scripts, Windows setup, recovery steps, and live transaction evidence are in [payments/README.md](payments/README.md).
-
 If another merchant already uses port 4308, choose a free MERCHANT_PORT and update RESOURCE_URL to the same port. Set MERCHANT_STATE_DIRECTORY to a separate local folder such as merchant/state-4309 when changing the merchant resource URL; keep the original state for recovery. Restart the API after local environment changes.
 
 If WebShield blocks the testnet RPC with URL:Blacklist, the live payment has not succeeded. Have the hackathon staff or security administrator review that classification before retrying. Keep the dashboard marked Sample until real decisions are recorded.
