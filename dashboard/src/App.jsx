@@ -1,16 +1,25 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { allowanceView } from './allowance.js';
 import { approvePurchase, declinePurchase, fetchSnapshot, runAgent } from './api.js';
 import CountUp from './CountUp.jsx';
-import EvePanel from './EvePanel.jsx';
+import { EveDock } from './EvePanel.jsx';
+import {
+  IconActivity,
+  IconAlert,
+  IconCheck,
+  IconHome,
+  IconReceipt,
+  IconSettings,
+  LogoMark,
+} from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import { money, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { plainReason } from '../../shared/words.js';
 
 const TABS = [
-  ['home', 'Home'],
-  ['activity', 'Activity'],
-  ['eve', 'Eve'],
+  ['home', 'Home', IconHome],
+  ['activity', 'Activity', IconActivity],
 ];
 
 const FILTERS = [
@@ -67,25 +76,15 @@ function ruleRows(item) {
   });
 }
 
-function realRows(snapshot) {
-  const payments = (snapshot?.payments ?? []).filter((item) => !item.sample);
-  const pending = (snapshot?.pending ?? [])
-    .filter((item) => !item.sample)
-    .map((item) => ({ ...item, status: item.status || 'pending' }));
-  const budget = Number(snapshot?.rules?.budget ?? snapshot?.budget ?? 0);
-  const spent = payments
-    .filter((item) => item.status === 'paid')
-    .reduce((sum, item) => sum + Number(item.amount), 0);
-  const activity = [...payments, ...pending].sort((a, b) => (
-    Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0)
-  ));
-  return { payments, pending, budget, spent, activity };
+function initial(label) {
+  const text = (label || 'M').trim();
+  return text.slice(0, 1).toUpperCase();
 }
 
 export default function App() {
   const [theme, setTheme] = useTheme();
   const [tab, setTab] = useState('home');
-  const [eveOpen, setEveOpen] = useState(false);
+  const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
@@ -119,7 +118,7 @@ export default function App() {
     };
   }, []);
 
-  const view = useMemo(() => realRows(snapshot), [snapshot]);
+  const view = useMemo(() => allowanceView(snapshot), [snapshot]);
 
   useEffect(() => {
     const ids = view.activity.map((item) => item.id);
@@ -159,178 +158,230 @@ export default function App() {
     }
   }
 
+  function askEvePrompt(text) {
+    setEveSeed({ id: `${Date.now()}-${text}`, text });
+  }
+
   const shown = view.activity.filter((item) => matchesFilter(item, filter));
   const latest = view.activity.slice(0, 5);
-  const ratio = view.budget > 0 ? Math.max(0, Math.min(1, view.spent / view.budget)) : 0;
-  const left = Math.max(0, view.budget - view.spent);
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
+  const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
 
   return (
     <div className="app">
       <a className="skip" href="#main">Skip to content</a>
       <div className="sr-only" aria-live="polite">{announce}</div>
-      <div className="shell">
-        <header className="top">
-          <p className="kicker">Mastercard × XRPL Hackathon</p>
-          <div className="top-row">
-            <h1>Agent Allowance</h1>
-            <fieldset className="theme">
-              <legend className="sr-only">Color theme</legend>
-              {['light', 'dark', 'system'].map((choice) => (
-                <label key={choice} className={theme === choice ? 'is-on' : ''}>
-                  <input
-                    type="radio"
-                    name="theme"
-                    value={choice}
-                    checked={theme === choice}
-                    onChange={() => setTheme(choice)}
-                  />
-                  {choice[0].toUpperCase() + choice.slice(1)}
-                </label>
-              ))}
-            </fieldset>
-          </div>
-          <p className="lede">Every quote is checked before a voucher is signed.</p>
-        </header>
+      <aside className="sidenav">
+        <div className="sidenav-brand" aria-hidden="true">
+          <LogoMark size={32} />
+          <p>Agent Allowance</p>
+        </div>
+        <nav className="sidenav-nav" aria-label="Sections">
+          {TABS.map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              aria-current={tab === id ? 'page' : undefined}
+              onClick={() => setTab(id)}
+            >
+              <Icon />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <p className="sidenav-foot">
+          <span>{snapshot?.network?.name || 'XRPL EVM Testnet'}</span>
+          <span>Chain {snapshot?.network?.chainId || '1449000'}</span>
+        </p>
+      </aside>
 
-        <main id="main" tabIndex={-1}>
-          {connection === 'loading' && !snapshot ? <Skeletons /> : null}
-          {connection === 'error' && !snapshot ? (
-            <div className="card empty" role="alert">
-              <h2>The allowance server is not responding</h2>
-              <p>Start it with npm run server, then try again.</p>
-              <button type="button" className="btn primary" onClick={load}>Retry</button>
+      <div className="frame">
+        <div className="shell">
+          <header className="top">
+            <div className="brand">
+              <LogoMark size={40} />
+              <div>
+                <p className="eyebrow">Mastercard × XRPL Hackathon</p>
+                <h1>Agent Allowance</h1>
+              </div>
             </div>
-          ) : null}
-          {snapshot && tab === 'home' ? (
-            <div className="stack">
-              {connection === 'error' ? (
-                <p className="note warn" role="alert">
-                  Could not refresh. Showing the last numbers.
-                  <button type="button" className="btn" onClick={load}>Retry</button>
-                </p>
-              ) : null}
-              <section className="card allowance" aria-labelledby="allowance-title">
-                <h2 id="allowance-title">RLUSD left</h2>
-                <p className="figure"><CountUp value={left} /> <span>RLUSD</span></p>
-                <div
-                  className="meter"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(ratio * 100)}
-                  aria-label={`${money(view.spent)} of ${money(view.budget)} RLUSD spent`}
+            <ThemeControl theme={theme} setTheme={setTheme} />
+          </header>
+          <p className="lede">Each purchase is checked against your rules before it is paid.</p>
+
+          <main id="main" tabIndex={-1}>
+            {connection === 'loading' && !snapshot ? <Skeletons /> : null}
+            {connection === 'error' && !snapshot ? (
+              <div className="card" role="alert">
+                <EmptyState
+                  icon={<IconAlert />}
+                  title="The allowance server is not responding"
+                  action={<button type="button" className="btn primary" onClick={load}>Retry</button>}
                 >
-                  <span style={{ width: `${ratio * 100}%` }} />
-                </div>
-                <p className="meter-caption">{money(view.spent)} of {money(view.budget)} RLUSD spent</p>
-                <ul className="chips" aria-label="Allowance rules">
-                  <li>{snapshot.rules.maxPerPurchase} per purchase cap</li>
-                  <li>expires {expiresOn(snapshot.rules.expiresAt)}</li>
-                  <li>{merchantCount} merchant{merchantCount === 1 ? '' : 's'} allowed</li>
-                </ul>
-              </section>
-
-              <section className="card" aria-labelledby="needs-title">
-                <div className="section-head">
-                  <h2 id="needs-title">Needs you</h2>
-                  <p>Approving records the decision. It does not sign a voucher or move RLUSD.</p>
-                </div>
-                {view.pending.length === 0 ? (
-                  <p className="empty-copy">Nothing needs you. A quote outside the rules shows up here.</p>
-                ) : (
-                  <ul className="needs">
-                    {view.pending.map((item) => (
-                      <li key={item.id} className="need">
-                        <div className="need-top">
-                          <h3>{item.merchantLabel || 'Merchant'}</h3>
-                          <p className="amount">{money(item.amount)} RLUSD</p>
-                        </div>
-                        <p>{plainReason(item.reason)}</p>
-                        <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
-                        <JevCard jev={item.jev} />
-                        <div className="pair">
-                          <button type="button" className="btn primary" disabled={busyId === item.id} onClick={() => decide(item.id, 'approve')}>
-                            {busyId === item.id ? 'Saving…' : 'Approve'}
-                          </button>
-                          <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id, 'decline')}>
-                            Decline
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
-              </section>
-
-              <section className="card" aria-labelledby="latest-title">
-                <h2 id="latest-title">Latest activity</h2>
-                <ActivityList items={latest} onOpen={setDetail} empty="Run the agent to record a purchase. Paid and blocked quotes will show up here." />
-              </section>
-
-              <div className="run">
-                <button type="button" className="btn primary wide" onClick={onRun}>Run agent</button>
-                {runNote ? <p className="note" role="status">{runNote}</p> : null}
+                  Start it with npm run server, then try again.
+                </EmptyState>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+            {snapshot && tab === 'home' ? (
+              <div className="stack">
+                {connection === 'error' ? (
+                  <p className="note warn" role="alert">
+                    <IconAlert />
+                    <span>Could not refresh. Showing the last numbers.</span>
+                    <button type="button" className="btn" onClick={load}>Retry</button>
+                  </p>
+                ) : null}
+                <section className="card hero" aria-labelledby="allowance-title">
+                  <div className="hero-main">
+                    <div className="hero-copy">
+                      <h2 id="allowance-title" className="eyebrow">RLUSD left</h2>
+                      <p className="figure">
+                        <CountUp value={view.leftNumber} />
+                        <span className="unit">RLUSD</span>
+                      </p>
+                      <p className="meter-caption">
+                        {money(view.spent)} of {money(view.budget)} RLUSD spent
+                      </p>
+                    </div>
+                    <SpendRing ratio={view.ratio} label={balanceLabel} />
+                  </div>
+                  <dl className="rule-grid">
+                    <div>
+                      <dt>Per purchase</dt>
+                      <dd>{money(snapshot.rules.maxPerPurchase)} RLUSD</dd>
+                    </div>
+                    <div>
+                      <dt>Expires</dt>
+                      <dd>{expiresOn(snapshot.rules.expiresAt) || 'No date'}</dd>
+                    </div>
+                    <div>
+                      <dt>Merchants</dt>
+                      <dd>{merchantCount} allowed</dd>
+                    </div>
+                  </dl>
+                  <div className="hero-actions">
+                    <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
+                    {runNote ? <p className="note" role="status">{runNote}</p> : null}
+                  </div>
+                </section>
 
-          {snapshot && tab === 'activity' ? (
-            <section className="card" aria-labelledby="activity-title">
-              <h2 id="activity-title">Activity</h2>
-              <div className="filters" role="toolbar" aria-label="Filter activity">
-                {FILTERS.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={filter === id ? 'chip is-on' : 'chip'}
-                    aria-pressed={filter === id}
-                    onClick={() => setFilter(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <div className="split">
+                  <section className="card" aria-labelledby="needs-title">
+                    <div className="section-head">
+                      <h2 id="needs-title">Needs you</h2>
+                      <p>An approval is recorded here. It does not sign a voucher or move RLUSD.</p>
+                    </div>
+                    {view.pending.length === 0 ? (
+                      <EmptyState
+                        icon={<IconCheck />}
+                        title="Nothing is waiting"
+                        action={<button type="button" className="btn" onClick={() => askEvePrompt('What is waiting for approval?')}>Ask Eve</button>}
+                      >
+                        A quote outside the rules will land here.
+                      </EmptyState>
+                    ) : (
+                      <ul className="needs">
+                        {view.pending.map((item) => (
+                          <li key={item.id} className="need">
+                            <div className="need-top">
+                              <h3>{item.merchantLabel || 'Merchant'}</h3>
+                              <p className="amount">{money(item.amount)} RLUSD</p>
+                            </div>
+                            <p>{plainReason(item.reason)}</p>
+                            <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
+                            <JevCard jev={item.jev} />
+                            <div className="pair">
+                              <button type="button" className="btn primary" disabled={busyId === item.id} onClick={() => decide(item.id, 'approve')}>
+                                {busyId === item.id ? 'Saving…' : 'Approve'}
+                              </button>
+                              <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id, 'decline')}>
+                                Decline
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
+                  </section>
+
+                  <section className="card" aria-labelledby="latest-title">
+                    <h2 id="latest-title">Latest activity</h2>
+                    <ActivityList
+                      items={latest}
+                      onOpen={setDetail}
+                      empty={(
+                        <EmptyState
+                          icon={<IconReceipt />}
+                          title="No payments yet"
+                          action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
+                        >
+                          Paid and blocked quotes will show up here.
+                        </EmptyState>
+                      )}
+                    />
+                  </section>
+                </div>
               </div>
-              <ActivityList
-                items={shown}
-                onOpen={setDetail}
-                empty={filter === 'all'
-                  ? 'No purchases yet. Run the agent, or ask Eve what to do next.'
-                  : `Nothing is ${filter} right now.`}
-              />
-            </section>
-          ) : null}
+            ) : null}
 
-          {tab === 'eve' ? <EvePanel active /> : null}
-        </main>
+            {snapshot && tab === 'activity' ? (
+              <section className="card" aria-labelledby="activity-title">
+                <h2 id="activity-title">Activity</h2>
+                <div className="filters" role="toolbar" aria-label="Filter activity">
+                  {FILTERS.map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={filter === id ? 'chip is-on' : 'chip'}
+                      aria-pressed={filter === id}
+                      onClick={() => setFilter(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <ActivityList
+                  items={shown}
+                  onOpen={setDetail}
+                  empty={filter === 'all' ? (
+                    <EmptyState
+                      icon={<IconReceipt />}
+                      title="No payments yet"
+                      action={<button type="button" className="btn" onClick={() => askEvePrompt('What should the agent do next?')}>Ask Eve</button>}
+                    >
+                      Run the agent, or ask Eve what to do next.
+                    </EmptyState>
+                  ) : (
+                    <EmptyState icon={<IconActivity />} title={`Nothing is ${filter} right now`}>
+                      Try another filter, or come back after the agent runs.
+                    </EmptyState>
+                  )}
+                />
+              </section>
+            ) : null}
+
+          </main>
+        </div>
+
+        <nav className="tabbar" aria-label="Sections">
+          <div className="tabbar-inner">
+            {TABS.map(([id, label, Icon]) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={tab === id ? 'page' : undefined}
+                onClick={() => setTab(id)}
+              >
+                <Icon />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
       </div>
 
-      <nav className="tabbar" aria-label="Sections">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={tab === id ? 'is-on' : ''}
-            aria-current={tab === id ? 'page' : undefined}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      <button type="button" className="fab" aria-label="Open Eve" onClick={() => setEveOpen(true)}>
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
-        </svg>
-      </button>
-
-      {eveOpen ? (
-        <Sheet title="Eve" onClose={() => setEveOpen(false)}>
-          <EvePanel active />
-        </Sheet>
-      ) : null}
+      <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
       {detail ? (
         <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
@@ -340,8 +391,117 @@ export default function App() {
   );
 }
 
+function ThemeControl({ theme, setTheme }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const menu = document.getElementById(menuId);
+    menu?.querySelector('input:checked')?.focus();
+    function onKey(event) {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    }
+    function onPointer(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [open, menuId]);
+
+  return (
+    <div className="settings" ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="icon-btn"
+        aria-expanded={open}
+        aria-controls={menuId}
+        aria-label="Display settings"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <IconSettings />
+      </button>
+      {open ? (
+        <fieldset className="theme-menu" id={menuId}>
+          <legend>Color theme</legend>
+          {['light', 'dark', 'system'].map((choice) => (
+            <label key={choice} className={theme === choice ? 'is-on' : ''}>
+              <input
+                type="radio"
+                name="theme"
+                value={choice}
+                checked={theme === choice}
+                onChange={() => setTheme(choice)}
+              />
+              <span>{choice[0].toUpperCase() + choice.slice(1)}</span>
+              {theme === choice ? <IconCheck /> : null}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+    </div>
+  );
+}
+
+function SpendRing({ ratio, label }) {
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const percent = Math.round(clamped * 100);
+  return (
+    <div
+      className="ring"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      aria-label={label}
+    >
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="ring-track" cx="60" cy="60" r={radius} />
+        {clamped > 0 ? (
+          <circle
+            className="ring-value"
+            cx="60"
+            cy="60"
+            r={radius}
+            strokeDasharray={`${circumference * clamped} ${circumference}`}
+          />
+        ) : null}
+      </svg>
+      <div className="ring-label" aria-hidden="true">
+        <strong>{percent}%</strong>
+        <span>spent</span>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, children, action }) {
+  return (
+    <div className="empty">
+      <span className="empty-icon" aria-hidden="true">{icon}</span>
+      <div className="empty-copy">
+        <p className="empty-title">{title}</p>
+        {children ? <p>{children}</p> : null}
+      </div>
+      {action ? <div className="empty-action">{action}</div> : null}
+    </div>
+  );
+}
+
 function ActivityList({ items, onOpen, empty }) {
-  if (!items.length) return <p className="empty-copy">{empty}</p>;
+  if (!items.length) return empty;
   return (
     <ul className="activity">
       {items.map((item) => {
@@ -349,10 +509,13 @@ function ActivityList({ items, onOpen, empty }) {
         return (
           <li key={item.id}>
             <button type="button" className="row" onClick={() => onOpen(item)}>
-              <span className={`pill ${status.tone}`}>{status.label}</span>
+              <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
               <span className="row-main">
                 <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="meta">{item.task || 'Purchase'} · {when(item.createdAt)}</span>
+                <span className="meta">
+                  <span className={`pill ${status.tone}`}>{status.label}</span>
+                  <span>{item.task || 'Purchase'} · {when(item.createdAt)}</span>
+                </span>
               </span>
               <span className="amount">{money(item.amount)} RLUSD</span>
             </button>
@@ -368,14 +531,20 @@ function ActivityList({ items, onOpen, empty }) {
   );
 }
 
+function settlementLabel(status) {
+  if (status === 'settled') return 'Settled';
+  if (status === 'processing') return 'Processing';
+  return 'Not recorded';
+}
+
 function Detail({ item, currency }) {
   const status = pill(item);
   const name = item.merchantLabel || 'Merchant';
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      <p className="figure">{money(item.amount)} <span>{currency}</span></p>
-      <p>{name}</p>
+      <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
+      <p className="detail-name">{name}</p>
       <p className="meta"><code>{item.merchant}</code></p>
       <p className="meta">{when(item.createdAt)}</p>
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
@@ -402,6 +571,10 @@ function Detail({ item, currency }) {
         <div>
           <dt>Channel</dt>
           <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Settlement</dt>
+          <dd>{settlementLabel(item.settlementStatus)}</dd>
         </div>
         <div>
           <dt>Claim ID</dt>
@@ -465,6 +638,7 @@ function Sheet({ title, onClose, children }) {
         aria-labelledby={titleId}
         ref={ref}
       >
+        <div className="sheet-handle" aria-hidden="true" />
         <div className="sheet-top">
           <h2 id={titleId}>{title}</h2>
           <button type="button" className="btn" onClick={onClose}>Close</button>
@@ -479,9 +653,18 @@ function Skeletons() {
   return (
     <div className="stack" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
-      <div className="card skeleton" />
-      <div className="card skeleton short" />
-      <div className="card skeleton" />
+      <div className="card hero-skeleton" aria-hidden="true">
+        <div className="sk-copy">
+          <span className="sk sk-label" />
+          <span className="sk sk-figure" />
+          <span className="sk sk-line" />
+        </div>
+        <span className="sk sk-ring" />
+      </div>
+      <div className="split">
+        <div className="card"><span className="sk sk-block" /></div>
+        <div className="card"><span className="sk sk-block" /></div>
+      </div>
     </div>
   );
 }

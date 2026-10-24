@@ -8,16 +8,20 @@
       name="description"
       content="Spending account for an AI agent. Budget, rules, payments, and approvals on XRPL EVM Testnet."
     />
-    <meta name="theme-color" content="#F7F8FA" />
+    <meta name="theme-color" content="#EFECE4" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='10' fill='%231B4D3E'/%3E%3Cpath d='M18 8.2a9.8 9.8 0 1 1-8.4 4.8' stroke='%23F4F0E6' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3Cpath d='M18 14v6.4' stroke='%23F4F0E6' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='18' cy='23.4' r='1.45' fill='%23E2B15A'/%3E%3C/svg%3E" />
     <script>
       try {
         var theme = localStorage.getItem('allowance-theme') || 'light';
         document.documentElement.dataset.theme = theme;
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', dark ? '#121411' : '#EFECE4');
       } catch (e) {}
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

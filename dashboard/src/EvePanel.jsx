@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
+import { EveMark, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
   'What did my agent spend today?',
@@ -9,18 +10,164 @@ const CHIPS = [
 ];
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;
+const DOCK_KEY = 'allowance-eve';
 
 function speechRecognition() {
   if (typeof window === 'undefined') return null;
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
-export default function EvePanel({ active }) {
+function readMode() {
+  try {
+    return localStorage.getItem(DOCK_KEY) === 'min' ? 'min' : 'open';
+  } catch {
+    return 'open';
+  }
+}
+
+function focusable(root) {
+  if (!root) return [];
+  return [...root.querySelectorAll('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
+    .filter((node) => !node.disabled && node.getAttribute('aria-hidden') !== 'true');
+}
+
+export function EveDock({ seed, onSeedHandled }) {
+  const panelId = useId();
+  const panelRef = useRef(null);
+  const pillRef = useRef(null);
+  const modeRef = useRef(readMode());
+  const [mode, setMode] = useState(modeRef.current);
+  const [unread, setUnread] = useState(0);
+  const [status, setStatus] = useState({ listening: false, speaking: false });
+  const [announcement, setAnnouncement] = useState('');
+  modeRef.current = mode;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DOCK_KEY, mode);
+    } catch {
+      /* Private browsing can block storage. The choice still applies this visit. */
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    if (!seed) return undefined;
+    setMode('open');
+    setUnread(0);
+    const frame = requestAnimationFrame(() => {
+      panelRef.current?.querySelector('#eve-message')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [seed]);
+
+  function minimize() {
+    setMode('min');
+    requestAnimationFrame(() => pillRef.current?.focus());
+  }
+
+  function expand() {
+    setMode('open');
+    setUnread(0);
+    requestAnimationFrame(() => {
+      panelRef.current?.querySelector('#eve-message')?.focus();
+    });
+  }
+
+  useEffect(() => {
+    const root = panelRef.current;
+    if (!root || mode !== 'open') return undefined;
+    function onKey(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        minimize();
+        return;
+      }
+      const mobile = window.matchMedia('(max-width: 959px)').matches;
+      if (!mobile || event.key !== 'Tab') return;
+      const items = focusable(root);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    root.addEventListener('keydown', onKey);
+    return () => root.removeEventListener('keydown', onKey);
+  }, [mode]);
+
+  function onReply(text) {
+    setAnnouncement(text);
+    if (modeRef.current === 'min') setUnread((count) => count + 1);
+  }
+
+  const stateLabel = status.listening ? 'Listening' : status.speaking ? 'Speaking' : 'Allowance assistant';
+  const pillLabel = status.listening
+    ? 'Eve, listening. Expand chat'
+    : status.speaking
+      ? 'Eve, speaking. Expand chat'
+      : unread
+        ? `Eve, ${unread} new ${unread === 1 ? 'reply' : 'replies'}. Expand chat`
+        : 'Expand Eve';
+
+  return (
+    <div className={`eve-dock ${mode === 'open' ? 'is-open' : 'is-min'}`}>
+      <div className="sr-only" aria-live="polite">{announcement}</div>
+      <section
+        className="eve-window"
+        id={panelId}
+        ref={panelRef}
+        hidden={mode !== 'open'}
+        role="region"
+        aria-label="Eve"
+      >
+        <header className="eve-head">
+          <EveMark size={32} />
+          <div className="eve-id">
+            <h2>Eve</h2>
+            <p className={status.listening || status.speaking ? 'is-live' : ''}>{stateLabel}</p>
+          </div>
+          <button type="button" className="icon-btn eve-min" aria-label="Minimize Eve" onClick={minimize}>
+            <IconMinus />
+          </button>
+        </header>
+        <EvePanel
+          seed={seed}
+          onSeedHandled={onSeedHandled}
+          onStatus={setStatus}
+          onReply={onReply}
+        />
+      </section>
+      <button
+        type="button"
+        className="eve-pill"
+        ref={pillRef}
+        hidden={mode === 'open'}
+        aria-expanded="false"
+        aria-controls={panelId}
+        aria-label={pillLabel}
+        onClick={expand}
+      >
+        <EveMark size={28} />
+        <span className="eve-pill-name">Eve</span>
+        {status.listening || status.speaking ? <span className="eve-pill-state">{stateLabel}</span> : null}
+        {unread > 0 ? <span className="eve-badge" aria-hidden="true">{unread}</span> : null}
+      </button>
+    </div>
+  );
+}
+
+export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   const listId = useId();
   const [messages, setMessages] = useState([
     {
       role: 'eve',
-      text: 'I can explain a blocked purchase, total what was spent, or prepare a change. I will ask before I approve, decline, or edit the rules.',
+      text: 'Ask what was spent, why a quote was blocked, or to change a rule. I ask before I change anything.',
     },
   ]);
   const [draft, setDraft] = useState('');
@@ -39,11 +186,16 @@ export default function EvePanel({ active }) {
   const voiceRef = useRef(false);
   const confirmRef = useRef(null);
   const bottomRef = useRef(null);
+  const handledSeed = useRef(null);
   voiceRef.current = voiceMode;
   confirmRef.current = confirmation;
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
+    onStatus?.({ listening, speaking });
+  }, [listening, speaking, onStatus]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'nearest' });
   }, [messages, interim, confirmation]);
 
   useEffect(() => () => {
@@ -137,6 +289,7 @@ export default function EvePanel({ active }) {
     try {
       const body = await askEve(message);
       setMessages((current) => [...current, { role: 'eve', text: body.reply }]);
+      onReply?.(body.reply);
       setConfirmation(body.confirmation ?? null);
       speak(body.confirmation ? `${body.reply} ${body.confirmation.summary}` : body.reply, () => {
         if (voiceRef.current) startListening();
@@ -156,6 +309,7 @@ export default function EvePanel({ active }) {
       const body = await confirmEve(card.token);
       setConfirmation(null);
       setMessages((current) => [...current, { role: 'eve', text: body.reply }]);
+      onReply?.(body.reply);
       speak(body.reply, () => {
         if (voiceRef.current) startListening();
       });
@@ -166,13 +320,25 @@ export default function EvePanel({ active }) {
     }
   }
 
+  useEffect(() => {
+    if (!seed || handledSeed.current === seed.id) return;
+    handledSeed.current = seed.id;
+    send(seed.text);
+    onSeedHandled?.();
+  }, [seed]);
+
+  function toggleVoice() {
+    const next = !voiceMode;
+    setVoiceMode(next);
+    if (!next) {
+      stopListening();
+      stopSpeaking();
+    }
+  }
+
   return (
-    <section className="eve" aria-label="Eve">
-      <header className="section-head">
-        <h2>Eve</h2>
-        <p>Ask in text{supported ? ' or by voice' : ''}. Changes wait for you to confirm.</p>
-      </header>
-      <div className="transcript" id={listId} aria-live="polite" aria-relevant="additions">
+    <div className="eve">
+      <div className="transcript" id={listId} aria-relevant="additions">
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
@@ -191,7 +357,7 @@ export default function EvePanel({ active }) {
           </div>
         </div>
       ) : null}
-      <div className="chips">
+      <div className="chips" aria-label="Suggestions">
         {CHIPS.map((chip) => (
           <button key={chip} type="button" className="chip" onClick={() => send(chip)} disabled={busy}>{chip}</button>
         ))}
@@ -210,13 +376,12 @@ export default function EvePanel({ active }) {
         {supported ? (
           <button
             type="button"
-            className={listening ? 'btn mic is-on' : 'btn mic'}
+            className={listening ? 'mic-btn is-on' : 'mic-btn'}
             aria-pressed={listening}
             aria-label={listening ? 'Stop voice input' : 'Start voice input'}
             onClick={() => (listening ? stopListening() : startListening())}
           >
-            <MicIcon />
-            <span>{listening ? 'Listening' : 'Mic'}</span>
+            <IconMic />
           </button>
         ) : null}
       </form>
@@ -224,36 +389,32 @@ export default function EvePanel({ active }) {
         <div className="voice-row">
           <button
             type="button"
-            className="btn"
+            className="voice-toggle"
             aria-pressed={voiceMode}
-            onClick={() => {
-              const next = !voiceMode;
-              setVoiceMode(next);
-              if (!next) {
-                stopListening();
-                stopSpeaking();
-              }
-            }}
+            onClick={toggleVoice}
           >
-            Voice mode {voiceMode ? 'on' : 'off'}
+            <span className="switch" aria-hidden="true" />
+            Read replies
           </button>
-          <label className="rate">
-            Speech rate
-            <input
-              type="range"
-              min="0.8"
-              max="1.4"
-              step="0.1"
-              value={rate}
-              onChange={(event) => setRate(Number(event.target.value))}
-            />
-          </label>
-          <button type="button" className="btn" onClick={stopSpeaking} disabled={!speaking}>Stop</button>
-          {listening ? <p className="listen-state" role="status">Listening</p> : null}
-          {speaking ? <p className="listen-state" role="status">Speaking</p> : null}
+          {voiceMode ? (
+            <label className="rate">
+              Speech rate
+              <input
+                type="range"
+                min="0.8"
+                max="1.4"
+                step="0.1"
+                value={rate}
+                onChange={(event) => setRate(Number(event.target.value))}
+              />
+            </label>
+          ) : null}
+          {voiceMode ? (
+            <button type="button" className="btn" onClick={stopSpeaking} disabled={!speaking}>Stop</button>
+          ) : null}
         </div>
       ) : (
-        <p className="note">Voice input not supported in this browser — type instead.</p>
+        <p className="note">Voice input is not available in this browser. Type instead.</p>
       )}
       {denied ? (
         <p className="note" role="alert">
@@ -261,14 +422,6 @@ export default function EvePanel({ active }) {
         </p>
       ) : null}
       {error ? <p className="note warn" role="alert">{error}</p> : null}
-    </section>
-  );
-}
-
-function MicIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
-    </svg>
+    </div>
   );
 }
