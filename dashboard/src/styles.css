@@ -849,7 +849,7 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
   left: 0;
   right: 0;
   bottom: calc(68px + env(safe-area-inset-bottom));
-  height: min(54vh, 460px);
+  height: min(40vh, 380px);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -968,6 +968,14 @@ input[type="range"] { accent-color: var(--pine); width: 100%; }
 @keyframes eve-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
+}
+
+@media (min-width: 1200px) {
+  .app:has(.eve-dock.is-open) .shell {
+    width: min(820px, calc(100% - 428px));
+    margin-left: 28px;
+    margin-right: 0;
+  }
 }
 
 @media (min-width: 960px) {
