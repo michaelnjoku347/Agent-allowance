@@ -40,7 +40,7 @@ export function deriveLedger(snapshot) {
 export function status(item) {
   if (item.status === 'paid') return { key: 'paid', label: 'Paid', tone: 'ok' };
   if (item.status === 'pending') return { key: 'waiting', label: 'Waiting', tone: 'warn' };
-  if (item.status === 'approved') return { key: 'waiting', label: 'Approved', tone: 'info' };
+  if (item.status === 'approved') return { key: 'approved', label: 'Approved', tone: 'info' };
   if (item.status === 'declined') return { key: 'blocked', label: 'Blocked', tone: 'danger' };
   return { key: 'waiting', label: item.status || 'Waiting', tone: 'warn' };
 }

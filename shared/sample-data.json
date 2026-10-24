@@ -13,7 +13,15 @@
       "channelId": "0xa3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
       "claimId": "0xb3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3",
       "payoutTx": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
-      "resourceUrl": "https://merchant.example/translation"
+      "resourceUrl": "https://merchant.example/translation",
+      "jev": {
+        "source": "jev",
+        "needed": 0.88,
+        "risk": 0,
+        "review": 0.04,
+        "confidence": 0.88,
+        "reason": "Jev would pay this."
+      }
     },
     {
       "id": "pay_sample_market",
@@ -28,7 +36,15 @@
       "channelId": "0xa2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
       "claimId": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
       "payoutTx": "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
-      "resourceUrl": "https://merchant.example/market"
+      "resourceUrl": "https://merchant.example/market",
+      "jev": {
+        "source": "jev",
+        "needed": 0.95,
+        "risk": 0,
+        "review": 0.04,
+        "confidence": 0.88,
+        "reason": "Jev would pay this."
+      }
     },
     {
       "id": "pay_sample_weather",
@@ -43,10 +59,39 @@
       "channelId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
       "claimId": "0xb1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
       "payoutTx": "0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
-      "resourceUrl": "https://merchant.example/weather"
+      "resourceUrl": "https://merchant.example/weather",
+      "jev": {
+        "source": "jev",
+        "needed": 0.91,
+        "risk": 0,
+        "review": 0.04,
+        "confidence": 0.88,
+        "reason": "Jev would pay this."
+      }
     }
   ],
   "pending": [
+    {
+      "id": "pend_sample_sentiment",
+      "sample": true,
+      "status": "pending",
+      "task": "Stream social sentiment for the whole week",
+      "merchant": "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0",
+      "merchantLabel": "Market Desk",
+      "amount": "4.75",
+      "reason": "Jev flagged for review",
+      "description": "Inside the rules, but Jev rates the need low and the risk high for a one-off brief.",
+      "resourceUrl": "https://merchant.example/sentiment",
+      "createdAt": "2026-10-24T15:58:00.000Z",
+      "jev": {
+        "source": "jev",
+        "needed": 0.31,
+        "risk": 3,
+        "review": 0.84,
+        "confidence": 0.79,
+        "reason": "Jev flagged for review"
+      }
+    },
     {
       "id": "pend_sample_research",
       "sample": true,
@@ -58,7 +103,15 @@
       "reason": "merchant not allowed",
       "description": "This payout address is not on the allowance list.",
       "resourceUrl": "https://merchant.example/resource",
-      "createdAt": "2026-10-24T15:52:00.000Z"
+      "createdAt": "2026-10-24T15:52:00.000Z",
+      "jev": {
+        "source": "rules",
+        "needed": null,
+        "risk": null,
+        "review": null,
+        "confidence": null,
+        "reason": "merchant not allowed"
+      }
     },
     {
       "id": "pend_sample_imagery",
@@ -71,7 +124,15 @@
       "reason": "over per-purchase cap",
       "description": "The quote is above the 5 RLUSD per-purchase cap.",
       "resourceUrl": "https://merchant.example/resource",
-      "createdAt": "2026-10-24T15:48:00.000Z"
+      "createdAt": "2026-10-24T15:48:00.000Z",
+      "jev": {
+        "source": "rules",
+        "needed": null,
+        "risk": null,
+        "review": null,
+        "confidence": null,
+        "reason": "over per-purchase cap"
+      }
     }
   ]
 }

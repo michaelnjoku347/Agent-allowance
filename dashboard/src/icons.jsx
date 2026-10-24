@@ -172,3 +172,65 @@ export const SpeakerIcon = (p) => (
     <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" />
   </Svg>
 );
+
+export const CopyIcon = (p) => (
+  <Svg {...p}>
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2.5" />
+    <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
+  </Svg>
+);
+
+export const BoltIcon = (p) => (
+  <Svg {...p}>
+    <path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12z" />
+  </Svg>
+);
+
+export const ChainIcon = (p) => (
+  <Svg {...p}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+  </Svg>
+);
+
+export const SearchIcon = (p) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4 4" />
+  </Svg>
+);
+
+export const TagIcon = (p) => (
+  <Svg {...p}>
+    <path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9z" />
+    <circle cx="8" cy="8" r="1.5" />
+  </Svg>
+);
+
+export const EditIcon = (p) => (
+  <Svg {...p}>
+    <path d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10z" />
+    <path d="m13.5 6.5 4 4" />
+  </Svg>
+);
+
+export const ArrowIcon = (p) => (
+  <Svg {...p}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Svg>
+);
+
+/** Contactless waves, drawn for the agent card. */
+export const WavesIcon = (p) => (
+  <Svg {...p}>
+    <path d="M8 8.5a5 5 0 0 1 0 7M11.5 6a8.5 8.5 0 0 1 0 12M15 3.5a12 12 0 0 1 0 17" />
+  </Svg>
+);
+
+export const WalletIcon = (p) => (
+  <Svg {...p}>
+    <path d="M4.5 7.5A2 2 0 0 1 6.5 5.5h11v3" />
+    <rect x="4.5" y="8.5" width="15" height="10" rx="2" />
+    <path d="M15.5 13.5h1.5" />
+  </Svg>
+);

@@ -1,15 +1,19 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
 import { money } from './format.js';
 import { MicIcon, SendIcon, SparkIcon, SpeakerIcon } from './icons.jsx';
 
-const CHIPS = [
-  'How much is left?',
-  'Approve pending',
-  'Pause agent',
-  'Why was the last one blocked?',
-  'What did my agent spend today?',
-];
+function chips(ledger, paused) {
+  return [
+    'How much is left?',
+    ledger.pending.length ? 'Approve pending' : null,
+    paused ? 'Resume agent' : 'Pause agent',
+    ledger.pending.length ? 'Why was the last one blocked?' : null,
+    'What did my agent spend today?',
+    'Set my cap to 3',
+  ].filter(Boolean);
+}
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;
 
@@ -42,7 +46,7 @@ function localAnswer(text, { ledger, paused, onPause, onResume }) {
   return null;
 }
 
-export default function EvePanel({ ledger, paused, onPause, onResume }) {
+export default function EvePanel({ ledger, paused, onPause, onResume, onChanged }) {
   const transcriptId = useId();
   const [messages, setMessages] = useState([
     {
@@ -197,6 +201,7 @@ export default function EvePanel({ ledger, paused, onPause, onResume }) {
       const body = await confirmEve(card.token);
       setConfirmation(null);
       reply(body.reply);
+      onChanged?.();
     } catch (err) {
       setError(err.message || 'That confirmation did not go through.');
     } finally {
@@ -209,20 +214,34 @@ export default function EvePanel({ ledger, paused, onPause, onResume }) {
   return (
     <section className="eve-screen" aria-labelledby="eve-title">
       <header className="eve-head">
-        <span className="eve-orb" aria-hidden="true"><SparkIcon size={22} /></span>
+        <span className={listening ? 'eve-orb is-live' : speaking ? 'eve-orb is-speaking' : 'eve-orb'} aria-hidden="true"><SparkIcon size={24} /></span>
         <div>
           <h1 id="eve-title">Eve</h1>
-          <p>Your allowance assistant. Changes wait for your confirm.</p>
+          <p>Your allowance assistant. Nothing changes until you confirm.</p>
         </div>
       </header>
+      <ul className="eve-context" aria-label="What Eve can see">
+        <li><strong>{money(ledger.left)}</strong> left</li>
+        <li><strong>{ledger.pending.length}</strong> waiting</li>
+        <li><strong>{money(ledger.cap)}</strong> cap</li>
+        <li>{paused ? 'Agent paused' : 'Agent active'}</li>
+      </ul>
 
       <div className="transcript" id={transcriptId} role="log" aria-live="polite" aria-label="Conversation with Eve">
-        {messages.map((message, index) => (
-          <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
-            <span className="sr-only">{message.role === 'you' ? 'You said: ' : 'Eve said: '}</span>
-            {message.text}
-          </div>
-        ))}
+        <AnimatePresence initial={false}>
+          {messages.map((message, index) => (
+            <motion.div
+              key={`${message.role}-${index}`}
+              className={`bubble ${message.role}`}
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+            >
+              <span className="sr-only">{message.role === 'you' ? 'You said: ' : 'Eve said: '}</span>
+              {message.text}
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {interim ? <div className="bubble you interim" aria-hidden="true">{interim}…</div> : null}
         {busy ? <div className="bubble eve typing" role="status" aria-label="Eve is thinking"><span /><span /><span /></div> : null}
         {confirmation ? (
@@ -240,7 +259,7 @@ export default function EvePanel({ ledger, paused, onPause, onResume }) {
 
       <div className="eve-dock">
         <div className="suggest" role="group" aria-label="Suggestions">
-          {CHIPS.map((chip) => (
+          {chips(ledger, paused).map((chip) => (
             <button key={chip} type="button" className="suggest-chip" onClick={() => send(chip)} disabled={busy}>{chip}</button>
           ))}
         </div>
@@ -258,6 +277,11 @@ export default function EvePanel({ ledger, paused, onPause, onResume }) {
               <span className="mic-pulse" aria-hidden="true" />
               <MicIcon size={34} />
             </button>
+            {listening || speaking ? (
+              <span className={speaking ? 'wave speaking' : 'wave'} aria-hidden="true">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} style={{ animationDelay: `${i * 0.09}s` }} />)}
+              </span>
+            ) : null}
             <p className="mic-state" role="status">
               {denied ? 'Microphone blocked' : listening ? 'Listening…' : speaking ? 'Speaking…' : 'Tap to talk'}
             </p>
