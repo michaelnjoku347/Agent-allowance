@@ -22,7 +22,7 @@ import hackathonSdk from './ap4m-hackathon-sdk.cjs';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { operationName, requestQuote } from './quote.js';
 import { checkRules, formatRlusd, loadRules, merchantLabel } from './rules.js';
-import { recordAgentPayment, recordPending, spentRlusd } from '../server/store.js';
+import { attachPayout, recordAgentPayment, recordPending, spentRlusd } from '../server/store.js';
 
 const { signIn, requestChannel, listChannels, settle } = hackathonSdk;
 
@@ -105,10 +105,12 @@ async function reportSettlement(apiUrl, token, channelId, txHash) {
     const settled = await settle(apiUrl, token, channelId);
     if (settled?.payout_tx) console.log('RLUSD payout tx:', settled.payout_tx);
     if (settled?.receipt_url) console.log('Receipt:', apiUrl + settled.receipt_url);
+    return settled?.payout_tx ?? null;
   } catch (error) {
     // The redemption is already on-chain. Settlement usually finishes on its
     // own; a slow receipt should not hide the payment from the dashboard.
     console.log('Settlement is still processing:', error.message ?? error);
+    return null;
   }
 }
 
@@ -202,8 +204,9 @@ export async function main() {
   });
   console.log('Paid. Redemption tx:', purchase.transactionHash);
 
+  let saved;
   try {
-    await recordAgentPayment({
+    saved = await recordAgentPayment({
       task,
       merchant: quote.merchant,
       merchantLabel: label,
@@ -211,6 +214,7 @@ export async function main() {
       txHash: purchase.transactionHash,
       resourceUrl: quote.resourceUrl,
       claimId: purchase.claimId,
+      channelId,
     });
   } catch (error) {
     console.error('Payment is on-chain but the local ledger was not updated.');
@@ -218,7 +222,8 @@ export async function main() {
     throw error;
   }
 
-  await reportSettlement(apiUrl, token, channelId, purchase.transactionHash);
+  const payoutTx = await reportSettlement(apiUrl, token, channelId, purchase.transactionHash);
+  if (payoutTx && saved?.id) await attachPayout(saved.id, payoutTx);
   console.log('Saved. The dashboard picks it up on the next refresh.');
 }
 

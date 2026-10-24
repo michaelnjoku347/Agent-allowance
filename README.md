@@ -81,7 +81,7 @@ API at [http://127.0.0.1:8787](http://127.0.0.1:8787). Until the agent records a
 npm run dashboard
 ```
 
-Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls `/api/status`, `/api/payments`, and `/api/pending` every 3 seconds. If the server is down, the page still shows the same sample data locally. Paid rows that come from the agent link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org).
+Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls `/api/status`, `/api/payments`, and `/api/pending` every 3 seconds. If the server is down, the page still shows the same sample data locally. Paid rows that come from the agent link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Click a payment for the receipt. **Run Agent** plays the live feed and, when `.env` has a key, team name, and resource URL, starts `agent/agent.js`.
 
 ```bash
 npm run agent -- "Buy the morning weather brief"
@@ -99,6 +99,7 @@ To resume one unfinished payment instead of starting another, set `OPERATION` to
 | GET | `/api/payments` | Tx hash, merchant, amount, status |
 | GET | `/api/pending` | Purchases waiting for approval |
 | POST | `/api/approve/:id` | Record a placeholder approval |
+| POST | `/api/run-agent` | Start the agent for the demo |
 
 The ledger file is `server/data/store.json`. It is created on first run and is not committed.
 

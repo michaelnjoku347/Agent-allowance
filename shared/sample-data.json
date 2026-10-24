@@ -9,7 +9,11 @@
       "merchantLabel": "Market Desk",
       "amount": "4",
       "txHash": "0x3333333333333333333333333333333333333333333333333333333333333333",
-      "createdAt": "2026-10-24T15:40:00.000Z"
+      "createdAt": "2026-10-24T15:40:00.000Z",
+      "channelId": "0xa3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "claimId": "0xb3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3",
+      "payoutTx": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "resourceUrl": "https://merchant.example/translation"
     },
     {
       "id": "pay_sample_market",
@@ -20,7 +24,11 @@
       "merchantLabel": "Market Desk",
       "amount": "2.5",
       "txHash": "0x2222222222222222222222222222222222222222222222222222222222222222",
-      "createdAt": "2026-10-24T14:15:00.000Z"
+      "createdAt": "2026-10-24T14:15:00.000Z",
+      "channelId": "0xa2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "claimId": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "payoutTx": "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+      "resourceUrl": "https://merchant.example/market"
     },
     {
       "id": "pay_sample_weather",
@@ -31,7 +39,11 @@
       "merchantLabel": "Field Weather Co",
       "amount": "1",
       "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
-      "createdAt": "2026-10-24T13:05:00.000Z"
+      "createdAt": "2026-10-24T13:05:00.000Z",
+      "channelId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "claimId": "0xb1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "payoutTx": "0xc1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+      "resourceUrl": "https://merchant.example/weather"
     }
   ],
   "pending": [
