@@ -129,7 +129,3 @@ That checks the rules, that a 402 is read without a payment signature, that 1 RL
 - The key is only used to sign. It is not sent to the AP4M service.
 - This project targets XRPL EVM Testnet only. The agent stops if the service reports another chain id.
 - Do not send RLUSD or XRP straight to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
-
-## Person 1 payment reference
-
-The standalone direct-payment and x402 scripts, Windows setup, recovery steps, and live transaction evidence are in [payments/README.md](payments/README.md).
