@@ -396,6 +396,14 @@ function Detail({ item, currency }) {
           <dd>{item.txHash ? <code>{item.txHash}</code> : 'Not recorded'}</dd>
         </div>
         <div>
+          <dt>Merchant payout transaction</dt>
+          <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Channel</dt>
+          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
           <dt>Claim ID</dt>
           <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>

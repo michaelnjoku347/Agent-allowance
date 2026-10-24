@@ -170,3 +170,22 @@ describe('allowance API', { concurrency: false }, () => {
     }
   });
 });
+
+test('repeated redemption recording updates settlement without double-counting the budget', async () => {
+  resetStore();
+  const input = { task: 'Recovery', amount: '1', merchant: '0x' + '11'.repeat(20), txHash: '0x' + 'aa'.repeat(32) };
+  const first = await recordAgentPayment(input);
+  const settled = await recordAgentPayment({ ...input, payoutTx: '0x' + 'bb'.repeat(32), receiptUrl: 'https://hackathon.ap4m.build/public/evidence/example.json' });
+  assert.equal(first.id, settled.id);
+  assert.equal(await spentRlusd(), '1');
+  const { listPayments } = await import('./store.js');
+  let rows = await listPayments();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].settlementStatus, 'settled');
+  await recordAgentPayment({ ...input, receiptUrl: null, payoutTx: null });
+  rows = await listPayments();
+  assert.equal(rows[0].payoutTx, settled.payoutTx);
+  await assert.rejects(recordAgentPayment({ ...input, amount: '2' }), /Conflicting/);
+  assert.equal(await spentRlusd(), '1');
+  rmSync(dir, { recursive: true, force: true });
+});

@@ -58,6 +58,8 @@ function save(file, value) {
   const fd = openSync(temporary, 'wx', 0o600);
   try { writeFileSync(fd, JSON.stringify(value) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
   renameSync(temporary, file);
+  // Windows cannot open a directory with openSync. The payment file is fsynced above.
+  if (process.platform === 'win32') return;
   const directory = openSync(dirname(file), 'r');
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
