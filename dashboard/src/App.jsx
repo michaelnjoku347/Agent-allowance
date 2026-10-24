@@ -651,6 +651,7 @@ function ReceiptDrawer({ receipt, currency, explorerBase, onClose, reduced }) {
         </p>
         <p className="sub">{when(receipt.createdAt)}</p>
         <span className={`pill pill-${receipt.status}`}>{receipt.status}</span>
+        {receipt.status === 'paid' && !receipt.sample ? <p className="sub">{receipt.payoutTx ? 'Merchant payout recorded' : 'Redeemed; merchant settlement is processing'}</p> : null}
         <dl className="receipt">
           <div>
             <dt>Channel</dt>

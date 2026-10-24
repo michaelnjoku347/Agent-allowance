@@ -132,6 +132,7 @@ function presentPayment(payment) {
     claimId: payment.claimId ?? null,
     payoutTx: payment.payoutTx ?? null,
     receiptUrl: payment.receiptUrl ?? null,
+    settlementStatus: payment.payoutTx ? 'settled' : (payment.status === 'paid' ? 'processing' : null),
     resourceUrl: payment.resourceUrl ?? null,
   };
 }
@@ -208,6 +209,16 @@ export async function recordAgentPayment(input) {
   }
   return updateStore((store) => {
     activateAgent(store);
+    const existing = store.payments.find((row) => !row.sample && row.txHash?.toLowerCase() === input.txHash.toLowerCase());
+    if (existing) {
+      if (existing.merchant !== merchant || existing.amount !== amount || (input.channelId && existing.channelId && input.channelId !== existing.channelId)) {
+        throw new Error('Conflicting details for an already-recorded payment.');
+      }
+      for (const field of ['channelId', 'claimId', 'receiptUrl', 'payoutTx', 'resourceUrl']) {
+        if (input[field] != null) existing[field] = input[field];
+      }
+      return existing;
+    }
     const payment = {
       id: newId('pay'),
       sample: false,

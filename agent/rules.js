@@ -42,7 +42,7 @@ export function canonicalAddress(value) {
   return address.toLowerCase();
 }
 
-export function loadRules(file = RULES_PATH) {
+export function loadRules(file = process.env.ALLOWANCE_RULES || RULES_PATH) {
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const budget = toUnits(raw.budget);
   const maxPerPurchase = toUnits(raw.maxPerPurchase);

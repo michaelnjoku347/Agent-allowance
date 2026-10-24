@@ -129,3 +129,22 @@ test('a merchant outside the allowlist is blocked and nothing is paid', async ()
   assert.equal(payments.some((payment) => payment.sample), false);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('a lost settlement response still leaves the redeemed spend recorded', async () => {
+  const records = [];
+  await assert.rejects(finishQuote({
+    task: 'Buy before service disconnects',
+    resourceUrl: 'http://127.0.0.1:4308/resource',
+    quote: quote('1', allowed),
+    rules,
+    spent: '0',
+    pay: async () => ({ transactionHash: txHash, claimId: 'claim-recovery' }),
+    report: async () => {
+      assert.equal(records.length, 1);
+      assert.equal(records[0].txHash, txHash);
+      throw new Error('fetch failed');
+    },
+    recordPayment: async input => { records.push(input); return { id: 'recovered' }; },
+  }), /fetch failed/);
+  assert.equal(records.length, 1);
+});

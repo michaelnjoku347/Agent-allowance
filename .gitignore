@@ -152,3 +152,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Local allowance configured for the team merchant
+agent/rules.local.json
