@@ -70,8 +70,8 @@ export async function requestQuote(resourceUrl, channelId, fetchImpl = fetch) {
 }
 
 /**
- * A direct-payment quote. The amount is RLUSD, and the merchant is the
- * Channel payout the voucher would settle to. Nothing here signs or pays.
+ * A local quote used by tests. The payer itself reads the price from the
+ * merchant's HTTP 402, not from this helper. Nothing here signs or pays.
  */
 export function buildPurchaseQuote({ amount = '1', merchant, task = '' } = {}) {
   const units = toUnits(amount);

@@ -231,9 +231,11 @@ function Dashboard() {
   const loading = connection === 'loading' && !snapshot;
   const view = snapshot ?? (connection === 'offline' ? sampleSnapshot : null);
   const showSample = view ? (connection === 'offline' || !view.agentConnected) : false;
+  const paymentRows = view ? view.payments.filter((payment) => showSample || !payment.sample) : [];
+  const pendingRows = view ? view.pending.filter((item) => showSample || !item.sample) : [];
   const ratio = view ? Math.max(0, Math.min(1, Number(view.spentRatio) || 0)) : 0;
   const canApprove = connection === 'online' || connection === 'stale';
-  const feed = liveFeed ?? (view ? selectFeed(view) : null);
+  const feed = liveFeed ?? (view ? selectFeed({ ...view, payments: paymentRows, pending: pendingRows }) : null);
 
   return (
     <div className="page">
@@ -415,11 +417,11 @@ function Dashboard() {
                   No voucher is signed and no RLUSD moves.
                 </p>
               </div>
-              {view.pending.length === 0 ? (
+              {pendingRows.length === 0 ? (
                 <p className="empty">Nothing is waiting. A quote that breaks the rules shows up here.</p>
               ) : (
                 <ul className="queue">
-                  {view.pending.map((item) => {
+                  {pendingRows.map((item) => {
                     const tone = toneFor(item.reason);
                     const done = resolvedId === item.id;
                     return (
@@ -472,7 +474,7 @@ function Dashboard() {
                 <h2>Payments</h2>
                 <p>Live payments link to the XRPL EVM Testnet explorer. Click a row for the receipt.</p>
               </div>
-              {view.payments.length === 0 ? (
+              {paymentRows.length === 0 ? (
                 <p className="empty">No payments yet. Run the agent on a quote inside the allowance.</p>
               ) : (
                 <div className="table-wrap">
@@ -489,7 +491,7 @@ function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {view.payments.map((payment) => (
+                      {paymentRows.map((payment) => (
                         <motion.tr
                           key={payment.id}
                           className={freshIds.has(payment.id) ? 'is-fresh' : undefined}
