@@ -131,6 +131,7 @@ function presentPayment(payment) {
     channelId: payment.channelId ?? null,
     claimId: payment.claimId ?? null,
     payoutTx: payment.payoutTx ?? null,
+    receiptUrl: payment.receiptUrl ?? null,
     resourceUrl: payment.resourceUrl ?? null,
   };
 }
@@ -205,9 +206,12 @@ export async function recordAgentPayment(input) {
       merchantLabel: input.merchantLabel ?? null,
       amount,
       txHash: input.txHash,
+      explorerUrl: `${network.explorerUrl}/tx/${input.txHash}`,
       resourceUrl: input.resourceUrl ?? null,
+      receiptUrl: input.receiptUrl ?? null,
       claimId: input.claimId ?? null,
       channelId: input.channelId ?? null,
+      payoutTx: input.payoutTx ?? null,
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);

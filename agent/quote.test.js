@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import test from 'node:test';
 import { buildX402PaymentRequired, encodeX402PaymentRequired } from '@ap4m/sdk';
 import { checkRules, loadRules } from './rules.js';
-import { operationName, quoteFromPaymentRequired, requestQuote } from './quote.js';
+import { buildPurchaseQuote, operationName, quoteFromPaymentRequired, requestQuote } from './quote.js';
 
 const rules = loadRules();
 const channelId = `0x${'ab'.repeat(32)}`;
@@ -74,6 +74,19 @@ test('requestQuote stops at HTTP 402 and does not send a payment signature', asy
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('a direct purchase quote is the price and payout the rules check', () => {
+  const quote = buildPurchaseQuote({
+    amount: '1.0',
+    merchant: '0xA11CEA11CEA11CEA11CEA11CEA11CEA11CEA11CE',
+    task: 'Buy the morning weather brief',
+  });
+  assert.equal(quote.amount, '1');
+  assert.equal(quote.amountWei, `${10n ** 18n}`);
+  assert.equal(quote.merchant, '0xa11cea11cea11cea11cea11cea11cea11cea11ce');
+  assert.equal(quote.task, 'Buy the morning weather brief');
+  assert.equal(checkRules({ merchant: quote.merchant, amount: quote.amount, spent: '0' }).decision, 'allow');
 });
 
 test('operation names fit the AP4M purchase format', () => {
