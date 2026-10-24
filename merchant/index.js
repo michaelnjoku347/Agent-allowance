@@ -45,7 +45,7 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
       ok: true,
       selling: '/resource',
       payout: payout ?? null,
-      quotes: ['/demo/over-cap', '/demo/unlisted'],
+      quotes: ['/demo/over-cap', '/demo/over-cap-6', '/demo/unlisted'],
     });
   });
 
@@ -57,7 +57,7 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
     resourceServer.emit('request', req, res);
   });
 
-  app.get('/demo/over-cap', (req, res) => {
+  function quoteOverCap(req, res, amount, description) {
     const url = requestedUrl(req);
     if (!payout || !url) {
       res.status(500).json({ error: 'Set MERCHANT_PAYOUT_ADDRESS before quoting the over-cap purchase.' });
@@ -65,11 +65,19 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
     }
     sendPaymentRequired(res, {
       url,
-      description: 'Extended market history',
-      amount: ethers.parseUnits('8', 18).toString(),
+      description,
+      amount,
       payTo: payout,
       channelId: req.get('x-ap4m-channel-id'),
     });
+  }
+
+  app.get('/demo/over-cap', (req, res) => {
+    quoteOverCap(req, res, ethers.parseUnits('8', 18).toString(), 'Extended market history');
+  });
+
+  app.get('/demo/over-cap-6', (req, res) => {
+    quoteOverCap(req, res, ethers.parseUnits('6', 18).toString(), 'Quote above the 5 RLUSD per-purchase cap');
   });
 
   app.get('/demo/unlisted', (req, res) => {
@@ -161,7 +169,7 @@ async function main() {
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`Merchant selling ${resourceUrl} for ${price} RLUSD`);
     console.log(`Payout ${payout}`);
-    console.log(`Demo quotes at http://127.0.0.1:${port}/demo/over-cap and /demo/unlisted`);
+    console.log(`Demo quotes at http://127.0.0.1:${port}/demo/over-cap, /demo/over-cap-6, and /demo/unlisted`);
   });
 
   server.on('error', (error) => {

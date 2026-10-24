@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
-import { EveMark, IconMic, IconMinus } from './icons.jsx';
+import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
   'What did my agent spend today?',
@@ -17,12 +17,18 @@ function speechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function mobileDock() {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 959px)').matches;
+}
+
 function readMode() {
   try {
-    return localStorage.getItem(DOCK_KEY) === 'min' ? 'min' : 'open';
+    const saved = localStorage.getItem(DOCK_KEY);
+    if (saved === 'min' || saved === 'open' || saved === 'peek') return saved;
   } catch {
-    return 'open';
+    /* Private browsing can block storage. */
   }
+  return mobileDock() ? 'peek' : 'open';
 }
 
 function focusable(root) {
@@ -38,6 +44,7 @@ export function EveDock({ seed, onSeedHandled }) {
   const modeRef = useRef(readMode());
   const [mode, setMode] = useState(modeRef.current);
   const [unread, setUnread] = useState(0);
+  const dragRef = useRef({ y: 0, dragged: false });
   const [status, setStatus] = useState({ listening: false, speaking: false });
   const [announcement, setAnnouncement] = useState('');
   modeRef.current = mode;
@@ -66,6 +73,15 @@ export function EveDock({ seed, onSeedHandled }) {
   }
 
   function expand() {
+    const next = mobileDock() ? 'peek' : 'open';
+    setMode(next);
+    setUnread(0);
+    requestAnimationFrame(() => {
+      panelRef.current?.querySelector('#eve-message')?.focus();
+    });
+  }
+
+  function expandFull() {
     setMode('open');
     setUnread(0);
     requestAnimationFrame(() => {
@@ -73,9 +89,39 @@ export function EveDock({ seed, onSeedHandled }) {
     });
   }
 
+  function onGrabDown(event) {
+    if (!mobileDock() || event.button > 0) return;
+    dragRef.current = { y: event.clientY, dragged: false };
+    function move(next) {
+      const dy = dragRef.current.y - next.clientY;
+      if (dy > 28) {
+        dragRef.current.dragged = true;
+        expandFull();
+        cleanup();
+      } else if (dy < -28 && modeRef.current === 'open') {
+        dragRef.current.dragged = true;
+        setMode('peek');
+        cleanup();
+      }
+    }
+    function up() { cleanup(); }
+    function cleanup() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  function onGrabClick() {
+    if (!mobileDock() || dragRef.current.dragged) return;
+    if (modeRef.current === 'peek') expandFull();
+    else setMode('peek');
+  }
+
   useEffect(() => {
     const root = panelRef.current;
-    if (!root || mode !== 'open') return undefined;
+    if (!root || mode === 'min') return undefined;
     function onKey(event) {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -83,8 +129,8 @@ export function EveDock({ seed, onSeedHandled }) {
         minimize();
         return;
       }
-      const mobile = window.matchMedia('(max-width: 959px)').matches;
-      if (!mobile || event.key !== 'Tab') return;
+      const mobile = mobileDock();
+      if (!mobile || mode !== 'open' || event.key !== 'Tab') return;
       const items = focusable(root);
       if (!items.length) return;
       const first = items[0];
@@ -104,6 +150,7 @@ export function EveDock({ seed, onSeedHandled }) {
   function onReply(text) {
     setAnnouncement(text);
     if (modeRef.current === 'min') setUnread((count) => count + 1);
+    if (modeRef.current === 'peek') setMode('open');
   }
 
   const stateLabel = status.listening ? 'Listening' : status.speaking ? 'Speaking' : 'Allowance assistant';
@@ -116,25 +163,39 @@ export function EveDock({ seed, onSeedHandled }) {
         : 'Expand Eve';
 
   return (
-    <div className={`eve-dock ${mode === 'open' ? 'is-open' : 'is-min'}`}>
+    <div className={`eve-dock is-${mode}`}>
       <div className="sr-only" aria-live="polite">{announcement}</div>
       <section
-        className="eve-window"
+        className={`eve-window is-${mode}`}
         id={panelId}
         ref={panelRef}
-        hidden={mode !== 'open'}
+        hidden={mode === 'min'}
         role="region"
         aria-label="Eve"
       >
+        <button
+          type="button"
+          className="eve-grab"
+          aria-label={mode === 'peek' ? 'Expand Eve' : 'Show the compact Eve chat'}
+          onPointerDown={onGrabDown}
+          onClick={onGrabClick}
+        />
         <header className="eve-head">
           <EveMark size={32} />
           <div className="eve-id">
             <h2>Eve</h2>
             <p className={status.listening || status.speaking ? 'is-live' : ''}>{stateLabel}</p>
           </div>
-          <button type="button" className="icon-btn eve-min" aria-label="Minimize Eve" onClick={minimize}>
-            <IconMinus />
-          </button>
+          <div className="eve-tools">
+            {mode === 'peek' ? (
+              <button type="button" className="icon-btn eve-min" aria-label="Expand Eve" onClick={expandFull}>
+                <IconChevron />
+              </button>
+            ) : null}
+            <button type="button" className="icon-btn eve-min" aria-label="Minimize Eve" onClick={minimize}>
+              <IconMinus />
+            </button>
+          </div>
         </header>
         <EvePanel
           seed={seed}

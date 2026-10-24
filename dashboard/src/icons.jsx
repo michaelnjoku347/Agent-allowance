@@ -98,6 +98,14 @@ export function EveMark({ size = 28 }) {
   );
 }
 
+export function IconChevron({ size = 22 }) {
+  return (
+    <Stroke size={size}>
+      <path {...pen} d="M6 14.5 12 8.5l6 6" />
+    </Stroke>
+  );
+}
+
 export function IconMinus({ size = 22 }) {
   return (
     <Stroke size={size}>
