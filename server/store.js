@@ -111,6 +111,16 @@ function activateAgent(store) {
   store.pending = store.pending.filter((item) => !item.sample);
 }
 
+function presentPlan(value) {
+  if (!value || typeof value !== 'object' || value.source !== 'bedrock') return null;
+  const reason = typeof value.reason === 'string' ? value.reason.trim().slice(0, 500) : '';
+  if (!reason) return null;
+  const resourceId = typeof value.resourceId === 'string' && value.resourceId.trim()
+    ? value.resourceId.trim().slice(0, 80)
+    : null;
+  return { source: 'bedrock', resourceId, reason };
+}
+
 function presentJev(value) {
   if (!value || typeof value !== 'object') return null;
   return {
@@ -147,6 +157,7 @@ function presentPayment(payment) {
     settlementStatus: payment.payoutTx ? 'settled' : (payment.status === 'paid' ? 'processing' : null),
     resourceUrl: payment.resourceUrl ?? null,
     jev: presentJev(payment.jev),
+    plan: presentPlan(payment.plan),
   };
 }
 
@@ -164,6 +175,7 @@ function presentPending(item) {
     createdAt: item.createdAt,
     sample: Boolean(item.sample),
     jev: presentJev(item.jev),
+    plan: presentPlan(item.plan),
   };
 }
 
@@ -233,6 +245,7 @@ export async function recordAgentPayment(input) {
         if (input[field] != null) existing[field] = input[field];
       }
       if (input.jev != null) existing.jev = presentJev(input.jev);
+      if (input.plan != null) existing.plan = presentPlan(input.plan);
       return existing;
     }
     const payment = {
@@ -251,6 +264,7 @@ export async function recordAgentPayment(input) {
       channelId: input.channelId ?? null,
       payoutTx: input.payoutTx ?? null,
       jev: presentJev(input.jev),
+      plan: presentPlan(input.plan),
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
@@ -275,6 +289,7 @@ export async function recordPending(input) {
       description: String(input.description ?? ''),
       resourceUrl: input.resourceUrl ?? null,
       jev: presentJev(input.jev),
+      plan: presentPlan(input.plan),
       createdAt: new Date().toISOString(),
     };
     store.pending.unshift(pending);

@@ -11,6 +11,18 @@ const { finishQuote, resultLine } = await import('./agent.js');
 const { listPayments, listPending } = await import('../server/store.js');
 const { loadRules } = await import('./rules.js');
 
+for (const name of [
+  'AWS_REGION',
+  'AWS_DEFAULT_REGION',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'AWS_BEARER_TOKEN_BEDROCK',
+  'BEDROCK_MODEL_ID',
+]) {
+  delete process.env[name];
+}
+
 const rules = loadRules();
 const allowed = rules.allowedMerchants[0];
 const unlisted = '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad';

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
+import BedrockMark from './BedrockMark.jsx';
 import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
@@ -349,7 +350,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
     setBusy(true);
     try {
       const body = await askEve(message);
-      setMessages((current) => [...current, { role: 'eve', text: body.reply }]);
+      setMessages((current) => [...current, { role: 'eve', text: body.reply, bedrock: body.bedrock === true }]);
       onReply?.(body.reply);
       setConfirmation(body.confirmation ?? null);
       speak(body.confirmation ? `${body.reply} ${body.confirmation.summary}` : body.reply, () => {
@@ -404,6 +405,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
             {message.text}
+            {message.bedrock ? <BedrockMark /> : null}
           </p>
         ))}
         {interim ? <p className="bubble you interim"><span className="who">You</span>{interim}</p> : null}

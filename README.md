@@ -73,9 +73,14 @@ Fill in `.env` (it is gitignored — do not commit it):
 | `JEV_API_KEY` | Optional. From thejevai.com, account settings, API Keys. Blank means the rules decide alone. |
 | `JEV_API_URL` | Optional. `https://thejevai.com`, or a self-hosted Kev URL. |
 | `JEV_MODEL` | Optional. Defaults to `typesafe/jev-1.13`. |
-| `LLM_API_KEY` | Optional. Eve's model. Stays on the server. |
+| `LLM_API_KEY` | Optional. Eve's fallback model. Stays on the server. |
 | `LLM_BASE_URL` | Optional. OpenAI-compatible base URL, such as `https://api.openai.com/v1`. |
 | `LLM_MODEL` | Optional. Model name for that endpoint. |
+| `AWS_REGION` | Optional. Bedrock region. `AWS_DEFAULT_REGION` is used when this is blank. |
+| `BEDROCK_MODEL_ID` | Optional. Bedrock model id, such as `us.amazon.nova-micro-v1:0`. |
+| `AWS_BEARER_TOKEN_BEDROCK` | Optional. Bedrock API key. Never commit it. |
+| `AWS_ACCESS_KEY_ID` | Optional. Standard AWS key, used when the bearer token is blank. Never commit it. |
+| `AWS_SECRET_ACCESS_KEY` | Optional. Pairs with `AWS_ACCESS_KEY_ID`. Never commit it. |
 
 The merchant listens on `MERCHANT_PORT` (4308). `PORT` (8787) is only the allowance API.
 
@@ -132,6 +137,8 @@ Ledger hardware signing and AWS deployment remain separate team integrations. Th
 
 ## How a purchase is decided
 
+When Bedrock is configured, the agent asks it for a purchase plan before anything is signed: what the quoted resource is for, and why it fits the task. The plan is saved on the row. `checkRules` and Jev still decide whether it is paid.
+
 1. The agent reuses an open Channel, or opens one, then `GET`s `RESOURCE_URL` with the Channel id. It does not send a payment signature yet.
 2. The merchant answers **402** with the price and payout.
 3. `checkRules` looks at that quote. The first failure wins:
@@ -171,17 +178,37 @@ The ledger file is `server/data/store.json`. It is created on first run and is n
 npm test
 ```
 
-That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that Jev cannot override a blocked rule, and that Eve asks before she approves or changes the cap.
+That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that Jev cannot override a blocked rule, that Eve asks before she approves or changes the cap, and that a mocked Bedrock plan cannot pay a quote the rules or Jev held back.
 
 ## Jev and Eve
 
 Jev looks at a purchase only after the rules allow it. Set `JEV_API_KEY` from [thejevai.com](https://thejevai.com) (account settings, then API Keys). `JEV_API_URL` defaults to `https://thejevai.com`. Point it at a self-hosted Kev server if you run one; the API is the same. With no key, a timeout, or an error, the agent pays on the rules and records "Jev unavailable — rules only". The dashboard card shows Needed, Risk (1–5), and Human review, plus whether the source was Jev, Kev, or the rules.
 
-Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Approving, declining, or changing the cap or budget returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are optional and stay on the server. Without them Eve uses a built-in parser.
+Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Approving, declining, or changing the cap or budget returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. When Bedrock is configured, Eve asks Bedrock first. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are an optional fallback and stay on the server. Without Bedrock or those settings, Eve uses a built-in parser.
+
+## AWS Bedrock
+
+Eve's replies and the agent's purchase plan run on Amazon Bedrock when it is configured. Bedrock writes the words. The allowance rules still block a quote outside the cap, the budget, the merchant list, or the expiry, and Jev still reviews risk after the rules allow a quote. With the variables below blank, Eve uses the built-in parser (or `LLM_*` when that key is set) and the agent decides from the rules and Jev alone.
+
+1. In the Bedrock console, turn on model access for the model you want, in the same region as `AWS_REGION`.
+2. Add the variables to `.env`. That file is gitignored. Use either a Bedrock API key or standard AWS keys.
+
+```bash
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=us.amazon.nova-micro-v1:0
+AWS_BEARER_TOKEN_BEDROCK=
+```
+
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional `AWS_SESSION_TOKEN` work in place of the bearer token. `AWS_DEFAULT_REGION` counts when `AWS_REGION` is blank, so the Python planner's region variable still applies. When both a bearer token and access keys are set, the bearer token is used.
+
+3. Restart `npm run server` and the agent. Ask Eve a question that is not one of her short commands, such as "Does a weather brief fit this allowance?". The dashboard shows **Powered by Amazon Bedrock** under a reply only when Bedrock produced it. The same line appears on an activity row's purchase plan.
+
+The Python files in `ai_agent/` stay as the reference planner. `python ai_agent/bedrock_check.py` still checks the OpenAI-compatible Bedrock endpoint with `AWS_BEARER_TOKEN_BEDROCK` and `AWS_DEFAULT_REGION`. The live app calls the Converse API from Node (`server/bedrock.js`, `agent/planner.js`). `BEDROCK_MODEL_ID` is a Bedrock model id. It is a different string from the Python demo's `mistral.devstral-2-123b`.
 
 ## Safety
 
 - The agent key, the merchant submitter key, `JEV_API_KEY`, and `LLM_API_KEY` stay in `.env`. They are not committed and they are not sent to the browser.
+- `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` stay in `.env` as well. Bedrock receives the task and the allowance context, not the wallet key.
 - The key is only used to sign. It is not sent to the AP4M service.
 - This project targets XRPL EVM Testnet only. The agent stops if the service reports another chain id.
 - Do not send RLUSD or XRP straight to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
