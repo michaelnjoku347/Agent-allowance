@@ -70,7 +70,7 @@ def main():
         print("No approved merchants configured.")
         return
 
-    # Use the configured addresses for this local demonstration.
+    # Demo-only merchant assignments, not verified merchant quotes.
     catalog = [
         {
             **item,
@@ -81,22 +81,45 @@ def main():
         for index, item in enumerate(RESOURCES)
     ]
 
-    print("LOCAL DEMO — keyword selection, simulated spending, no payments")
-    task = input("Task: ").strip().lower()
+    print("AI DEMO — Bedrock selection, simulated spending, no payments")
+    task = input("Task: ").strip()
 
+    if not task:
+        print("Please provide a task.")
+        return
+
+    confirmation = input(
+        "Use Bedrock to select a resource? Uses AWS credits. Type YES: "
+    ).strip()
+
+    if confirmation != "YES":
+        print("Cancelled. No model call or payment made.")
+        return
+
+    print("AI is selecting a resource...", flush=True)
     plan = select_resource(task, catalog)
 
     if plan["resource"] is None:
-        print(plan["reason"])
+        print(json.dumps({
+            "mode": "ai_demo",
+            "resourceId": None,
+            "decision": "NO_PURCHASE",
+            "reason": plan["reason"],
+            "paymentExecuted": False,
+        }, indent=2))
         return
 
     selected = plan["resource"]
+
+    # Independent code enforces the rules, not the AI.
+    # Spending is simulated until connected to the payment backend.
     decision, reason = check_purchase(selected, rules, spent="0")
 
     print(json.dumps({
-        "mode": "local_demo",
+        "mode": "ai_demo",
         "resourceId": selected["id"],
         "description": selected["description"],
+        "selectionReason": plan["reason"],
         "price": selected["price"],
         "currency": "RLUSD",
         "decision": decision,
@@ -107,13 +130,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    api_key = os.getenv("AWS_BEARER_TOKEN_BEDROCK")
-    region = os.getenv("AWS_DEFAULT_REGION")
-
-    print("Bedrock key configured:", bool(api_key))
-    print("AWS region:", region or "NOT SET")
-
-from bedrock_check import check_bedrock
-
-if input("Run one billable Bedrock test? Type YES: ").strip() == "YES":
-    check_bedrock()
