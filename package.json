@@ -12,7 +12,7 @@
     "merchant": "node merchant/index.js",
     "dashboard": "npm --prefix dashboard run dev",
     "demo": "node demo/run.js",
-    "test": "node --test --experimental-test-isolation=process --test-timeout=20000 agent/rules.test.js agent/quote.test.js agent/channel.test.js agent/net.test.js agent/purchase.test.js agent/jev.test.js merchant/server.test.js server/store.test.js server/eve.test.js"
+    "test": "node --test --experimental-test-isolation=process --test-timeout=20000 agent/rules.test.js agent/quote.test.js agent/channel.test.js agent/net.test.js agent/purchase.test.js agent/jev.test.js merchant/server.test.js server/store.test.js server/eve.test.js dashboard/src/allowance.test.js"
   },
   "dependencies": {
     "@ap4m/sdk": "https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz",

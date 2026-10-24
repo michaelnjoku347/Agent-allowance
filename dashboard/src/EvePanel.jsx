@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
+import { IconMic } from './icons.jsx';
 
 const CHIPS = [
   'What did my agent spend today?',
@@ -15,7 +16,7 @@ function speechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
-export default function EvePanel({ active }) {
+export default function EvePanel({ seed, onSeedHandled, showHeading = true }) {
   const listId = useId();
   const [messages, setMessages] = useState([
     {
@@ -166,12 +167,22 @@ export default function EvePanel({ active }) {
     }
   }
 
+  const handledSeed = useRef(null);
+  useEffect(() => {
+    if (!seed || handledSeed.current === seed.id) return;
+    handledSeed.current = seed.id;
+    send(seed.text);
+    onSeedHandled?.();
+  }, [seed]);
+
   return (
     <section className="eve" aria-label="Eve">
-      <header className="section-head">
-        <h2>Eve</h2>
-        <p>Ask in text{supported ? ' or by voice' : ''}. Changes wait for you to confirm.</p>
-      </header>
+      {showHeading ? (
+        <header className="section-head">
+          <h2>Eve</h2>
+          <p>Ask in text{supported ? ' or by voice' : ''}. Changes wait for you to confirm.</p>
+        </header>
+      ) : null}
       <div className="transcript" id={listId} aria-live="polite" aria-relevant="additions">
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
@@ -210,12 +221,12 @@ export default function EvePanel({ active }) {
         {supported ? (
           <button
             type="button"
-            className={listening ? 'btn mic is-on' : 'btn mic'}
+            className={listening ? 'mic-btn is-on' : 'mic-btn'}
             aria-pressed={listening}
             aria-label={listening ? 'Stop voice input' : 'Start voice input'}
             onClick={() => (listening ? stopListening() : startListening())}
           >
-            <MicIcon />
+            <IconMic />
             <span>{listening ? 'Listening' : 'Mic'}</span>
           </button>
         ) : null}
@@ -265,10 +276,3 @@ export default function EvePanel({ active }) {
   );
 }
 
-function MicIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
-    </svg>
-  );
-}

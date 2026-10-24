@@ -1,0 +1,99 @@
+function Stroke({ children, size = 22 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" fill="none">
+      {children}
+    </svg>
+  );
+}
+
+const pen = {
+  stroke: 'currentColor',
+  strokeWidth: 1.75,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+};
+
+export function LogoMark({ tone = 'pine', size = 36 }) {
+  const bg = tone === 'cream' ? '#F4F0E6' : '#1B4D3E';
+  const stroke = tone === 'cream' ? '#1B4D3E' : '#F4F0E6';
+  const dot = tone === 'cream' ? '#8C5A1E' : '#E2B15A';
+  return (
+    <svg className="logo-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
+      <rect width="36" height="36" rx="10" fill={bg} />
+      <path d="M18 8.2a9.8 9.8 0 1 1-8.4 4.8" stroke={stroke} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+      <path d="M18 14v6.4" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="18" cy="23.4" r="1.45" fill={dot} />
+    </svg>
+  );
+}
+
+export function IconHome() {
+  return (
+    <Stroke>
+      <path {...pen} d="M4.5 10.8 12 4.5l7.5 6.3V19.5a1 1 0 0 1-1 1h-4.2v-5.2H9.7v5.2H5.5a1 1 0 0 1-1-1v-8.7z" />
+    </Stroke>
+  );
+}
+
+export function IconActivity() {
+  return (
+    <Stroke>
+      <path {...pen} d="M5 7.5h9M5 12h14M5 16.5h7" />
+      <path {...pen} d="M16.5 15.5 18.2 17.2 21.5 13.5" />
+    </Stroke>
+  );
+}
+
+export function IconEve() {
+  return (
+    <Stroke>
+      <path {...pen} d="M6 8.5h12a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H10l-3.5 3v-3H6a2 2 0 0 1-2-2v-4.5a2 2 0 0 1 2-2z" />
+      <path {...pen} d="M8.5 12h.01M12 12h.01M15.5 12h.01" />
+    </Stroke>
+  );
+}
+
+export function IconMic({ size = 22 }) {
+  return (
+    <Stroke size={size}>
+      <rect {...pen} x="9" y="3.5" width="6" height="10" rx="3" />
+      <path {...pen} d="M6.5 11a5.5 5.5 0 0 0 11 0M12 16.5V20M9 20h6" />
+    </Stroke>
+  );
+}
+
+export function IconSettings() {
+  return (
+    <Stroke>
+      <path {...pen} d="M4.5 8h10M18.5 8H20M4.5 16H8M12 16h8" />
+      <circle {...pen} cx="16.5" cy="8" r="2" />
+      <circle {...pen} cx="10" cy="16" r="2" />
+    </Stroke>
+  );
+}
+
+export function IconCheck({ size = 18 }) {
+  return (
+    <Stroke size={size}>
+      <path {...pen} d="M5 12.5 9.2 16.5 19 7.5" />
+    </Stroke>
+  );
+}
+
+export function IconReceipt() {
+  return (
+    <Stroke>
+      <path {...pen} d="M7 3.5h10a1 1 0 0 1 1 1V20l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2V4.5a1 1 0 0 1 1-1z" />
+      <path {...pen} d="M9 8h6M9 12h6" />
+    </Stroke>
+  );
+}
+
+export function IconAlert() {
+  return (
+    <Stroke>
+      <path {...pen} d="M12 4.5 20.5 19H3.5L12 4.5z" />
+      <path {...pen} d="M12 10v4.2M12 16.8h.01" />
+    </Stroke>
+  );
+}
