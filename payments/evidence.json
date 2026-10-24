@@ -1,0 +1,22 @@
+{
+  "network": "XRPL EVM Testnet",
+  "chainId": 1449000,
+  "source": "Operator live terminal output, October 24, 2026",
+  "directPayment": {
+    "amountRlusd": "1",
+    "channelId": "0x4de29cd959a0a7a84ee753228e4e3b2f043ec7e4fea2828a6ce15ff37460f20b",
+    "redemptionTx": "0xbcadd2ec8054f86559859fa9275017b049c2a8494a1d00427ee655acdace85cd",
+    "settlementTx": "0x17fca7bc0632cb955aa65b5b7a787f94de4e9fb17a2152c07b4ca05ebde7723d",
+    "payoutTx": "0xdec7f8d4bbf4c2e123e994e865adbe37b449ed6e113fbb9cc88554e10c4d5df7",
+    "closeTx": "0x44d57a715e1eed7ada89a269eabd5223e0cc44296978abcbe42b7c4093195778",
+    "receiptUrl": "https://hackathon.ap4m.build/public/evidence/claims/0x27c2165404bfba2352ceb6331201913b8d7b0cee80254172249f988bb86b8aba/0x7417a2e0373ae63a32de63bd5650f07a0e482043df660093cccceef0ef5375e3.json"
+  },
+  "x402Payment": {
+    "amountRlusd": "1",
+    "channelId": "0xc6394141fb30d7b4c63fb995da62cffaee5465182a6c142366267107b5b4de9f",
+    "redemptionTx": "0x52fb4c13d8cb0eb95013520b78fb100ff2d0a1188e968ea0b4fc4f79a4e63883",
+    "payoutTx": "0x9ffc2fb250a6a7454b21741d9000a0ca6c7909534784bda52860c366d9c03271",
+    "receiptUrl": "https://hackathon.ap4m.build/public/evidence/claims/0xf24e24ced93a13452b856c1094f578e0fb21aa16c9db812626804492bbf1c850/0x6a2246d9cd25e90580c8870c58147c3f1625077de665dbd2326454cac9bb21ba.json",
+    "closure": "Recovery check reported on-chain status 2 (closed). Close transaction hash was not captured."
+  }
+}
