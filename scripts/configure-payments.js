@@ -16,7 +16,10 @@ export function buildConfiguration({ current = {}, source = {}, settings = {}, r
   for (const key of ['AGENT_PRIVATE_KEY', 'TEAM_NAME', 'MERCHANT_ID', 'MERCHANT_PAYOUT_ADDRESS', 'MERCHANT_SUBMITTER_KEY']) {
     if (!env[key]) throw new Error('Missing ' + key + '. Supply the tested starter folder; use --use-agent-as-submitter only for the existing same-wallet demo.');
   }
-  try { new ethers.Wallet(env.AGENT_PRIVATE_KEY); new ethers.Wallet(env.MERCHANT_SUBMITTER_KEY); }
+  try {
+    env.AGENT_PRIVATE_KEY = new ethers.Wallet(env.AGENT_PRIVATE_KEY).privateKey;
+    env.MERCHANT_SUBMITTER_KEY = new ethers.Wallet(env.MERCHANT_SUBMITTER_KEY).privateKey;
+  }
   catch { throw new Error('A local wallet key is invalid. No key values are printed.'); }
   if (!/^0x[0-9a-f]{64}$/i.test(env.MERCHANT_ID)) throw new Error('MERCHANT_ID must be a 32-byte merchant ID.');
   if (!ethers.isAddress(env.MERCHANT_PAYOUT_ADDRESS)) throw new Error('MERCHANT_PAYOUT_ADDRESS is invalid.');
@@ -36,7 +39,8 @@ export function buildConfiguration({ current = {}, source = {}, settings = {}, r
   return { env, rules: localRules };
 }
 
-export function main(argv = process.argv.slice(2)) {
+export function main(argv = process.argv.slice(2), projectRoot = root) {
+  const root = projectRoot;
   const sourceIndex = argv.indexOf('--from');
   const sourceDir = sourceIndex < 0 ? join(root, 'payments') : resolve(argv[sourceIndex + 1] || '');
   if (sourceIndex >= 0 && !argv[sourceIndex + 1]) throw new Error('--from requires the tested starter folder path.');
@@ -53,7 +57,7 @@ export function main(argv = process.argv.slice(2)) {
     rules: JSON.parse(readFileSync(join(root, 'agent/rules.json'), 'utf8')),
     useAgentAsSubmitter: argv.includes('--use-agent-as-submitter'),
   });
-  configured.env.ALLOWANCE_RULES = rulesFile;
+  configured.env.ALLOWANCE_RULES = rulesFile.replaceAll('\\', '/');
   // Write only local, gitignored files. Keys are never printed or sent to a service.
   writeFileSync(rulesFile, JSON.stringify(configured.rules, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   const serialized = Object.entries(configured.env).map(([key, value]) => key + '=' + JSON.stringify(value)).join('\n') + '\n';

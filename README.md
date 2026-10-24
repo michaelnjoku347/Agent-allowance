@@ -174,3 +174,7 @@ That checks the rules, that a 402 is read without a payment signature, that 1 RL
 ## Person 1 payment reference
 
 The standalone direct-payment and x402 scripts, Windows setup, recovery steps, and live transaction evidence are in [payments/README.md](payments/README.md).
+
+If another merchant already uses port 4308, choose a free MERCHANT_PORT and update RESOURCE_URL to the same port. Set MERCHANT_STATE_DIRECTORY to a separate local folder such as merchant/state-4309 when changing the merchant resource URL; keep the original state for recovery. Restart the API after local environment changes.
+
+If WebShield blocks the testnet RPC with URL:Blacklist, the live payment has not succeeded. Have the hackathon staff or security administrator review that classification before retrying. Keep the dashboard marked Sample until real decisions are recorded.

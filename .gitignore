@@ -155,3 +155,5 @@ vite.config.ts.timestamp-*
 
 # Local allowance configured for the team merchant
 agent/rules.local.json
+
+merchant/state-*/

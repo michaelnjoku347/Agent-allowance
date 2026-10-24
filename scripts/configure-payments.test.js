@@ -49,3 +49,23 @@ test('server and payer load the same local allowance override', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('generated local settings round-trip through dotenv with valid keys and a readable rules path', async () => {
+  const { mkdirSync } = await import('node:fs');
+  const { main } = await import('./configure-payments.js');
+  const { default: dotenv } = await import('dotenv');
+  const dir = mkdtempSync(join(tmpdir(), 'allowance-setup-write-'));
+  try {
+    mkdirSync(join(dir, 'agent'));
+    mkdirSync(join(dir, 'starter'));
+    writeFileSync(join(dir, 'agent/rules.json'), JSON.stringify(rules));
+    writeFileSync(join(dir, 'starter/.env'), 'AGENT_PRIVATE_KEY=' + key.slice(2) + '\nTEAM_NAME=AMD\n');
+    writeFileSync(join(dir, 'starter/x402-settings.json'), JSON.stringify(settings));
+    main(['--from', join(dir, 'starter'), '--use-agent-as-submitter'], dir);
+    const env = dotenv.parse(readFileSync(join(dir, '.env')));
+    assert.equal(env.AGENT_PRIVATE_KEY, key);
+    assert.equal(env.MERCHANT_SUBMITTER_KEY, key);
+    assert.deepEqual(JSON.parse(readFileSync(env.ALLOWANCE_RULES, 'utf8')).allowedMerchants, [payout]);
+    assert.equal(env.ALLOWANCE_RULES.includes('\\'), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
