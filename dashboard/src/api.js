@@ -1,24 +1,16 @@
 /**
- * Same shape as the API, used only when the server cannot be reached.
- * While the server is up and the agent has not run, the API serves this
- * same sample set from shared/sample-data.json.
+ * Same shape as the API, used only when the server cannot be reached, so the
+ * page can still be previewed. While the server is up and the agent has not
+ * run, the API serves this same sample set from shared/sample-data.json.
+ * Totals are not stored here: ledger.js derives them from the rows.
  */
 
 import rules from '../../agent/rules.json';
 import network from '../../shared/network.json';
 import sample from '../../shared/sample-data.json';
 
-const budget = Number(rules.budget);
-const spent = sample.payments
-  .filter((payment) => payment.status === 'paid')
-  .reduce((sum, payment) => sum + Number(payment.amount), 0);
-const remaining = Math.max(0, budget - spent);
-
 export const sampleSnapshot = {
   budget: String(rules.budget),
-  spent: String(spent),
-  remaining: String(remaining),
-  spentRatio: budget === 0 ? 0 : spent / budget,
   currency: 'RLUSD',
   agentConnected: false,
   rules: {

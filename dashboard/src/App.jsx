@@ -1,56 +1,66 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { approvePurchase, declinePurchase, fetchSnapshot, runAgent } from './api.js';
+import { approvePurchase, declinePurchase, fetchSnapshot, runAgent, sampleSnapshot } from './api.js';
 import CountUp from './CountUp.jsx';
 import EvePanel from './EvePanel.jsx';
-import JevCard from './JevCard.jsx';
-import { money, shortAddress, when } from './format.js';
+import JevCard, { riskDisplay } from './JevCard.jsx';
+import Ring from './Ring.jsx';
+import { deriveLedger, status } from './ledger.js';
+import { clock, dateOnly, day, daysUntil, money, shortAddress, unitsToNumber, when } from './format.js';
 import { useTheme } from './theme.js';
+import {
+  AutoIcon, BlockIcon, CalendarIcon, CapIcon, CheckIcon, ChevronIcon, ClockIcon, ExternalIcon,
+  HomeIcon, ListIcon, Logo, MicIcon, MoonIcon, PauseIcon, PlayIcon, ShieldIcon, SparkIcon, StoreIcon, SunIcon, XIcon,
+} from './icons.jsx';
 import { plainReason } from '../../shared/words.js';
 
 const TABS = [
-  ['home', 'Home'],
-  ['activity', 'Activity'],
-  ['eve', 'Eve'],
+  { id: 'home', label: 'Home', Icon: HomeIcon },
+  { id: 'activity', label: 'Activity', Icon: ListIcon },
+  { id: 'eve', label: 'Eve', Icon: SparkIcon },
 ];
 
 const FILTERS = [
   ['all', 'All'],
   ['paid', 'Paid'],
-  ['blocked', 'Blocked'],
   ['waiting', 'Waiting'],
+  ['blocked', 'Blocked'],
 ];
 
-function expiresOn(iso) {
-  if (!iso) return '';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date);
+const THEMES = [
+  { id: 'light', label: 'Light', Icon: SunIcon },
+  { id: 'dark', label: 'Dark', Icon: MoonIcon },
+  { id: 'system', label: 'System', Icon: AutoIcon },
+];
+
+const PAUSE_KEY = 'allowance-paused';
+
+function usePaused() {
+  const [paused, setPaused] = useState(() => {
+    try {
+      return localStorage.getItem(PAUSE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(PAUSE_KEY, paused ? '1' : '0');
+    } catch {
+      /* Storage can be blocked. The pause still holds for this visit. */
+    }
+  }, [paused]);
+  return [paused, setPaused];
 }
 
-function pill(item) {
-  if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
-  if (item.status === 'approved') return { label: 'Waiting', tone: 'warn' };
-  if (item.status === 'declined' || item.status === 'pending') return { label: 'Blocked', tone: 'danger' };
-  return { label: item.status || 'Waiting', tone: 'warn' };
-}
-
-function matchesFilter(item, filter) {
-  if (filter === 'paid') return item.status === 'paid';
-  if (filter === 'waiting') return item.status === 'approved';
-  if (filter === 'blocked') return item.status === 'pending' || item.status === 'declined';
-  return true;
+function merchantName(item) {
+  return item.merchantLabel || shortAddress(item.merchant) || 'Merchant';
 }
 
 function ruleRows(item) {
   const rows = [
     ['amount must be positive', 'Amount is positive'],
     ['expired', 'Allowance has not expired'],
-    ['merchant not allowed', 'Merchant is allowed'],
+    ['merchant not allowed', 'Merchant is approved'],
     ['over per-purchase cap', 'Within the per-purchase cap'],
     ['over budget', 'Within the budget'],
   ];
@@ -67,25 +77,28 @@ function ruleRows(item) {
   });
 }
 
-function realRows(snapshot) {
-  const payments = (snapshot?.payments ?? []).filter((item) => !item.sample);
-  const pending = (snapshot?.pending ?? [])
-    .filter((item) => !item.sample)
-    .map((item) => ({ ...item, status: item.status || 'pending' }));
-  const budget = Number(snapshot?.rules?.budget ?? snapshot?.budget ?? 0);
-  const spent = payments
-    .filter((item) => item.status === 'paid')
-    .reduce((sum, item) => sum + Number(item.amount), 0);
-  const activity = [...payments, ...pending].sort((a, b) => (
-    Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0)
-  ));
-  return { payments, pending, budget, spent, activity };
+/** Short tag for why a quote stopped, e.g. "Over 5.00 cap". */
+function reasonTag(item, cap) {
+  switch (item.reason) {
+    case 'over per-purchase cap': return `Over ${money(cap)} cap`;
+    case 'merchant not allowed': return 'Unapproved merchant';
+    case 'over budget': return 'Over budget';
+    case 'expired': return 'Allowance expired';
+    case 'over channel cap': return 'Channel limit';
+    case 'Jev flagged for review': return 'Flagged by Jev';
+    default: return item.reason ? plainReason(item.reason) : 'Outside the rules';
+  }
+}
+
+function hue(text) {
+  let h = 0;
+  for (const ch of String(text)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
 }
 
 export default function App() {
   const [theme, setTheme] = useTheme();
   const [tab, setTab] = useState('home');
-  const [eveOpen, setEveOpen] = useState(false);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
@@ -93,8 +106,11 @@ export default function App() {
   const [busyId, setBusyId] = useState('');
   const [actionError, setActionError] = useState('');
   const [runNote, setRunNote] = useState('');
+  const [running, setRunning] = useState(false);
   const [announce, setAnnounce] = useState('');
+  const [paused, setPaused] = usePaused();
   const seen = useRef(null);
+  const mainRef = useRef(null);
 
   async function load() {
     try {
@@ -102,7 +118,7 @@ export default function App() {
       setSnapshot(next);
       setConnection('online');
     } catch {
-      setConnection('error');
+      setConnection('offline');
     }
   }
 
@@ -119,21 +135,30 @@ export default function App() {
     };
   }, []);
 
-  const view = useMemo(() => realRows(snapshot), [snapshot]);
+  const offline = connection === 'offline' && !snapshot;
+  const data = snapshot ?? (offline ? sampleSnapshot : null);
+  const ledger = useMemo(() => deriveLedger(data), [data]);
+  const rules = data?.rules;
 
   useEffect(() => {
-    const ids = view.activity.map((item) => item.id);
+    const ids = ledger.activity.map((item) => item.id);
+    if (!data) return;
     if (seen.current === null) {
       seen.current = new Set(ids);
       return;
     }
-    const added = view.activity.filter((item) => !seen.current.has(item.id));
+    const added = ledger.activity.filter((item) => !seen.current.has(item.id));
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
     const newest = added[0];
-    const status = pill(newest).label;
-    setAnnounce(`${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
-  }, [view.activity]);
+    setAnnounce(`${status(newest).label}. ${merchantName(newest)}, ${money(newest.amount)} RLUSD.`);
+  }, [ledger.activity, data]);
+
+  function go(next) {
+    setTab(next);
+    window.scrollTo({ top: 0 });
+    mainRef.current?.focus({ preventScroll: true });
+  }
 
   async function decide(id, kind) {
     setBusyId(id);
@@ -141,6 +166,8 @@ export default function App() {
     try {
       if (kind === 'approve') await approvePurchase(id);
       else await declinePurchase(id);
+      setDetail(null);
+      setAnnounce(kind === 'approve' ? 'Approved. Nothing was paid.' : 'Declined.');
       await load();
     } catch (error) {
       setActionError(error.message || 'That did not save.');
@@ -150,193 +177,429 @@ export default function App() {
   }
 
   async function onRun() {
+    if (paused) return;
     setRunNote('');
+    setRunning(true);
     try {
       const body = await runAgent('Buy the morning market brief');
-      setRunNote(body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
+      setRunNote(body.ok ? 'Agent started. New purchases appear below in a few seconds.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
+    } finally {
+      setRunning(false);
     }
   }
 
-  const shown = view.activity.filter((item) => matchesFilter(item, filter));
-  const latest = view.activity.slice(0, 5);
-  const ratio = view.budget > 0 ? Math.max(0, Math.min(1, view.spent / view.budget)) : 0;
-  const left = Math.max(0, view.budget - view.spent);
-  const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
+  const themeIndex = Math.max(0, THEMES.findIndex((t) => t.id === theme));
+  const currentTheme = THEMES[themeIndex];
+  const nextTheme = THEMES[(themeIndex + 1) % THEMES.length];
+  const pendingCount = ledger.pending.length;
 
   return (
     <div className="app">
       <a className="skip" href="#main">Skip to content</a>
       <div className="sr-only" aria-live="polite">{announce}</div>
-      <div className="shell">
-        <header className="top">
-          <p className="kicker">Mastercard × XRPL Hackathon</p>
-          <div className="top-row">
-            <h1>Agent Allowance</h1>
-            <fieldset className="theme">
-              <legend className="sr-only">Color theme</legend>
-              {['light', 'dark', 'system'].map((choice) => (
-                <label key={choice} className={theme === choice ? 'is-on' : ''}>
-                  <input
-                    type="radio"
-                    name="theme"
-                    value={choice}
-                    checked={theme === choice}
-                    onChange={() => setTheme(choice)}
-                  />
-                  {choice[0].toUpperCase() + choice.slice(1)}
-                </label>
-              ))}
-            </fieldset>
+
+      <aside className="rail">
+        <div className="brand">
+          <Logo size={36} />
+          <div>
+            <p className="brand-name">Agent Allowance</p>
+            <p className="brand-sub">Mastercard × XRPL</p>
           </div>
-          <p className="lede">Every quote is checked before a voucher is signed.</p>
+        </div>
+        <nav className="nav" aria-label="Sections">
+          {TABS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={tab === id ? 'nav-item is-on' : 'nav-item'}
+              aria-current={tab === id ? 'page' : undefined}
+              onClick={() => go(id)}
+            >
+              <span className="nav-icon"><Icon /></span>
+              <span className="nav-label">{label}</span>
+              {id === 'home' && pendingCount ? (
+                <span className="nav-badge">
+                  {pendingCount}
+                  <span className="sr-only"> need you</span>
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+        <div className="rail-foot">
+          <NetworkBadge network={data?.network} offline={offline} />
+          <fieldset className="theme">
+            <legend className="sr-only">Color theme</legend>
+            {THEMES.map(({ id, label, Icon }) => (
+              <label key={id} className={theme === id ? 'is-on' : ''} title={label}>
+                <input type="radio" name="theme" value={id} checked={theme === id} onChange={() => setTheme(id)} />
+                <Icon size={18} />
+                <span className="sr-only">{label}</span>
+              </label>
+            ))}
+          </fieldset>
+        </div>
+      </aside>
+
+      <div className="column">
+        <header className="topbar">
+          <div className="brand">
+            <Logo size={32} />
+            <p className="brand-name">Agent Allowance</p>
+          </div>
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={`Theme: ${currentTheme.label}. Switch to ${nextTheme.label}`}
+              onClick={() => setTheme(nextTheme.id)}
+            >
+              <currentTheme.Icon size={20} />
+            </button>
+            {tab !== 'eve' ? (
+              <button type="button" className="icon-btn accent" aria-label="Talk to Eve" onClick={() => go('eve')}>
+                <MicIcon size={20} />
+              </button>
+            ) : null}
+          </div>
         </header>
 
-        <main id="main" tabIndex={-1}>
-          {connection === 'loading' && !snapshot ? <Skeletons /> : null}
-          {connection === 'error' && !snapshot ? (
-            <div className="card empty" role="alert">
-              <h2>The allowance server is not responding</h2>
-              <p>Start it with npm run server, then try again.</p>
-              <button type="button" className="btn primary" onClick={load}>Retry</button>
+        <main id="main" ref={mainRef} tabIndex={-1} className={`screen screen-${tab}`}>
+          {offline ? (
+            <div className="banner warn" role="status">
+              <ShieldIcon size={20} />
+              <p><strong>Offline preview.</strong> The allowance server is not answering, so this is sample data and buttons are off. Start it with <code>npm run server</code>.</p>
+              <button type="button" className="btn small" onClick={load}>Retry</button>
             </div>
           ) : null}
-          {snapshot && tab === 'home' ? (
-            <div className="stack">
-              {connection === 'error' ? (
-                <p className="note warn" role="alert">
-                  Could not refresh. Showing the last numbers.
-                  <button type="button" className="btn" onClick={load}>Retry</button>
-                </p>
-              ) : null}
-              <section className="card allowance" aria-labelledby="allowance-title">
-                <h2 id="allowance-title">RLUSD left</h2>
-                <p className="figure"><CountUp value={left} /> <span>RLUSD</span></p>
-                <div
-                  className="meter"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(ratio * 100)}
-                  aria-label={`${money(view.spent)} of ${money(view.budget)} RLUSD spent`}
-                >
-                  <span style={{ width: `${ratio * 100}%` }} />
-                </div>
-                <p className="meter-caption">{money(view.spent)} of {money(view.budget)} RLUSD spent</p>
-                <ul className="chips" aria-label="Allowance rules">
-                  <li>{snapshot.rules.maxPerPurchase} per purchase cap</li>
-                  <li>expires {expiresOn(snapshot.rules.expiresAt)}</li>
-                  <li>{merchantCount} merchant{merchantCount === 1 ? '' : 's'} allowed</li>
-                </ul>
-              </section>
-
-              <section className="card" aria-labelledby="needs-title">
-                <div className="section-head">
-                  <h2 id="needs-title">Needs you</h2>
-                  <p>Approving records the decision. It does not sign a voucher or move RLUSD.</p>
-                </div>
-                {view.pending.length === 0 ? (
-                  <p className="empty-copy">Nothing needs you. A quote outside the rules shows up here.</p>
-                ) : (
-                  <ul className="needs">
-                    {view.pending.map((item) => (
-                      <li key={item.id} className="need">
-                        <div className="need-top">
-                          <h3>{item.merchantLabel || 'Merchant'}</h3>
-                          <p className="amount">{money(item.amount)} RLUSD</p>
-                        </div>
-                        <p>{plainReason(item.reason)}</p>
-                        <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
-                        <JevCard jev={item.jev} />
-                        <div className="pair">
-                          <button type="button" className="btn primary" disabled={busyId === item.id} onClick={() => decide(item.id, 'approve')}>
-                            {busyId === item.id ? 'Saving…' : 'Approve'}
-                          </button>
-                          <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id, 'decline')}>
-                            Decline
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
-              </section>
-
-              <section className="card" aria-labelledby="latest-title">
-                <h2 id="latest-title">Latest activity</h2>
-                <ActivityList items={latest} onOpen={setDetail} empty="Run the agent to record a purchase. Paid and blocked quotes will show up here." />
-              </section>
-
-              <div className="run">
-                <button type="button" className="btn primary wide" onClick={onRun}>Run agent</button>
-                {runNote ? <p className="note" role="status">{runNote}</p> : null}
-              </div>
+          {connection === 'offline' && snapshot ? (
+            <div className="banner warn" role="alert">
+              <ShieldIcon size={20} />
+              <p>Could not refresh. Showing the last numbers.</p>
+              <button type="button" className="btn small" onClick={load}>Retry</button>
+            </div>
+          ) : null}
+          {!offline && ledger.preview && tab !== 'eve' ? (
+            <div className="banner info" role="note">
+              <SparkIcon size={20} />
+              <p><strong>Sample purchases.</strong> No RLUSD moves. The first real agent run replaces them.</p>
             </div>
           ) : null}
 
-          {snapshot && tab === 'activity' ? (
-            <section className="card" aria-labelledby="activity-title">
-              <h2 id="activity-title">Activity</h2>
-              <div className="filters" role="toolbar" aria-label="Filter activity">
-                {FILTERS.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={filter === id ? 'chip is-on' : 'chip'}
-                    aria-pressed={filter === id}
-                    onClick={() => setFilter(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <ActivityList
-                items={shown}
-                onOpen={setDetail}
-                empty={filter === 'all'
-                  ? 'No purchases yet. Run the agent, or ask Eve what to do next.'
-                  : `Nothing is ${filter} right now.`}
-              />
-            </section>
+          {!data && tab !== 'eve' ? <Skeletons /> : null}
+
+          {data && tab === 'home' ? (
+            <Home
+              ledger={ledger}
+              rules={rules}
+              paused={paused}
+              offline={offline}
+              running={running}
+              runNote={runNote}
+              busyId={busyId}
+              actionError={actionError}
+              onRun={onRun}
+              onPause={() => { setPaused(true); setRunNote(''); }}
+              onResume={() => setPaused(false)}
+              onDecide={decide}
+              onOpen={setDetail}
+              onSeeAll={() => go('activity')}
+            />
           ) : null}
 
-          {tab === 'eve' ? <EvePanel active /> : null}
+          {data && tab === 'activity' ? (
+            <Activity ledger={ledger} filter={filter} setFilter={setFilter} onOpen={setDetail} />
+          ) : null}
+
+          {tab === 'eve' ? (
+            <EvePanel
+              ledger={ledger}
+              paused={paused}
+              onPause={() => setPaused(true)}
+              onResume={() => setPaused(false)}
+            />
+          ) : null}
         </main>
       </div>
 
-      <nav className="tabbar" aria-label="Sections">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={tab === id ? 'is-on' : ''}
-            aria-current={tab === id ? 'page' : undefined}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      <button type="button" className="fab" aria-label="Open Eve" onClick={() => setEveOpen(true)}>
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
-        </svg>
-      </button>
-
-      {eveOpen ? (
-        <Sheet title="Eve" onClose={() => setEveOpen(false)}>
-          <EvePanel active />
-        </Sheet>
-      ) : null}
       {detail ? (
-        <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
-          <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
+        <Sheet title={merchantName(detail)} onClose={() => setDetail(null)}>
+          <Detail
+            item={detail}
+            cap={ledger.cap}
+            currency={data?.currency || 'RLUSD'}
+            busy={busyId === detail.id}
+            offline={offline}
+            onDecide={decide}
+          />
         </Sheet>
       ) : null}
     </div>
+  );
+}
+
+function NetworkBadge({ network, offline }) {
+  return (
+    <p className="network">
+      <span className={offline ? 'dot off' : 'dot'} aria-hidden="true" />
+      <span>
+        {network?.name || 'XRPL EVM Testnet'}
+        <span className="network-sub">{offline ? 'Server offline' : `Chain ${network?.chainId ?? 1449000}`}</span>
+      </span>
+    </p>
+  );
+}
+
+function Home({
+  ledger, rules, paused, offline, running, runNote, busyId, actionError,
+  onRun, onPause, onResume, onDecide, onOpen, onSeeAll,
+}) {
+  const [showMerchants, setShowMerchants] = useState(false);
+  const merchantsId = useId();
+  const merchants = rules?.allowedMerchants ?? [];
+  const days = daysUntil(rules?.expiresAt);
+  const expired = days !== null && days <= 0;
+  const budgetText = money(ledger.budget);
+  const leftText = money(ledger.left);
+  const spentText = money(ledger.spent);
+  const state = offline ? 'Preview' : paused ? 'Paused' : expired ? 'Expired' : 'Active';
+
+  return (
+    <div className="home-grid">
+      <section className="hero" aria-labelledby="balance-title">
+        <div className="hero-head">
+          <h1 id="balance-title" className="hero-kicker">Allowance left</h1>
+          <span className={`state state-${state.toLowerCase()}`}>
+            <span className="state-dot" aria-hidden="true" />
+            {state}
+          </span>
+        </div>
+        <div className="hero-body">
+          <div className="hero-figures">
+            <p className="hero-amount">
+              <CountUp value={unitsToNumber(ledger.left)} text={leftText} />
+              <span className="hero-unit">RLUSD</span>
+            </p>
+            <p className="hero-of">
+              of <strong>{budgetText}</strong> RLUSD budget
+            </p>
+            <dl className="hero-split">
+              <div>
+                <dt>Spent</dt>
+                <dd>{spentText}</dd>
+              </div>
+              <div>
+                <dt>Purchases</dt>
+                <dd>{ledger.paidCount}</dd>
+              </div>
+              <div>
+                <dt>Waiting</dt>
+                <dd>{ledger.pending.length}</dd>
+              </div>
+            </dl>
+          </div>
+          <Ring ratio={ledger.ratioLeft} />
+        </div>
+        <p className="sr-only">{leftText} of {budgetText} RLUSD left. {spentText} RLUSD spent.</p>
+
+        <ul className="rule-chips" aria-label="Allowance rules">
+          <li className="rule-chip">
+            <span className="chip-icon"><CapIcon size={18} /></span>
+            <span><strong>{money(ledger.cap)}</strong> max per purchase</span>
+          </li>
+          <li className="rule-chip">
+            <span className="chip-icon"><CalendarIcon size={18} /></span>
+            <span>
+              {expired ? 'Expired ' : 'Expires '}
+              <strong>{dateOnly(rules?.expiresAt)}</strong>
+              {days !== null && days > 0 ? <span className="chip-dim"> · {days} day{days === 1 ? '' : 's'}</span> : null}
+            </span>
+          </li>
+          <li>
+            <button
+              type="button"
+              className="chip-btn"
+              aria-expanded={showMerchants}
+              aria-controls={merchantsId}
+              onClick={() => setShowMerchants((v) => !v)}
+            >
+              <span className="chip-icon"><StoreIcon size={18} /></span>
+              <span><strong>{merchants.length}</strong> approved merchant{merchants.length === 1 ? '' : 's'}</span>
+              <ChevronIcon size={16} className={showMerchants ? 'chev open' : 'chev'} />
+            </button>
+          </li>
+        </ul>
+        {showMerchants ? (
+          <ul className="merchant-list" id={merchantsId}>
+            {merchants.map((m) => (
+              <li key={m.address}>
+                <Avatar name={m.label || m.address} />
+                <span>
+                  <span className="m-name">{m.label || 'Unnamed merchant'}</span>
+                  <code>{shortAddress(m.address)}</code>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <div className="hero-actions">
+          {paused ? (
+            <button type="button" className="btn hero-primary" onClick={onResume}>
+              <PlayIcon size={20} /> Resume agent
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn hero-primary" onClick={onRun} disabled={offline || running || expired}>
+                <PlayIcon size={20} /> {running ? 'Starting…' : 'Run agent'}
+              </button>
+              <button type="button" className="btn hero-ghost" onClick={onPause}>
+                <PauseIcon size={20} /> Pause
+              </button>
+            </>
+          )}
+        </div>
+        {paused ? <p className="hero-note" role="status">Paused. Run agent is off on this dashboard until you resume.</p> : null}
+        {runNote ? <p className="hero-note" role="status">{runNote}</p> : null}
+      </section>
+
+      <section className="panel needs" aria-labelledby="needs-title">
+        <div className="panel-head">
+          <h2 id="needs-title">
+            Needs you
+            {ledger.pending.length ? <span className="count">{ledger.pending.length}</span> : null}
+          </h2>
+          <p>Quotes outside the rules wait here. Approving records your decision. It does not sign a voucher or move RLUSD.</p>
+        </div>
+        {ledger.pending.length === 0 ? (
+          <div className="all-clear">
+            <span className="all-clear-icon"><CheckIcon size={22} /></span>
+            <p><strong>All clear.</strong> Nothing is waiting for you.</p>
+          </div>
+        ) : (
+          <ul className="need-list">
+            {ledger.pending.map((item) => {
+              const risk = riskDisplay(item.jev?.risk);
+              return (
+                <li key={item.id} className="need">
+                  <div className="need-top">
+                    <Avatar name={merchantName(item)} />
+                    <div className="need-main">
+                      <h3>{merchantName(item)}</h3>
+                      <p className="meta">{item.task || 'Purchase'}</p>
+                    </div>
+                    <p className="need-amount">{money(item.amount)}<span> RLUSD</span></p>
+                  </div>
+                  <p className="need-why">
+                    <span className="tag warn"><ShieldIcon size={16} /> {reasonTag(item, ledger.cap)}</span>
+                    {risk !== null ? <span className="tag">Jev risk {risk}/5</span> : null}
+                    <span className="meta">{clock(item.createdAt)}</span>
+                  </p>
+                  <div className="need-actions">
+                    <button type="button" className="btn primary" disabled={offline || busyId === item.id} onClick={() => onDecide(item.id, 'approve')}>
+                      <CheckIcon size={18} /> {busyId === item.id ? 'Saving…' : 'Approve'}
+                    </button>
+                    <button type="button" className="btn" disabled={offline || busyId === item.id} onClick={() => onDecide(item.id, 'decline')}>
+                      <XIcon size={18} /> Decline
+                    </button>
+                    <button type="button" className="btn text" onClick={() => onOpen(item)}>
+                      Details<span className="sr-only"> for {merchantName(item)}</span>
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {actionError ? <p className="banner warn inline" role="alert">{actionError}</p> : null}
+      </section>
+
+      <section className="panel recent" aria-labelledby="recent-title">
+        <div className="panel-head row-head">
+          <h2 id="recent-title">Recent activity</h2>
+          {ledger.activity.length ? (
+            <button type="button" className="btn text" onClick={onSeeAll}>
+              See all <ChevronIcon size={16} />
+            </button>
+          ) : null}
+        </div>
+        <ActivityList
+          items={ledger.activity.slice(0, 5)}
+          onOpen={onOpen}
+          empty="No purchases yet. Press Run agent and paid or blocked quotes show up here."
+        />
+      </section>
+    </div>
+  );
+}
+
+function Activity({ ledger, filter, setFilter, onOpen }) {
+  const counts = { all: ledger.activity.length, paid: 0, waiting: 0, blocked: 0 };
+  for (const item of ledger.activity) counts[status(item).key] += 1;
+  const shown = ledger.activity.filter((item) => filter === 'all' || status(item).key === filter);
+  const groups = [];
+  for (const item of shown) {
+    const label = day(item.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else groups.push({ label, items: [item] });
+  }
+
+  return (
+    <div className="activity-screen">
+      <div className="screen-head">
+        <h1>Activity</h1>
+        <p>{money(ledger.spent)} RLUSD paid across {ledger.paidCount} purchase{ledger.paidCount === 1 ? '' : 's'}. {money(ledger.left)} left.</p>
+      </div>
+      <div className="segmented" role="group" aria-label="Filter activity">
+        {FILTERS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={filter === id ? 'seg is-on' : 'seg'}
+            aria-pressed={filter === id}
+            onClick={() => setFilter(id)}
+          >
+            {label}
+            <span className="seg-count">{counts[id]}</span>
+          </button>
+        ))}
+      </div>
+      {groups.length === 0 ? (
+        <section className="panel">
+          <p className="empty-copy">
+            {filter === 'all' ? 'No purchases yet. Run the agent, or ask Eve what to do next.' : `Nothing is ${filter} right now.`}
+          </p>
+        </section>
+      ) : groups.map((group) => (
+        <section key={group.label} className="panel" aria-label={group.label}>
+          <h2 className="group-title">{group.label}</h2>
+          <ActivityList items={group.items} onOpen={onOpen} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({ item }) {
+  const s = status(item);
+  const Icon = s.key === 'paid' ? CheckIcon : s.key === 'blocked' ? BlockIcon : ClockIcon;
+  return (
+    <span className={`pill ${s.tone}`}>
+      <Icon size={14} />
+      {s.label}
+    </span>
+  );
+}
+
+function Avatar({ name }) {
+  const letters = String(name || '?').replace(/^0x/i, '').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  return (
+    <span className="avatar" style={{ '--h': hue(name) }} aria-hidden="true">
+      {letters}
+    </span>
   );
 }
 
@@ -345,22 +608,23 @@ function ActivityList({ items, onOpen, empty }) {
   return (
     <ul className="activity">
       {items.map((item) => {
-        const status = pill(item);
+        const s = status(item);
         return (
           <li key={item.id}>
             <button type="button" className="row" onClick={() => onOpen(item)}>
-              <span className={`pill ${status.tone}`}>{status.label}</span>
+              <Avatar name={merchantName(item)} />
               <span className="row-main">
-                <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="meta">{item.task || 'Purchase'} · {when(item.createdAt)}</span>
+                <span className="row-title">
+                  {merchantName(item)}
+                  {item.sample ? <span className="sample-tag">Sample</span> : null}
+                </span>
+                <span className="meta">{item.task || 'Purchase'} · {clock(item.createdAt)}</span>
               </span>
-              <span className="amount">{money(item.amount)} RLUSD</span>
+              <span className="row-end">
+                <span className={`row-amount ${s.key}`}>{money(item.amount)}<span className="unit"> RLUSD</span></span>
+                <StatusPill item={item} />
+              </span>
             </button>
-            {item.explorerUrl ? (
-              <a className="explorer" href={item.explorerUrl} target="_blank" rel="noreferrer noopener">
-                View on explorer
-              </a>
-            ) : null}
           </li>
         );
       })}
@@ -368,54 +632,72 @@ function ActivityList({ items, onOpen, empty }) {
   );
 }
 
-function Detail({ item, currency }) {
-  const status = pill(item);
-  const name = item.merchantLabel || 'Merchant';
+function Detail({ item, cap, currency, busy, offline, onDecide }) {
   return (
     <div className="detail">
-      <p className={`pill ${status.tone}`}>{status.label}</p>
-      <p className="figure">{money(item.amount)} <span>{currency}</span></p>
-      <p>{name}</p>
-      <p className="meta"><code>{item.merchant}</code></p>
-      <p className="meta">{when(item.createdAt)}</p>
-      {item.reason ? <p>{plainReason(item.reason)}</p> : null}
-      <h3>Rule checks</h3>
+      <div className="detail-hero">
+        <StatusPill item={item} />
+        <p className="detail-amount">{money(item.amount)} <span>{currency}</span></p>
+        <p className="detail-task">{item.task || 'Purchase'}</p>
+        <p className="meta">{when(item.createdAt)}</p>
+        {item.sample ? <p className="sample-tag">Sample data</p> : null}
+      </div>
+      {item.reason ? (
+        <p className="banner warn inline"><ShieldIcon size={18} /> <span>{plainReason(item.reason)}{item.reason === 'over per-purchase cap' ? ` The cap is ${money(cap)} ${currency}.` : ''}</span></p>
+      ) : null}
+      {item.note ? <p className="meta">{item.note}</p> : null}
+      {item.status === 'pending' ? (
+        <div className="need-actions">
+          <button type="button" className="btn primary" disabled={offline || busy} onClick={() => onDecide(item.id, 'approve')}>
+            <CheckIcon size={18} /> {busy ? 'Saving…' : 'Approve'}
+          </button>
+          <button type="button" className="btn" disabled={offline || busy} onClick={() => onDecide(item.id, 'decline')}>
+            <XIcon size={18} /> Decline
+          </button>
+        </div>
+      ) : null}
+      <h3 className="detail-h">Rule checks</h3>
       <ul className="checks">
         {ruleRows(item).map((row) => (
           <li key={row.label} className={row.state}>
-            <span aria-hidden="true">{row.state === 'pass' ? '✓' : row.state === 'fail' ? '✗' : '–'}</span>
-            <span>{row.text}</span>
-            <span>{row.label}</span>
+            <span className="check-icon" aria-hidden="true">
+              {row.state === 'pass' ? <CheckIcon size={16} /> : row.state === 'fail' ? <XIcon size={16} /> : '–'}
+            </span>
+            <span className="check-label">{row.label}</span>
+            <span className="check-text">{row.text}</span>
           </li>
         ))}
       </ul>
       <JevCard jev={item.jev} />
+      <h3 className="detail-h">On-chain record</h3>
       <dl className="facts">
-        <div>
-          <dt>Transaction</dt>
-          <dd>{item.txHash ? <code>{item.txHash}</code> : 'Not recorded'}</dd>
-        </div>
-        <div>
-          <dt>Merchant payout transaction</dt>
-          <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
-        </div>
-        <div>
-          <dt>Channel</dt>
-          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
-        </div>
-        <div>
-          <dt>Claim ID</dt>
-          <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
-        </div>
-        <div>
-          <dt>Receipt</dt>
-          <dd>{item.receiptUrl ? <a href={item.receiptUrl} target="_blank" rel="noreferrer noopener">View receipt</a> : 'Not recorded'}</dd>
-        </div>
-        <div>
-          <dt>Explorer</dt>
-          <dd>{item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
-        </div>
+        <Fact label="Merchant address" value={item.merchant} />
+        <Fact label="Transaction" value={item.txHash} />
+        <Fact label="Merchant payout" value={item.payoutTx} />
+        <Fact label="Channel" value={item.channelId} />
+        <Fact label="Claim ID" value={item.claimId} />
       </dl>
+      <div className="links">
+        {item.receiptUrl ? (
+          <a className="btn" href={item.receiptUrl} target="_blank" rel="noreferrer noopener">
+            Receipt <ExternalIcon size={16} /><span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : null}
+        {item.explorerUrl ? (
+          <a className="btn" href={item.explorerUrl} target="_blank" rel="noreferrer noopener">
+            View on explorer <ExternalIcon size={16} /><span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Fact({ label, value }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value ? <code title={value}>{shortAddress(value)}</code> : <span className="meta">Not recorded</span>}</dd>
     </div>
   );
 }
@@ -431,6 +713,8 @@ function Sheet({ title, onClose, children }) {
     const focusable = () => [...root.querySelectorAll('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
       .filter((node) => !node.disabled);
     focusable()[0]?.focus();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     function onKey(event) {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -453,21 +737,19 @@ function Sheet({ title, onClose, children }) {
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = overflow;
       if (previous instanceof HTMLElement) previous.focus();
     };
   }, []);
   return (
     <div className="sheet-back" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div
-        className="sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        ref={ref}
-      >
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref}>
+        <div className="sheet-grip" aria-hidden="true" />
         <div className="sheet-top">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" className="btn" onClick={onClose}>Close</button>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <XIcon size={20} />
+          </button>
         </div>
         {children}
       </div>
@@ -477,11 +759,11 @@ function Sheet({ title, onClose, children }) {
 
 function Skeletons() {
   return (
-    <div className="stack" aria-busy="true" aria-live="polite">
-      <p className="sr-only">Loading the allowance</p>
-      <div className="card skeleton" />
-      <div className="card skeleton short" />
-      <div className="card skeleton" />
+    <div className="home-grid" aria-busy="true">
+      <p className="sr-only" role="status">Loading the allowance</p>
+      <div className="hero skeleton" />
+      <div className="panel skeleton short" />
+      <div className="panel skeleton" />
     </div>
   );
 }

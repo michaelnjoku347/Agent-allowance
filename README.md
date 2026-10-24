@@ -32,7 +32,7 @@ Sells market data at [http://127.0.0.1:4308/resource](http://127.0.0.1:4308/reso
 npm run dashboard
 ```
 
-Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls the API every 3 seconds and shows only real rows. Until the agent records a purchase, Home says what to do next. Paid rows link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Open a row for the rule checks, Jev's decision, the claim, the receipt, and the explorer link. Eve is the third tab, and the mic button opens her from anywhere.
+Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls the API every 3 seconds. Until the agent records a purchase, it shows the sample rows under a "Sample purchases" banner; if the server is down, it shows the same samples as an offline preview with the buttons turned off. The balance, the amount spent and the budget are all added up from the rows on screen, so they always agree. Phone widths get a bottom tab bar and desktop widths get a side nav. Paid rows link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Open a row for the rule checks, Jev's decision, the claim, the receipt, and the explorer link. Eve is the third tab, and the mic button opens her from anywhere.
 
 ```bash
 npm run demo

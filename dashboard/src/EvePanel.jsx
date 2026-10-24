@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { askEve, confirmEve } from './api.js';
+import { money } from './format.js';
+import { MicIcon, SendIcon, SparkIcon, SpeakerIcon } from './icons.jsx';
 
 const CHIPS = [
-  'What did my agent spend today?',
+  'How much is left?',
+  'Approve pending',
+  'Pause agent',
   'Why was the last one blocked?',
-  'Approve the pending purchase',
-  'Set my cap to 3',
+  'What did my agent spend today?',
 ];
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;
@@ -15,12 +18,36 @@ function speechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
-export default function EvePanel({ active }) {
-  const listId = useId();
+/**
+ * Questions the page can answer from the numbers it already shows, so Eve's
+ * balance matches the hero exactly. Pause lives on this dashboard only.
+ * Everything else goes to the server.
+ */
+function localAnswer(text, { ledger, paused, onPause, onResume }) {
+  const lower = text.toLowerCase();
+  if (/\b(left|remaining|balance)\b/.test(lower) && !/\bcap\b|\bbudget\b.*\d/.test(lower)) {
+    const sample = ledger.preview ? ' These are sample purchases. No real RLUSD has moved yet.' : '';
+    return `${money(ledger.left)} of ${money(ledger.budget)} RLUSD is left. ${money(ledger.spent)} RLUSD is spent across ${ledger.paidCount} purchase${ledger.paidCount === 1 ? '' : 's'}.${sample}`;
+  }
+  if (/\b(pause|stop)\b.*\bagent\b|^pause\b/.test(lower)) {
+    if (paused) return 'The agent is already paused. Say "resume agent" when you want it back.';
+    onPause();
+    return 'Paused. Run agent is off on this dashboard until you resume. The agent never runs on its own.';
+  }
+  if (/\b(resume|unpause|restart)\b/.test(lower)) {
+    if (!paused) return 'The agent is not paused. Press Run agent on Home to start a purchase.';
+    onResume();
+    return 'Resumed. Run agent is back on Home.';
+  }
+  return null;
+}
+
+export default function EvePanel({ ledger, paused, onPause, onResume }) {
+  const transcriptId = useId();
   const [messages, setMessages] = useState([
     {
       role: 'eve',
-      text: 'I can explain a blocked purchase, total what was spent, or prepare a change. I will ask before I approve, decline, or edit the rules.',
+      text: 'Hi, I\'m Eve. Ask what\'s left, why something was blocked, or what is waiting. I always ask before I approve, decline, or change a rule.',
     },
   ]);
   const [draft, setDraft] = useState('');
@@ -39,11 +66,13 @@ export default function EvePanel({ active }) {
   const voiceRef = useRef(false);
   const confirmRef = useRef(null);
   const bottomRef = useRef(null);
+  const contextRef = useRef(null);
   voiceRef.current = voiceMode;
   confirmRef.current = confirmation;
+  contextRef.current = { ledger, paused, onPause, onResume };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
+    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages, interim, confirmation]);
 
   useEffect(() => () => {
@@ -127,12 +156,24 @@ export default function EvePanel({ active }) {
     }
   }
 
+  function reply(text) {
+    setMessages((current) => [...current, { role: 'eve', text }]);
+    speak(text, () => {
+      if (voiceRef.current) startListening();
+    });
+  }
+
   async function send(text) {
     const message = text.trim();
     if (!message || busy) return;
     setDraft('');
     setError('');
     setMessages((current) => [...current, { role: 'you', text: message }]);
+    const local = localAnswer(message, contextRef.current);
+    if (local) {
+      reply(local);
+      return;
+    }
     setBusy(true);
     try {
       const body = await askEve(message);
@@ -142,7 +183,7 @@ export default function EvePanel({ active }) {
         if (voiceRef.current) startListening();
       });
     } catch (err) {
-      setError(err.message || 'Eve could not answer.');
+      setError(err.message || 'Eve could not answer. Is the server running?');
     } finally {
       setBusy(false);
     }
@@ -155,10 +196,7 @@ export default function EvePanel({ active }) {
     try {
       const body = await confirmEve(card.token);
       setConfirmation(null);
-      setMessages((current) => [...current, { role: 'eve', text: body.reply }]);
-      speak(body.reply, () => {
-        if (voiceRef.current) startListening();
-      });
+      reply(body.reply);
     } catch (err) {
       setError(err.message || 'That confirmation did not go through.');
     } finally {
@@ -166,109 +204,124 @@ export default function EvePanel({ active }) {
     }
   }
 
-  return (
-    <section className="eve" aria-label="Eve">
-      <header className="section-head">
-        <h2>Eve</h2>
-        <p>Ask in text{supported ? ' or by voice' : ''}. Changes wait for you to confirm.</p>
-      </header>
-      <div className="transcript" id={listId} aria-live="polite" aria-relevant="additions">
-        {messages.map((message, index) => (
-          <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
-            <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
-            {message.text}
-          </p>
-        ))}
-        {interim ? <p className="bubble you interim"><span className="who">You</span>{interim}</p> : null}
-        <div ref={bottomRef} />
-      </div>
-      {confirmation ? (
-        <div className="confirm" role="group" aria-label="Confirmation">
-          <p>{confirmation.summary}</p>
-          <div className="pair">
-            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>Confirm</button>
-            <button type="button" className="btn" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>
-          </div>
-        </div>
-      ) : null}
-      <div className="chips">
-        {CHIPS.map((chip) => (
-          <button key={chip} type="button" className="chip" onClick={() => send(chip)} disabled={busy}>{chip}</button>
-        ))}
-      </div>
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); send(draft); }}>
-        <label className="sr-only" htmlFor="eve-message">Message Eve</label>
-        <input
-          id="eve-message"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask Eve"
-          autoComplete="off"
-          disabled={busy}
-        />
-        <button type="submit" className="btn primary" disabled={busy || !draft.trim()}>Send</button>
-        {supported ? (
-          <button
-            type="button"
-            className={listening ? 'btn mic is-on' : 'btn mic'}
-            aria-pressed={listening}
-            aria-label={listening ? 'Stop voice input' : 'Start voice input'}
-            onClick={() => (listening ? stopListening() : startListening())}
-          >
-            <MicIcon />
-            <span>{listening ? 'Listening' : 'Mic'}</span>
-          </button>
-        ) : null}
-      </form>
-      {supported ? (
-        <div className="voice-row">
-          <button
-            type="button"
-            className="btn"
-            aria-pressed={voiceMode}
-            onClick={() => {
-              const next = !voiceMode;
-              setVoiceMode(next);
-              if (!next) {
-                stopListening();
-                stopSpeaking();
-              }
-            }}
-          >
-            Voice mode {voiceMode ? 'on' : 'off'}
-          </button>
-          <label className="rate">
-            Speech rate
-            <input
-              type="range"
-              min="0.8"
-              max="1.4"
-              step="0.1"
-              value={rate}
-              onChange={(event) => setRate(Number(event.target.value))}
-            />
-          </label>
-          <button type="button" className="btn" onClick={stopSpeaking} disabled={!speaking}>Stop</button>
-          {listening ? <p className="listen-state" role="status">Listening</p> : null}
-          {speaking ? <p className="listen-state" role="status">Speaking</p> : null}
-        </div>
-      ) : (
-        <p className="note">Voice input not supported in this browser — type instead.</p>
-      )}
-      {denied ? (
-        <p className="note" role="alert">
-          The microphone is blocked. Allow it in the browser site settings, then reload this page.
-        </p>
-      ) : null}
-      {error ? <p className="note warn" role="alert">{error}</p> : null}
-    </section>
-  );
-}
+  const micLabel = listening ? 'Stop listening' : speaking ? 'Eve is speaking. Tap to talk' : 'Tap to talk to Eve';
 
-function MicIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11z" />
-    </svg>
+    <section className="eve-screen" aria-labelledby="eve-title">
+      <header className="eve-head">
+        <span className="eve-orb" aria-hidden="true"><SparkIcon size={22} /></span>
+        <div>
+          <h1 id="eve-title">Eve</h1>
+          <p>Your allowance assistant. Changes wait for your confirm.</p>
+        </div>
+      </header>
+
+      <div className="transcript" id={transcriptId} role="log" aria-live="polite" aria-label="Conversation with Eve">
+        {messages.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={`bubble ${message.role}`}>
+            <span className="sr-only">{message.role === 'you' ? 'You said: ' : 'Eve said: '}</span>
+            {message.text}
+          </div>
+        ))}
+        {interim ? <div className="bubble you interim" aria-hidden="true">{interim}…</div> : null}
+        {busy ? <div className="bubble eve typing" role="status" aria-label="Eve is thinking"><span /><span /><span /></div> : null}
+        {confirmation ? (
+          <div className="confirm" role="group" aria-label="Confirm this change">
+            <p>{confirmation.summary}</p>
+            <div className="need-actions">
+              <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>Confirm</button>
+              <button type="button" className="btn" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>
+            </div>
+            {supported ? <p className="meta">Or say “yes”.</p> : null}
+          </div>
+        ) : null}
+        <div ref={bottomRef} className="transcript-end" />
+      </div>
+
+      <div className="eve-dock">
+        <div className="suggest" role="group" aria-label="Suggestions">
+          {CHIPS.map((chip) => (
+            <button key={chip} type="button" className="suggest-chip" onClick={() => send(chip)} disabled={busy}>{chip}</button>
+          ))}
+        </div>
+
+        {supported ? (
+          <div className="mic-wrap">
+            <button
+              type="button"
+              className={listening ? 'mic-big is-on' : speaking ? 'mic-big is-speaking' : 'mic-big'}
+              aria-pressed={listening}
+              aria-label={micLabel}
+              onClick={() => (listening ? stopListening() : startListening())}
+              disabled={denied}
+            >
+              <span className="mic-pulse" aria-hidden="true" />
+              <MicIcon size={34} />
+            </button>
+            <p className="mic-state" role="status">
+              {denied ? 'Microphone blocked' : listening ? 'Listening…' : speaking ? 'Speaking…' : 'Tap to talk'}
+            </p>
+          </div>
+        ) : null}
+
+        <form className="composer" onSubmit={(event) => { event.preventDefault(); send(draft); }}>
+          <label className="sr-only" htmlFor="eve-message">Message Eve</label>
+          <input
+            id="eve-message"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={supported ? 'Or type a message' : 'Message Eve'}
+            autoComplete="off"
+            disabled={busy}
+          />
+          <button type="submit" className="send" aria-label="Send" disabled={busy || !draft.trim()}>
+            <SendIcon size={20} />
+          </button>
+        </form>
+
+        {supported ? (
+          <details className="voice-settings">
+            <summary><SpeakerIcon size={18} /> Voice settings</summary>
+            <div className="voice-row">
+              <button
+                type="button"
+                className="btn small"
+                aria-pressed={voiceMode}
+                onClick={() => {
+                  const next = !voiceMode;
+                  setVoiceMode(next);
+                  if (!next) {
+                    stopListening();
+                    stopSpeaking();
+                  }
+                }}
+              >
+                Read replies aloud: {voiceMode ? 'On' : 'Off'}
+              </button>
+              <label className="rate">
+                Speech rate
+                <input
+                  type="range"
+                  min="0.8"
+                  max="1.4"
+                  step="0.1"
+                  value={rate}
+                  onChange={(event) => setRate(Number(event.target.value))}
+                />
+              </label>
+              <button type="button" className="btn small" onClick={stopSpeaking} disabled={!speaking}>Stop speaking</button>
+            </div>
+          </details>
+        ) : (
+          <p className="meta center">Voice input is not supported in this browser. Type instead.</p>
+        )}
+        {denied ? (
+          <p className="banner warn inline" role="alert">
+            The microphone is blocked. Allow it in the browser site settings, then reload this page.
+          </p>
+        ) : null}
+        {error ? <p className="banner warn inline" role="alert">{error}</p> : null}
+      </div>
+    </section>
   );
 }
