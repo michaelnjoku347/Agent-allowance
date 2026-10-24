@@ -8,7 +8,13 @@
       name="description"
       content="Spending account for an AI agent. Budget, rules, payments, and approvals on XRPL EVM Testnet."
     />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B0D10'/%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='none' stroke='%233DDC97' stroke-opacity='0.7'/%3E%3Cpath d='M8 17.5h16M8 12.5h10' stroke='%233DDC97' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <meta name="theme-color" content="#F7F8FA" />
+    <script>
+      try {
+        var theme = localStorage.getItem('allowance-theme') || 'light';
+        document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
