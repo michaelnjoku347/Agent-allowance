@@ -64,3 +64,17 @@ export async function fetchSnapshot() {
   }
   return { ...status, payments, pending };
 }
+
+/** Ask the API to start the agent. A missing wallet still returns 200 so the page can play the sequence. */
+export async function runAgent(task) {
+  const response = await fetch('/api/run-agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status >= 500) {
+    throw new Error(body.error || 'Could not start the agent.');
+  }
+  return body;
+}

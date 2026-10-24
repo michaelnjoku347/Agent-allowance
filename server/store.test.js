@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), 'allowance-'));
 process.env.ALLOWANCE_STORE = join(dir, 'store.json');
 
 const { createApp } = await import('./index.js');
-const { recordAgentPayment, recordPending } = await import('./store.js');
+const { recordAgentPayment, recordPending, spentRlusd } = await import('./store.js');
 
 function resetStore() {
   rmSync(process.env.ALLOWANCE_STORE, { force: true });
@@ -40,6 +40,7 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(status.remaining, '12.5');
       assert.equal(status.currency, 'RLUSD');
       assert.equal(status.agentConnected, false);
+      assert.equal(await spentRlusd(), '0');
       assert.equal(status.network.chainId, 1449000);
       assert.equal(status.rules.maxPerPurchase, '5');
       assert.equal(status.rules.allowedMerchants.length, 2);
@@ -48,6 +49,9 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(payments.length, 3);
       assert.equal(payments.every((payment) => payment.sample && payment.explorerUrl === null), true);
       assert.match(payments[0].txHash, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].channelId, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].claimId, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].payoutTx, /^0x[0-9a-f]{64}$/);
 
       const pending = await (await fetch(`${base}/api/pending`)).json();
       const imagery = pending.find((item) => item.reason === 'over per-purchase cap');
@@ -111,6 +115,7 @@ describe('allowance API', { concurrency: false }, () => {
       amount: '1',
       txHash: `0x${'ab'.repeat(32)}`,
       claimId: 'claim-demo',
+      receiptUrl: 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json',
     });
     assert.equal(paid.status, 'paid');
     assert.equal(paid.amount, '1');
@@ -121,11 +126,46 @@ describe('allowance API', { concurrency: false }, () => {
       const payments = await (await fetch(`http://127.0.0.1:${port2}/api/payments`)).json();
       const live = payments.find((payment) => payment.id === paid.id);
       assert.equal(live.explorerUrl, `https://explorer.testnet.xrplevm.org/tx/${paid.txHash}`);
+      assert.equal(live.receiptUrl, 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json');
+      assert.equal(live.claimId, 'claim-demo');
       const status = await (await fetch(`http://127.0.0.1:${port2}/api/status`)).json();
       assert.equal(status.spent, '1');
       assert.equal(status.remaining, '19');
     } finally {
       await close(server2);
+    }
+  });
+
+  test('run-agent does not spawn when the wallet is not configured', async () => {
+    const saved = {
+      AGENT_PRIVATE_KEY: process.env.AGENT_PRIVATE_KEY,
+      TEAM_NAME: process.env.TEAM_NAME,
+      RESOURCE_URL: process.env.RESOURCE_URL,
+    };
+    delete process.env.AGENT_PRIVATE_KEY;
+    delete process.env.TEAM_NAME;
+    delete process.env.RESOURCE_URL;
+    resetStore();
+    const server = await listen(createApp());
+    const { port } = server.address();
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: 'Buy the morning weather brief; rm -rf /' }),
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.ok, false);
+      assert.equal(body.demo, true);
+      assert.equal(body.task, 'Buy the morning weather brief; rm -rf /');
+      assert.match(body.error, /AGENT_PRIVATE_KEY/);
+    } finally {
+      await close(server);
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       rmSync(dir, { recursive: true, force: true });
     }
   });

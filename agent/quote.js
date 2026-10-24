@@ -7,7 +7,7 @@
 
 import { decodeX402PaymentRequired } from '@ap4m/sdk';
 import { ethers } from 'ethers';
-import { formatRlusd, toUnits } from './rules.js';
+import { canonicalAddress, formatRlusd, toUnits } from './rules.js';
 
 const TESTNET = 'eip155:1449000';
 
@@ -67,6 +67,22 @@ export async function requestQuote(resourceUrl, channelId, fetchImpl = fetch) {
     throw new Error(`Merchant must return HTTP 402 before a payment (got ${response.status}). ${detail}`);
   }
   return quoteFromPaymentRequired(response.headers.get('payment-required'));
+}
+
+/**
+ * A local quote used by tests. The payer itself reads the price from the
+ * merchant's HTTP 402, not from this helper. Nothing here signs or pays.
+ */
+export function buildPurchaseQuote({ amount = '1', merchant, task = '' } = {}) {
+  const units = toUnits(amount);
+  const price = formatRlusd(units);
+  return {
+    amount: price,
+    amountWei: units.toString(),
+    merchant: canonicalAddress(merchant),
+    task: String(task ?? ''),
+    description: `Direct AP4M payment of ${price} RLUSD.`,
+  };
 }
 
 /** Operation names are how the SDK tells two purchases apart. */

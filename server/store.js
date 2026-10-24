@@ -128,6 +128,11 @@ function presentPayment(payment) {
     explorerUrl,
     reason: payment.reason ?? null,
     note: payment.note ?? null,
+    channelId: payment.channelId ?? null,
+    claimId: payment.claimId ?? null,
+    payoutTx: payment.payoutTx ?? null,
+    receiptUrl: payment.receiptUrl ?? null,
+    resourceUrl: payment.resourceUrl ?? null,
   };
 }
 
@@ -146,8 +151,13 @@ function presentPending(item) {
   };
 }
 
+function liveRows(store, rows) {
+  if (!store.agentConnected) return rows;
+  return rows.filter((item) => !item.sample);
+}
+
 export function summarize(store, rules = loadRules()) {
-  const spent = store.payments
+  const spent = liveRows(store, store.payments)
     .filter((payment) => payment.status === 'paid')
     .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
   const remaining = rules.budget > spent ? rules.budget - spent : 0n;
@@ -169,19 +179,25 @@ export function summarize(store, rules = loadRules()) {
   };
 }
 
+/** RLUSD already paid by the agent. Sample rows are a preview and are not spent. */
 export async function spentRlusd() {
   const store = await readStore();
-  return summarize(store).spent;
+  const spent = store.payments
+    .filter((payment) => payment.status === 'paid' && !payment.sample)
+    .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
+  return formatRlusd(spent);
 }
 
 export async function listPayments() {
   const store = await readStore();
-  return store.payments.map(presentPayment);
+  return liveRows(store, store.payments).map(presentPayment);
 }
 
 export async function listPending() {
   const store = await readStore();
-  return store.pending.filter((item) => item.status === 'pending').map(presentPending);
+  return liveRows(store, store.pending)
+    .filter((item) => item.status === 'pending')
+    .map(presentPending);
 }
 
 export async function recordAgentPayment(input) {
@@ -201,8 +217,12 @@ export async function recordAgentPayment(input) {
       merchantLabel: input.merchantLabel ?? null,
       amount,
       txHash: input.txHash,
+      explorerUrl: `${network.explorerUrl}/tx/${input.txHash}`,
       resourceUrl: input.resourceUrl ?? null,
+      receiptUrl: input.receiptUrl ?? null,
       claimId: input.claimId ?? null,
+      channelId: input.channelId ?? null,
+      payoutTx: input.payoutTx ?? null,
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
@@ -254,5 +274,16 @@ export async function approvePending(id) {
     };
     store.payments.unshift(approved);
     return { approved: presentPayment(approved) };
+  });
+}
+
+/** Attach a settlement payout hash after the redemption is already recorded. */
+export async function attachPayout(id, payoutTx) {
+  if (!id || !/^0x[0-9a-fA-F]{64}$/.test(payoutTx ?? '')) return null;
+  return updateStore((store) => {
+    const payment = store.payments.find((item) => item.id === id);
+    if (!payment) return null;
+    payment.payoutTx = payoutTx;
+    return presentPayment(payment);
   });
 }
