@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), 'allowance-'));
 process.env.ALLOWANCE_STORE = join(dir, 'store.json');
 
 const { createApp } = await import('./index.js');
-const { recordAgentPayment, recordPending } = await import('./store.js');
+const { recordAgentPayment, recordPending, spentRlusd } = await import('./store.js');
 
 function resetStore() {
   rmSync(process.env.ALLOWANCE_STORE, { force: true });
@@ -40,6 +40,7 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(status.remaining, '12.5');
       assert.equal(status.currency, 'RLUSD');
       assert.equal(status.agentConnected, false);
+      assert.equal(await spentRlusd(), '0');
       assert.equal(status.network.chainId, 1449000);
       assert.equal(status.rules.maxPerPurchase, '5');
       assert.equal(status.rules.allowedMerchants.length, 2);

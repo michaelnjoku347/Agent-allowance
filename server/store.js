@@ -151,8 +151,13 @@ function presentPending(item) {
   };
 }
 
+function liveRows(store, rows) {
+  if (!store.agentConnected) return rows;
+  return rows.filter((item) => !item.sample);
+}
+
 export function summarize(store, rules = loadRules()) {
-  const spent = store.payments
+  const spent = liveRows(store, store.payments)
     .filter((payment) => payment.status === 'paid')
     .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
   const remaining = rules.budget > spent ? rules.budget - spent : 0n;
@@ -174,19 +179,25 @@ export function summarize(store, rules = loadRules()) {
   };
 }
 
+/** RLUSD already paid by the agent. Sample rows are a preview and are not spent. */
 export async function spentRlusd() {
   const store = await readStore();
-  return summarize(store).spent;
+  const spent = store.payments
+    .filter((payment) => payment.status === 'paid' && !payment.sample)
+    .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
+  return formatRlusd(spent);
 }
 
 export async function listPayments() {
   const store = await readStore();
-  return store.payments.map(presentPayment);
+  return liveRows(store, store.payments).map(presentPayment);
 }
 
 export async function listPending() {
   const store = await readStore();
-  return store.pending.filter((item) => item.status === 'pending').map(presentPending);
+  return liveRows(store, store.pending)
+    .filter((item) => item.status === 'pending')
+    .map(presentPending);
 }
 
 export async function recordAgentPayment(input) {

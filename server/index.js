@@ -82,14 +82,15 @@ export function createApp() {
     const task = raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Buy the morning weather brief';
     const ready = Boolean(
       process.env.AGENT_PRIVATE_KEY?.trim()
-      && process.env.TEAM_NAME?.trim(),
+      && process.env.TEAM_NAME?.trim()
+      && process.env.RESOURCE_URL?.trim(),
     );
     if (!ready) {
       return res.status(200).json({
         ok: false,
         demo: true,
         task,
-        error: 'Add AGENT_PRIVATE_KEY and TEAM_NAME to .env to pay a merchant. The dashboard will still play the sequence.',
+        error: 'Add AGENT_PRIVATE_KEY, TEAM_NAME, and RESOURCE_URL to .env to pay a merchant. The dashboard will still play the sequence.',
       });
     }
     if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
