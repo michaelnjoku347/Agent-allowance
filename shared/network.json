@@ -1,0 +1,6 @@
+{
+  "name": "XRPL EVM Testnet",
+  "chainId": 1449000,
+  "explorerUrl": "https://explorer.testnet.xrplevm.org",
+  "currency": "RLUSD"
+}

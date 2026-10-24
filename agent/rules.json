@@ -1,0 +1,14 @@
+{
+  "budget": "20",
+  "maxPerPurchase": "5",
+  "expiresAt": "2026-12-31T23:59:59.000Z",
+  "summary": "The agent pays on its own only inside this allowance. Anything outside waits for a person.",
+  "allowedMerchants": [
+    "0xa11cea11cea11cea11cea11cea11cea11cea11ce",
+    "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0"
+  ],
+  "merchantLabels": {
+    "0xa11cea11cea11cea11cea11cea11cea11cea11ce": "Field Weather Co",
+    "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0": "Market Desk"
+  }
+}

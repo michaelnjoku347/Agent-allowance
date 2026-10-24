@@ -1,0 +1,65 @@
+{
+  "payments": [
+    {
+      "id": "pay_sample_translation",
+      "sample": true,
+      "status": "paid",
+      "task": "Translate the vendor contract",
+      "merchant": "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0",
+      "merchantLabel": "Market Desk",
+      "amount": "4",
+      "txHash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "createdAt": "2026-10-24T15:40:00.000Z"
+    },
+    {
+      "id": "pay_sample_market",
+      "sample": true,
+      "status": "paid",
+      "task": "Morning market brief",
+      "merchant": "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0",
+      "merchantLabel": "Market Desk",
+      "amount": "2.5",
+      "txHash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "createdAt": "2026-10-24T14:15:00.000Z"
+    },
+    {
+      "id": "pay_sample_weather",
+      "sample": true,
+      "status": "paid",
+      "task": "Route weather for the field team",
+      "merchant": "0xa11cea11cea11cea11cea11cea11cea11cea11ce",
+      "merchantLabel": "Field Weather Co",
+      "amount": "1",
+      "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "createdAt": "2026-10-24T13:05:00.000Z"
+    }
+  ],
+  "pending": [
+    {
+      "id": "pend_sample_research",
+      "sample": true,
+      "status": "pending",
+      "task": "Query an unlisted research API",
+      "merchant": "0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad",
+      "merchantLabel": "Unlisted Research API",
+      "amount": "2",
+      "reason": "merchant not allowed",
+      "description": "This payout address is not on the allowance list.",
+      "resourceUrl": "https://merchant.example/resource",
+      "createdAt": "2026-10-24T15:52:00.000Z"
+    },
+    {
+      "id": "pend_sample_imagery",
+      "sample": true,
+      "status": "pending",
+      "task": "Buy the full satellite imagery pack",
+      "merchant": "0xa11cea11cea11cea11cea11cea11cea11cea11ce",
+      "merchantLabel": "Field Weather Co",
+      "amount": "8",
+      "reason": "over per-purchase cap",
+      "description": "The quote is above the 5 RLUSD per-purchase cap.",
+      "resourceUrl": "https://merchant.example/resource",
+      "createdAt": "2026-10-24T15:48:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "agent-allowance",
+  "private": true,
+  "type": "module",
+  "description": "A spending account for AI agents, with rules enforced before each AP4M x402 payment.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "agent": "node agent/agent.js",
+    "server": "node server/index.js",
+    "dashboard": "npm --prefix dashboard run dev",
+    "test": "node --test --test-timeout=20000 agent/rules.test.js agent/quote.test.js server/store.test.js"
+  },
+  "dependencies": {
+    "@ap4m/sdk": "https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz",
+    "dotenv": "^16.6.1",
+    "ethers": "6.17.0",
+    "express": "^4.21.2"
+  }
+}
