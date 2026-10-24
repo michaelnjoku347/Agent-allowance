@@ -48,6 +48,9 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(payments.length, 3);
       assert.equal(payments.every((payment) => payment.sample && payment.explorerUrl === null), true);
       assert.match(payments[0].txHash, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].channelId, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].claimId, /^0x[0-9a-f]{64}$/);
+      assert.match(payments[0].payoutTx, /^0x[0-9a-f]{64}$/);
 
       const pending = await (await fetch(`${base}/api/pending`)).json();
       const imagery = pending.find((item) => item.reason === 'over per-purchase cap');
@@ -126,6 +129,39 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(status.remaining, '19');
     } finally {
       await close(server2);
+    }
+  });
+
+  test('run-agent does not spawn when the wallet is not configured', async () => {
+    const saved = {
+      AGENT_PRIVATE_KEY: process.env.AGENT_PRIVATE_KEY,
+      TEAM_NAME: process.env.TEAM_NAME,
+      RESOURCE_URL: process.env.RESOURCE_URL,
+    };
+    delete process.env.AGENT_PRIVATE_KEY;
+    delete process.env.TEAM_NAME;
+    delete process.env.RESOURCE_URL;
+    resetStore();
+    const server = await listen(createApp());
+    const { port } = server.address();
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: 'Buy the morning weather brief; rm -rf /' }),
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.ok, false);
+      assert.equal(body.demo, true);
+      assert.equal(body.task, 'Buy the morning weather brief; rm -rf /');
+      assert.match(body.error, /AGENT_PRIVATE_KEY/);
+    } finally {
+      await close(server);
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       rmSync(dir, { recursive: true, force: true });
     }
   });

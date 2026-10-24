@@ -21,6 +21,18 @@ export function when(iso) {
   }).format(date);
 }
 
+export function clock(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date);
+}
+
 export function shortAddress(address) {
   if (!address || address.length < 12) return address || '';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;

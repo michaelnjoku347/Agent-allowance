@@ -128,6 +128,10 @@ function presentPayment(payment) {
     explorerUrl,
     reason: payment.reason ?? null,
     note: payment.note ?? null,
+    channelId: payment.channelId ?? null,
+    claimId: payment.claimId ?? null,
+    payoutTx: payment.payoutTx ?? null,
+    resourceUrl: payment.resourceUrl ?? null,
   };
 }
 
@@ -203,6 +207,7 @@ export async function recordAgentPayment(input) {
       txHash: input.txHash,
       resourceUrl: input.resourceUrl ?? null,
       claimId: input.claimId ?? null,
+      channelId: input.channelId ?? null,
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
@@ -254,5 +259,16 @@ export async function approvePending(id) {
     };
     store.payments.unshift(approved);
     return { approved: presentPayment(approved) };
+  });
+}
+
+/** Attach a settlement payout hash after the redemption is already recorded. */
+export async function attachPayout(id, payoutTx) {
+  if (!id || !/^0x[0-9a-fA-F]{64}$/.test(payoutTx ?? '')) return null;
+  return updateStore((store) => {
+    const payment = store.payments.find((item) => item.id === id);
+    if (!payment) return null;
+    payment.payoutTx = payoutTx;
+    return presentPayment(payment);
   });
 }
