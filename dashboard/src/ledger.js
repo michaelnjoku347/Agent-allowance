@@ -3,11 +3,12 @@
  *
  * The device signs the EIP-712 ApprovePurchase payload from the allowance API.
  * This module only talks to a hardware wallet over WebHID.
+ *
+ * The Ledger kit is most of the dashboard's JavaScript, so it is downloaded
+ * only when a Ledger screen opens: prepareLedger() starts the download, and
+ * the Connect click then finds the kit ready and opens WebHID at once.
  */
 
-import { DeviceActionStatus, DeviceManagementKitBuilder } from '@ledgerhq/device-management-kit';
-import { SignerEthBuilder } from '@ledgerhq/device-signer-kit-ethereum';
-import { webHidTransportFactory } from '@ledgerhq/device-transport-kit-web-hid';
 import {
   LEDGER_ACCOUNT_PATH,
   describeLedgerError,
@@ -18,6 +19,9 @@ import { ledgerClearSign } from '../../shared/ledger-clear-sign.js';
 
 const CHAIN_ID = 1449000;
 let dmk;
+let kitLoad;
+let DeviceActionStatus;
+let SignerEthBuilder;
 
 function userError(message, code) {
   const error = new Error(message);
@@ -61,15 +65,42 @@ function fieldContextModule() {
   };
 }
 
-function ledgerKit() {
-  dmk ??= new DeviceManagementKitBuilder().addTransport(webHidTransportFactory).build();
-  return dmk;
+/** Download and build the kit once. A failed download can be tried again. */
+function loadKit() {
+  kitLoad ??= Promise.all([
+    import('@ledgerhq/device-management-kit'),
+    import('@ledgerhq/device-signer-kit-ethereum'),
+    import('@ledgerhq/device-transport-kit-web-hid'),
+  ]).then(([management, signer, transport]) => {
+    DeviceActionStatus = management.DeviceActionStatus;
+    SignerEthBuilder = signer.SignerEthBuilder;
+    dmk = new management.DeviceManagementKitBuilder().addTransport(transport.webHidTransportFactory).build();
+    return dmk;
+  }).catch((error) => {
+    kitLoad = undefined;
+    throw error;
+  });
+  return kitLoad;
 }
 
-/** Build the kit before the connect click so that click can open WebHID immediately. */
+/** The built kit, without waiting when it is already there, so the click keeps its user gesture. */
+async function ledgerKit() {
+  if (dmk) return dmk;
+  try {
+    return await loadKit();
+  } catch {
+    throw userError('The Ledger connection could not load. Check your connection and try again. Nothing was signed.', 'unavailable');
+  }
+}
+
+/**
+ * Start downloading the kit before the Connect click, so that click can open
+ * WebHID immediately. Resolves true when the kit is ready; never rejects.
+ */
 export function prepareLedger() {
-  ledgerKit();
-  return Promise.resolve();
+  if (dmk) return Promise.resolve(true);
+  if (!webHidSupported()) return Promise.resolve(false);
+  return loadKit().then(() => true, () => false);
 }
 
 const MESSAGE_SHAPES = {
@@ -176,7 +207,7 @@ export async function readLedgerAddress({ onState, setCancel } = {}) {
   if (!webHidSupported()) {
     throw userError('Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.', 'unsupported');
   }
-  const kit = ledgerKit();
+  const kit = dmk ?? (await ledgerKit());
   onState?.({ code: 'connecting', message: 'Choose the Ledger in the browser prompt.' });
   let sessionId = '';
   try {
@@ -209,7 +240,7 @@ export async function signOnLedger(typedData, { expectedAddress, onState, setCan
     );
   }
   assertTypedData(typedData);
-  const kit = ledgerKit();
+  const kit = dmk ?? (await ledgerKit());
   onState?.({ code: 'connecting', message: 'Choose the Ledger in the browser prompt.' });
 
   let sessionId = '';

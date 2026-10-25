@@ -386,6 +386,12 @@ describe('Ledger approval', { concurrency: false }, () => {
     assert.equal(describeLedgerError({ errorCode: '6e00', message: 'CLA not supported' }).code, 'wrong_app');
     assert.equal(describeLedgerError({ _tag: 'EthAppCommandError', errorCode: '6985', message: 'Condition not satisfied' }).code, 'rejected');
     assert.match(describeLedgerError({ message: 'WebHID is unavailable' }).message, /Chrome/);
+    const lateClick = describeLedgerError({
+      name: 'SecurityError',
+      message: "Failed to execute 'requestDevice' on 'HID': Must be handling a user gesture to show a permission request.",
+    });
+    assert.equal(lateClick.code, 'gesture');
+    assert.match(lateClick.message, /Click Connect again/);
     assert.match(
       describeLedgerError({ _tag: 'NoAccessibleDeviceError', originalError: new Error('No selected device') }).message,
       /No Ledger was selected/,
