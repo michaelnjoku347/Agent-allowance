@@ -37,6 +37,8 @@ import {
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import HistoryView from './HistoryView.jsx';
+import ApprovalWhy from './ApprovalWhy.jsx';
+import { explainApproval } from './approvalWhy.js';
 import { EMPTY_FILTERS, normalizeFilters } from './history.js';
 import { ActivityList, EmptyState, StatusPill, cannotApprove, initial, pill, planDetail, planLabel, reasonChip } from './rows.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
@@ -210,7 +212,7 @@ export default function App() {
   const reconnect = useRef(null);
   const [filter, setFilter] = useState('all');
   const [historyFilters, setHistoryFilters] = useState(EMPTY_FILTERS);
-  const [setupOpen, setSetupOpen] = useState(false);
+  const [editorSeed, setEditorSeed] = useState(null);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -565,6 +567,12 @@ export default function App() {
   const latest = view.activity.slice(0, 6);
   const breakdown = useMemo(() => spendByMerchant(view.payments), [view.payments]);
   const counts = outcomeCounts(view.activity);
+  const whyContext = {
+    cap: snapshot?.rules?.maxPerPurchase,
+    budget: view.budget,
+    spent: view.spent,
+    expiresAt: snapshot?.rules?.expiresAt,
+  };
   const leftRatio = view.budgetNumber > 0 ? Math.max(0, view.leftNumber / view.budgetNumber) : 0;
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
@@ -682,7 +690,7 @@ export default function App() {
                 {snapshot?.frozen ? <IconUnlock /> : <IconLock />}
                 <span>{freeze.label}</span>
               </button>
-              <button type="button" className="chip setup-chip" onClick={() => setSetupOpen(true)}>{setupLabel}</button>
+              <button type="button" className="chip setup-chip" onClick={() => go('rules')}>{setupLabel}</button>
               {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
@@ -709,7 +717,7 @@ export default function App() {
                   freezeDisabled={freezeDisabled}
                   onFreeze={() => onFreeze(freeze.next)}
                   setupLabel={setupLabel}
-                  onSetup={() => setSetupOpen(true)}
+                  onSetup={() => go('rules')}
                   demo={route === 'home' && snapshot ? {
                     onOverCap,
                     onHeist: () => demoBridge.current.runHeist?.(),
@@ -919,33 +927,55 @@ export default function App() {
             ) : null}
 
             {snapshot && route === 'approvals' ? (
-              <section className="card needs-card" aria-labelledby="page-title">
+              <section className="approvals-page" aria-labelledby="page-title">
                 {view.pending.length === 0 ? (
-                  <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
+                  <div className="card">
+                    <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you.">
+                      When the agent finds a price over your cap, or Jev asks for a review, it waits here for you.
+                    </EmptyState>
+                  </div>
                 ) : (
-                  <ul className="needs">
-                    {view.pending.map((item) => (
-                      <li key={item.id} className={cannotApprove(item) ? 'need is-neutral' : 'need'}>
-                        <div className="need-top">
-                          <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
-                          <h3>{item.merchantLabel || 'Merchant'}</h3>
-                          <p className="amount">{money(item.amount)} RLUSD</p>
-                        </div>
-                        {cannotApprove(item) ? null : <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>}
-                        {cannotApprove(item) ? (
-                          <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
-                        ) : (
-                          <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
-                            Approve with Ledger
-                          </button>
-                        )}
-                        <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
-                          Decline
-                        </button>
-                      </li>
-                    ))}
+                  <ul className="approval-list">
+                    {[...view.pending].sort((a, b) => Number(cannotApprove(a)) - Number(cannotApprove(b))).map((item) => {
+                      const why = explainApproval(item, whyContext);
+                      return (
+                        <li key={item.id} className={why.canApprove ? 'card approval-card' : 'card approval-card is-locked'}>
+                          <div className="approval-head">
+                            <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
+                            <div className="approval-id">
+                              <h2>{item.merchantLabel || 'Merchant'}</h2>
+                              <p className="meta">{item.task || 'Purchase'} · <span title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span></p>
+                            </div>
+                            <p className="approval-amount">{money(item.amount)} <span>RLUSD</span></p>
+                          </div>
+                          <ApprovalWhy why={why} />
+                          <JevCard jev={item.jev} merchant={item.merchantLabel} />
+                          <div className="approval-actions">
+                            {why.canApprove ? (
+                              snapshot.frozen && !item.sample && !snapshot.offlinePreview ? (
+                                <p className="meta">Unfreeze the agent to approve this.</p>
+                              ) : (
+                                <button type="button" className="btn primary" onClick={() => setApproval(item)}>
+                                  Review and approve {money(item.amount)} RLUSD
+                                </button>
+                              )
+                            ) : null}
+                            <button type="button" className={why.canApprove ? 'btn text' : 'btn'} disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
+                              {busyId === item.id ? 'Declining…' : 'Decline'}
+                            </button>
+                            {item.sample || snapshot.offlinePreview ? <p className="meta">Example row. Decline works on real purchases.</p> : null}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
+                {actionError ? (
+                  <div className="state-error" role="alert">
+                    <p className="state-error-title">That did not finish</p>
+                    <p>{actionError}</p>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
@@ -993,6 +1023,7 @@ export default function App() {
                   snapshot={snapshot}
                   view={view}
                   theme={theme}
+                  setTheme={setTheme}
                   voiceOn={voiceOn}
                   onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                   onVoice={() => {
@@ -1001,7 +1032,30 @@ export default function App() {
                     writeVoiceEnabled(next);
                   }}
                   onAsk={(text) => setEveSeed({ text, id: Date.now() })}
-                  onSetup={() => setSetupOpen(true)}
+                  onSetup={() => go('rules')}
+                  onLoad={load}
+                  agentPanels={(
+                    <>
+                      <UseCaseCard
+                        selected={snapshot?.useCase?.id}
+                        busy={controlBusy}
+                        disabled={Boolean(snapshot?.offlinePreview)}
+                        onSelect={onUseCase}
+                      />
+                      <HowItWorks snapshot={snapshot} onChange={load} />
+                      <details className="device-more card">
+                        <summary>Technical details</summary>
+                        <p>{snapshot?.network?.name || 'XRPL EVM Testnet'}. Chain {snapshot?.network?.chainId || '1449000'}.</p>
+                        {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
+                      </details>
+                    </>
+                  )}
+                  onNotice={(line) => { pushToast(line); setAnnounce(line); }}
+                  onGo={go}
+                  onOpen={setDetail}
+                  onExportAudit={exportAudit}
+                  onReplayIntro={() => window.dispatchEvent(new Event('intro:open'))}
+                  editorSeed={editorSeed}
                   onFreeze={() => onFreeze(freeze.next)}
                   busy={Boolean(freezePhase)}
                   disabled={freezeDisabled}
@@ -1054,6 +1108,7 @@ export default function App() {
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
       {approval ? (
         <Sheet variant="ceremony" title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
+          <ApprovalWhy why={explainApproval(approval, whyContext)} headingLevel={3} />
           <LedgerApproval
             item={approval}
             onPaid={load}
@@ -1066,22 +1121,6 @@ export default function App() {
       {detail ? (
         <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
-        </Sheet>
-      ) : null}
-      {setupOpen ? (
-        <Sheet title={setupLabel} onClose={() => setSetupOpen(false)}>
-          <UseCaseCard
-            selected={snapshot?.useCase?.id}
-            busy={controlBusy}
-            disabled={Boolean(snapshot?.offlinePreview)}
-            onSelect={onUseCase}
-          />
-          {snapshot ? <HowItWorks snapshot={snapshot} onChange={load} /> : null}
-          <details className="device-more">
-            <summary>Technical details</summary>
-            <p>{snapshot?.network?.name || 'XRPL EVM Testnet'}. Chain {snapshot?.network?.chainId || '1449000'}.</p>
-            {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
-          </details>
         </Sheet>
       ) : null}
     </div>
