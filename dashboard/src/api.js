@@ -87,10 +87,21 @@ export async function runAgent(task) {
   return body;
 }
 
-export async function approvePurchase(id) {
-  const response = await fetch(`/api/approve/${encodeURIComponent(id)}`, { method: 'POST' });
+export async function requestApprovalChallenge(id) {
+  const response = await fetch(`/api/approve/${encodeURIComponent(id)}/challenge`, { method: 'POST' });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Could not approve that purchase.');
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that approval.');
+  return body;
+}
+
+export async function submitLedgerApproval(id, payload) {
+  const response = await fetch(`/api/approve/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
   return body;
 }
 

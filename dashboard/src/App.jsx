@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { approvePurchase, declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
+import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
 import {
@@ -101,6 +102,7 @@ export default function App() {
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
   const [detail, setDetail] = useState(null);
+  const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
   const [actionError, setActionError] = useState('');
   const [runNote, setRunNote] = useState('');
@@ -148,12 +150,11 @@ export default function App() {
     setAnnounce(`${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
   }, [view.activity]);
 
-  async function decide(id, kind) {
+  async function decide(id) {
     setBusyId(id);
     setActionError('');
     try {
-      if (kind === 'approve') await approvePurchase(id);
-      else await declinePurchase(id);
+      await declinePurchase(id);
       await load();
     } catch (error) {
       setActionError(error.message || 'That did not save.');
@@ -327,7 +328,7 @@ export default function App() {
                   <section className="card" aria-labelledby="needs-title">
                     <div className="section-head">
                       <h2 id="needs-title">Needs you</h2>
-                      <p>An approval is recorded here. It does not sign a voucher or move RLUSD.</p>
+                      <p>A quote outside the rules waits here. Approving it asks the Ledger to sign, then pays that quote once.</p>
                     </div>
                     {view.pending.length === 0 ? (
                       <EmptyState
@@ -350,10 +351,10 @@ export default function App() {
                             <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
                             <JevCard jev={item.jev} />
                             <div className="pair">
-                              <button type="button" className="btn primary" disabled={busyId === item.id} onClick={() => decide(item.id, 'approve')}>
-                                {busyId === item.id ? 'Saving…' : 'Approve'}
+                              <button type="button" className="btn primary" onClick={() => setApproval(item)}>
+                                Approve with Ledger
                               </button>
-                              <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id, 'decline')}>
+                              <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id)}>
                                 Decline
                               </button>
                             </div>
@@ -443,6 +444,11 @@ export default function App() {
       </div>
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
+      {approval ? (
+        <Sheet title="Approve with Ledger" onClose={() => setApproval(null)}>
+          <LedgerApproval item={approval} onPaid={load} />
+        </Sheet>
+      ) : null}
       {detail ? (
         <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />

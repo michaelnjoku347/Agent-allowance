@@ -44,7 +44,7 @@ Runs three purchases, in order, and prints one line each:
 2. **8 RLUSD** from that same merchant → `blocked over per-purchase cap — saved for approval`. Nothing is signed.
 3. **1 RLUSD** from a merchant that is not on the allowlist → `blocked merchant not allowed — saved for approval`. Nothing is signed.
 
-The blocked quotes are saved under **Approval needed**. Approving there records the decision only. It does not sign a voucher or move RLUSD.
+The blocked quotes are saved under **Needs you**. Approving one asks for a Ledger signature, then pays that quote once. See [Ledger approval](#ledger-approval).
 
 ## Setup
 
@@ -76,6 +76,7 @@ Fill in `.env` (it is gitignored — do not commit it):
 | `LLM_API_KEY` | Optional. Eve's fallback model. Stays on the server. |
 | `LLM_BASE_URL` | Optional. OpenAI-compatible base URL, such as `https://api.openai.com/v1`. |
 | `LLM_MODEL` | Optional. Model name for that endpoint. |
+| `APPROVER_ADDRESS` | Ledger Ethereum address that may approve an out-of-rule purchase. Public address only. |
 | `AWS_REGION` | Optional. Bedrock region. `AWS_DEFAULT_REGION` is used when this is blank. |
 | `BEDROCK_MODEL_ID` | Optional. Bedrock model id, such as `us.amazon.nova-micro-v1:0`. |
 | `AWS_BEARER_TOKEN_BEDROCK` | Optional. Bedrock API key. Never commit it. |
@@ -133,7 +134,7 @@ npm.cmd run test:channel-cap -- --open --close
 
 This opens a 5 RLUSD test channel (uses test XRP gas), simulates an in-cap voucher and a 6 RLUSD cumulative voucher against the same block, and requires the second to return contract revert data. Neither payment is broadcast. It checks that redeemed state and merchant balance stay unchanged, writes a JSON result under agent/receipts/, and requests channel closure. A network failure, a closed channel, or a failed in-cap control does not count as a passing result. This command is prepared and tested with mocks; the team still needs to run it live on testnet.
 
-Ledger hardware signing and AWS deployment remain separate team integrations. The dashboard approval endpoint currently records a placeholder decision and does not authorize an exceptional payment.
+AWS deployment remains a separate team integration. Out-of-rule quotes are paid only after a Ledger signature, described below.
 
 ## How a purchase is decided
 
@@ -147,7 +148,30 @@ When Bedrock is configured, the agent asks it for a purchase plan before anythin
    - **over per-purchase cap** — the price is above 5 RLUSD
    - **over budget** — paying would take the running total above 20 RLUSD
 4. **allow** — Jev reviews the quote. If Jev is unavailable, the rules still pay and the record says "Jev unavailable — rules only". If Jev's review score is 0.5 or higher, the purchase looks unnecessary (needed under 0.4), or the risk is 4/5 or 5/5, the quote is saved as **Jev flagged for review** and nothing is paid. Otherwise `buyResource` signs one x402 voucher and the merchant returns the market data. The agent reports the redemption, settles, and saves the tx hash, claim id, receipt URL, and explorer link. The Channel stays open for the next purchase.
-5. **needs_approval** — the quote is written to the local ledger and nothing is paid. The rules always win: Jev cannot allow a quote the rules blocked.
+5. **needs_approval** — the quote is written to the local ledger and nothing is paid. The rules always win: Jev cannot allow a quote the rules blocked. A person can approve that one quote on a Ledger. The signature can pass the merchant allowlist and the per-purchase cap. It cannot pass an expired allowance or a budget that is already spent.
+
+## Ledger approval
+
+An out-of-rule quote stays unpaid until a person confirms it on a Ledger. The dashboard connects with the [Ledger Device Management Kit](https://developers.ledger.com/docs/device-interaction/getting-started) and the Ethereum signer over Chrome **WebHID**. The device signs an EIP-712 `ApprovePurchase` message: purchase id, merchant, amount, and expiry. The server rebuilds that message, checks the signature recovers to `APPROVER_ADDRESS`, and checks it matches the pending quote and has not expired or been used. Only then does the existing AP4M x402 path pay that exact quote once.
+
+[Ledger Agent Intent](https://developers.ledger.com/docs/ai-tools/agent-intent) was not used. It is a hosted queue for real Ethereum and Solana sends and swaps. It does not sign this approval, and it does not settle RLUSD on XRPL EVM Testnet.
+
+The Ethereum app receives the typed fields (not a hash). `shared/erc7730-approve-purchase.json` is the ERC-7730 descriptor for those fields. This app does not call Ledger's registry, so the device shows the raw field names and values. On some firmware the Ethereum app also asks you to allow blind signing before it will display a message that is not in the registry. Allow that only when the four values match the sheet.
+
+Jev still cannot approve a quote the rules blocked. Eve cannot sign one either.
+
+### Demo on a real device
+
+1. Use Chrome, Edge, or Brave. Safari and Firefox have no WebHID.
+2. Install the Ethereum app on a Ledger Nano X, Nano S Plus, Nano Gen5, Stax, or Flex. Unlock the device and plug it in.
+3. In the Ethereum app, find the account at `44'/60'/0'/0/0`. Put that public address in `.env` as `APPROVER_ADDRESS`. You can instead set `approverAddress` in the rules file; the environment variable wins. Restart the API after either change.
+4. Fund the agent wallet with test XRP. From the repo root, in four terminals: `npm run server`, `npm run merchant`, `npm run dashboard`, then `npm run demo`.
+5. Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The 8 RLUSD quote and the unlisted merchant are under **Needs you**.
+6. Choose **Approve with Ledger**. The dark panel is what the device will show: `purchaseId`, `merchant`, `amount`, and `expiry`.
+7. Choose **Connect Ledger**, pick the device, and open the Ethereum app if the device asks. Confirm on the device only if those four values match the panel.
+8. The agent pays that quote once through x402. Submitting the same signature again is rejected. The other blocked quote is still unpaid until it gets its own confirmation.
+
+The dashboard has no stand-in for the device. Automated tests sign with `server/dev-signer.js`, which is labeled for tests, is not an API, and is not loaded by the dashboard.
 
 A single purchase that is inside the rules:
 
@@ -164,7 +188,8 @@ A dropped connection (`fetch failed`) is retried up to 3 times. An HTTP error is
 | GET | `/api/status` | Budget, spent, remaining, rules |
 | GET | `/api/payments` | Tx hash, merchant, amount, status |
 | GET | `/api/pending` | Purchases waiting for approval, including the Jev record |
-| POST | `/api/approve/:id` | Record a placeholder approval |
+| POST | `/api/approve/:id/challenge` | EIP-712 payload for the Ledger |
+| POST | `/api/approve/:id` | Verify a Ledger signature and pay that quote once |
 | POST | `/api/decline/:id` | Record a decline. Nothing is signed or paid |
 | POST | `/api/eve` | Ask Eve. A change comes back as a confirmation, not an edit |
 | POST | `/api/eve/confirm` | Apply a confirmation token Eve just issued |
@@ -178,17 +203,17 @@ The ledger file is `server/data/store.json`. It is created on first run and is n
 npm test
 ```
 
-That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that Jev cannot override a blocked rule, that Eve asks before she approves or changes the cap, and that a mocked Bedrock plan cannot pay a quote the rules or Jev held back.
+That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that a Ledger signature pays once and a replay, a mismatched amount or merchant, or the wrong signer does not, that Jev cannot override a blocked rule, that Eve confirms a cap change and cannot approve a purchase, and that a mocked Bedrock plan cannot pay a quote the rules or Jev held back.
 
 ## Jev and Eve
 
 Jev looks at a purchase only after the rules allow it. Set `JEV_API_KEY` from [thejevai.com](https://thejevai.com) (account settings, then API Keys). `JEV_API_URL` defaults to `https://thejevai.com`. Point it at a self-hosted Kev server if you run one; the API is the same. With no key, a timeout, or an error, the agent pays on the rules and records "Jev unavailable — rules only". The dashboard card shows Needed, Risk (1–5), and Human review, plus whether the source was Jev, Kev, or the rules.
 
-Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Approving, declining, or changing the cap or budget returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. When Bedrock is configured, Eve asks Bedrock first. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are an optional fallback and stay on the server. Without Bedrock or those settings, Eve uses a built-in parser.
+Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Declining, or changing the cap or budget, returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. She cannot approve a purchase. That happens on the Ledger. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. When Bedrock is configured, Eve asks Bedrock first. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are an optional fallback and stay on the server. Without Bedrock or those settings, Eve uses a built-in parser.
 
 ## AWS Bedrock
 
-Eve's replies and the agent's purchase plan run on Amazon Bedrock when it is configured. Bedrock writes the words. The allowance rules still block a quote outside the cap, the budget, the merchant list, or the expiry, and Jev still reviews risk after the rules allow a quote. With the variables below blank, Eve uses the built-in parser (or `LLM_*` when that key is set) and the agent decides from the rules and Jev alone.
+Eve's replies and the agent's purchase plan run on Amazon Bedrock when it is configured. Bedrock writes the words. The allowance rules still block a quote outside the cap, the budget, the merchant list, or the expiry, and Jev still reviews risk after the rules allow a quote. A Ledger signature is the only way past the merchant list or the per-purchase cap, and it still stops at the budget and the expiry. With the variables below blank, Eve uses the built-in parser (or `LLM_*` when that key is set) and the agent decides from the rules and Jev alone.
 
 1. In the Bedrock console, turn on model access for the model you want, in the same region as `AWS_REGION`.
 2. Add the variables to `.env`. That file is gitignored. Use either a Bedrock API key or standard AWS keys.

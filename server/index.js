@@ -4,7 +4,8 @@
  *   GET  /api/status          budget, spent, remaining, rules
  *   GET  /api/payments        tx hash, merchant, amount, status
  *   GET  /api/pending         purchases the agent refused to pay
- *   POST /api/approve/:id     placeholder for Ledger approval
+ *   POST /api/approve/:id/challenge   EIP-712 payload for the Ledger
+ *   POST /api/approve/:id             verify the device signature and pay once
  *   POST /api/run-agent       start agent/agent.js for the live demo
  *
  * Data lives in server/data/store.json. Bind to localhost only.
@@ -19,7 +20,8 @@ import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { loadRules } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
-import { approvePending, declinePending, listPayments, listPending, readStore, summarize } from './store.js';
+import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
+import { declinePending, listPayments, listPending, readStore, summarize } from './store.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: join(rootDir, '.env') });
@@ -27,7 +29,7 @@ dotenv.config({ path: join(rootDir, '.env') });
 let agentChild = null;
 const confirmations = createConfirmations();
 
-export function createApp() {
+export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
   app.use((req, res, next) => {
@@ -62,20 +64,31 @@ export function createApp() {
     }
   });
 
+  const ledgerOptions = {
+    now: options.now,
+    challengeTtlSeconds: options.challengeTtlSeconds,
+    payApproved: options.payApproved,
+    env: options.env,
+    rules: options.rules,
+    spent: options.spent,
+  };
+
+  function sendLedger(res, result) {
+    if (result.body) return res.status(result.status).json(result.body);
+    return res.status(result.status).json({ error: result.error, message: result.message });
+  }
+
+  app.post('/api/approve/:id/challenge', async (req, res, next) => {
+    try {
+      sendLedger(res, await createApprovalChallenge(req.params.id, ledgerOptions));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/approve/:id', async (req, res, next) => {
     try {
-      const result = await approvePending(req.params.id);
-      if (result.error === 'invalid') {
-        return res.status(400).json({ error: 'That approval id is not valid.' });
-      }
-      if (result.missing) {
-        return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
-      }
-      res.json({
-        ok: true,
-        payment: result.approved,
-        note: 'Recorded locally. Ledger approval is not wired yet, so nothing was signed or paid.',
-      });
+      sendLedger(res, await acceptLedgerApproval(req.params.id, req.body ?? {}, ledgerOptions));
     } catch (error) {
       next(error);
     }
