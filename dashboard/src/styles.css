@@ -53,8 +53,12 @@
   --surface: #FFFFFF;
   --ink: #1A1814;
   --muted: #5A534A;
-  --line: #7C7468;
-  --line-strong: #6F675C;
+  /* One hairline for surfaces and dividers. Controls that need a 3:1 edge use --control-line. */
+  --hairline: #D9D2C4;
+  --line: var(--hairline);
+  --line-strong: var(--hairline);
+  --control-line: #7C7468;
+  --surface-2: #F6F3EC;
   --pine: #1B4D3E;
   --on-pine: #F7F4EC;
   --pine-ink: #143D31;
@@ -79,7 +83,7 @@
   --disabled-ink: #5C564C;
   --disabled-line: #5C564C;
   --skeleton: #E4DDD0;
-  --shadow: 0 1px 2px rgba(26, 24, 20, 0.06), 0 8px 24px rgba(26, 24, 20, 0.08);
+  --shadow: none;
   --wash: none;
   --font: "Inter", "Segoe UI", sans-serif;
   --display: "Outfit", "Inter", sans-serif;
@@ -96,6 +100,8 @@
   --r-3: 16px;
   --r-4: 24px;
   --r-pill: 999px;
+  --ring-width: 2px;
+  --ring-offset: 2px;
   font-family: var(--font);
   font-size: var(--fs-3);
   line-height: 1.5;
@@ -109,8 +115,11 @@
   --surface: #1C1F1A;
   --ink: #F4F0E6;
   --muted: #C9C2B4;
-  --line: #32362E;
-  --line-strong: #A39B8C;
+  --hairline: #31352E;
+  --line: var(--hairline);
+  --line-strong: var(--hairline);
+  --control-line: #A39B8C;
+  --surface-2: #232720;
   --pine: #1B4D3E;
   --on-pine: #F7F4EC;
   --pine-ink: #F4F0E6;
@@ -134,7 +143,7 @@
   --skeleton: #32362E;
   --track: #6F675C;
   --path: #C9C2B4;
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow: none;
   --wash: none;
 }
 
@@ -1234,7 +1243,7 @@ p {
   align-items: center;
   justify-content: center;
   padding: 0;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--pine) 40%, transparent);
+  box-shadow: none;
 }
 
 .sheet-back {
@@ -1584,13 +1593,13 @@ input[type="range"] {
 }
 
 :focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: var(--ring-offset);
 }
 
 .theme-menu label:has(input:focus-visible) {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: var(--ring-offset);
 }
 
 .loading-splash {
@@ -2560,7 +2569,7 @@ input[type="range"] {
   color: #F7F4EC;
   border: 0;
   border-radius: var(--r-4);
-  box-shadow: 0 24px 48px -24px rgba(20, 61, 49, 0.55);
+  box-shadow: none;
 }
 
 .hero .figure {
@@ -3603,8 +3612,8 @@ html {
 }
 
 .retry-pill:focus-visible {
-  outline: 2px solid var(--focus, var(--pine));
-  outline-offset: 2px;
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: var(--ring-offset);
 }
 
 .setup-card p,
@@ -3953,8 +3962,8 @@ html {
 }
 
 .toggle-switch:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: var(--ring-offset);
 }
 
 @media (min-width: 721px) {
@@ -4017,7 +4026,7 @@ html {
 .filters .chip.is-on {
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+  box-shadow: none;
 }
 
 @media (max-width: 480px) {
@@ -4061,8 +4070,8 @@ html {
 }
 
 .tab-panel:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: var(--ring-offset);
   border-radius: var(--r-2);
 }
 

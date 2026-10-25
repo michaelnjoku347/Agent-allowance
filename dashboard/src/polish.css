@@ -172,3 +172,829 @@
 @media (prefers-reduced-motion: reduce) {
   .freeze-notice { animation: none; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Surfaces: flat. One hairline, one radius scale, tonal contrast.     */
+/* Cards r-4 (24) · panels inside cards r-3 (16) · controls r-2 (12)   */
+/* · chips and tags r-pill. Form fields keep a 3:1 edge (WCAG 1.4.11). */
+/* ------------------------------------------------------------------ */
+
+.card {
+  border: 1px solid var(--hairline);
+  box-shadow: none;
+}
+
+.card.hero,
+.hero {
+  border-color: transparent;
+}
+
+.btn,
+.chip,
+.icon-btn {
+  border: 1px solid var(--hairline);
+  box-shadow: none;
+}
+
+.btn:not(.primary):not(.text):not(.danger),
+.chip:not(.is-on),
+.icon-btn {
+  background: var(--surface);
+}
+
+.chip {
+  border-radius: var(--r-pill);
+  padding-inline: 16px;
+}
+
+.chip.is-on {
+  border-color: transparent;
+}
+
+.btn.primary {
+  border-color: transparent;
+}
+
+.btn.text {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn:hover:not(:disabled),
+.chip:hover:not(:disabled):not(.is-on),
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pine) 88%, #000);
+}
+
+input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
+select,
+textarea {
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-2);
+}
+
+/* A dark focus ring disappears on the pine hero. Use the lime accent there. */
+.hero :focus-visible,
+.eve-window :focus-visible,
+.board-hero :focus-visible {
+  outline-color: var(--accent);
+}
+
+.btn,
+.chip,
+.icon-btn,
+.row,
+.stat-tile,
+.sidenav button,
+.tabbar button {
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease, transform var(--dur-1) ease;
+}
+
+.btn:active:not(:disabled),
+.chip:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* ------------------------------------------------------------------ */
+/* Home board                                                           */
+/* ------------------------------------------------------------------ */
+
+.home-board {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "setup"
+    "hero"
+    "needs"
+    "tiles"
+    "path"
+    "breakdown"
+    "stage"
+    "activity";
+}
+
+.board-setup { grid-area: setup; }
+.board-hero { grid-area: hero; }
+.board-needs { grid-area: needs; }
+.board-tiles { grid-area: tiles; }
+.board-path { grid-area: path; }
+.board-breakdown { grid-area: breakdown; }
+.board-stage { grid-area: stage; }
+.board-activity { grid-area: activity; }
+
+.home-board > * {
+  min-width: 0;
+  margin: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.card-head h2 {
+  margin: 0;
+}
+
+.card-head .btn.text {
+  min-height: 40px;
+  padding-inline: 8px;
+}
+
+.count-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 700;
+  font-size: var(--fs-1);
+}
+
+/* The balance card: one number, one ring, one action. */
+.board-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+  overflow: hidden;
+  position: relative;
+}
+
+.board-hero .hero-main {
+  align-items: center;
+}
+
+.board-hero .hero-actions {
+  margin-top: 0;
+}
+
+.board-hero .hero-actions .btn.primary {
+  flex: 0 0 auto;
+  min-width: 200px;
+}
+
+.board-hero .hero-actions .btn.primary:disabled {
+  opacity: 0.7;
+}
+
+/* Limit tiles */
+.stat-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-tile {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 16px 20px;
+  border-radius: var(--r-3);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  min-width: 0;
+}
+
+.stat-tile p { margin: 0; }
+
+.stat-label {
+  color: var(--muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.stat-value {
+  font-family: var(--display);
+  font-size: clamp(1.25rem, 1rem + 0.9vw, 1.75rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stat-unit {
+  font-family: var(--font);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.stat-hint {
+  color: var(--muted);
+  font-size: var(--fs-1);
+}
+
+.stat-tile.is-warn {
+  background: var(--warn-bg);
+  border-color: transparent;
+}
+
+.stat-tile.is-warn .stat-value,
+.stat-tile.is-warn .stat-label {
+  color: var(--warn);
+}
+
+/* Payment path in its own panel */
+.path-card .flow-embedded {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.path-card .chain-chip {
+  margin: 12px 0 0;
+}
+
+/* Spend by merchant */
+.spend-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.spend-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.spend-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spend-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.spend-track {
+  height: 10px;
+  margin-top: 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.spend-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--share, 0) * 100%);
+  min-width: 6px;
+  border-radius: inherit;
+  background: var(--pine);
+  transform-origin: left center;
+  animation: bar-grow 700ms var(--ease-out) both;
+}
+
+:root[data-theme="dark"] .spend-fill {
+  background: var(--accent);
+}
+
+.spend-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--fs-1);
+}
+
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (min-width: 560px) {
+  .stat-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .shell {
+    width: calc(100% - 64px);
+    max-width: 1760px;
+    padding-top: 28px;
+  }
+  .app:has(.eve-dock.is-open) .shell,
+  .app:has(.eve-dock.is-peek) .shell {
+    width: calc(100% - 432px);
+    max-width: 1760px;
+  }
+  .home-board {
+    gap: 20px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "setup setup"
+      "hero needs"
+      "tiles tiles"
+      "path breakdown"
+      "stage stage"
+      "activity activity";
+  }
+  .stat-tiles {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .home-board {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas:
+      "setup setup setup setup setup setup setup setup setup setup setup setup"
+      "hero hero hero hero hero hero hero needs needs needs needs needs"
+      "tiles tiles tiles tiles tiles tiles tiles needs needs needs needs needs"
+      "path path path path path path path breakdown breakdown breakdown breakdown breakdown"
+      "stage stage stage stage stage stage stage stage stage stage stage stage"
+      "activity activity activity activity activity activity activity activity activity activity activity activity";
+  }
+  .board-hero {
+    min-height: 300px;
+    padding: 32px;
+  }
+  .board-hero .figure {
+    font-size: clamp(64px, 3rem + 3vw, 112px);
+  }
+  .board-hero .ring {
+    width: 184px;
+    height: 184px;
+  }
+  .board-needs {
+    align-self: stretch;
+  }
+  .stat-tiles {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* Wide activity rows: merchant · task · amount · status · time on one line */
+@media (min-width: 1100px) {
+  .board-activity .activity .row,
+  .activity-wide .activity .row {
+    display: grid;
+    grid-template-areas: "main task amount status time";
+    align-items: center;
+    column-gap: 24px;
+  }
+  .board-activity .activity .row-line,
+  .activity-wide .activity .row-line {
+    display: contents;
+  }
+  .board-activity .activity .row-line:first-child > .avatar,
+  .activity-wide .activity .row-line:first-child > .avatar {
+    display: none;
+  }
+  .board-activity .activity .row-title,
+  .activity-wide .activity .row-title { grid-area: main; }
+  .board-activity .activity .row-task,
+  .activity-wide .activity .row-task { grid-area: task; }
+  .board-activity .activity .amount,
+  .activity-wide .activity .amount { grid-area: amount; text-align: right; }
+  .board-activity .activity .pill,
+  .activity-wide .activity .pill { grid-area: status; justify-self: start; }
+  .board-activity .activity .row-time,
+  .activity-wide .activity .row-time { grid-area: time; text-align: right; }
+  .board-activity .activity .bedrock-tag,
+  .activity-wide .activity .bedrock-tag { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spend-fill { animation: none; }
+  .btn:active:not(:disabled), .chip:active:not(:disabled) { transform: none; }
+}
+
+/* Board refinements */
+.card-head {
+  flex-wrap: wrap;
+}
+
+.card-head h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.stat-value {
+  white-space: nowrap;
+}
+
+@media (max-width: 559px) {
+  .stat-tiles .stat-tile:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 960px) {
+  .stat-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .stat-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .stat-tiles {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* Payment path panel: the path, then the decision it last drew. */
+.path-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.path-latest {
+  display: grid;
+  gap: 6px;
+  margin-top: auto;
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.path-latest:hover {
+  border-color: var(--control-line);
+}
+
+.path-latest-label {
+  color: var(--muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.path-latest-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.path-latest-name {
+  font-weight: 650;
+}
+
+.path-latest-why {
+  color: var(--muted);
+  font-size: var(--fs-2);
+}
+
+/* Activity reads as a table on wide screens. */
+.activity-head {
+  display: none;
+}
+
+@media (min-width: 1100px) {
+  .board-activity .activity,
+  .activity-wide .activity {
+    gap: 0;
+  }
+  .board-activity .activity > li + li,
+  .activity-wide .activity > li + li {
+    border-top: 1px solid var(--hairline);
+  }
+  .board-activity .activity .row,
+  .activity-wide .activity .row,
+  .board-activity .activity-head,
+  .activity-wide .activity-head {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 2.4fr) 140px 128px 112px;
+    min-height: 56px;
+    padding: 8px 12px;
+    border-radius: var(--r-2);
+  }
+  .board-activity .activity-head,
+  .activity-wide .activity-head {
+    display: grid;
+    align-items: end;
+    column-gap: 24px;
+    min-height: 0;
+    padding-block: 0 10px;
+    color: var(--muted);
+    font-size: var(--fs-1);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .board-activity .activity-head span:nth-child(3),
+  .activity-wide .activity-head span:nth-child(3),
+  .board-activity .activity-head span:nth-child(5),
+  .activity-wide .activity-head span:nth-child(5) {
+    text-align: right;
+  }
+  .board-activity .activity .row-task,
+  .activity-wide .activity .row-task {
+    font-size: var(--fs-2);
+  }
+  .board-activity .activity .row-time,
+  .activity-wide .activity .row-time {
+    font-size: var(--fs-2);
+  }
+}
+
+/* Room for the floating Eve button below the last row. */
+@media (min-width: 960px) {
+  main {
+    padding-bottom: 72px;
+  }
+}
+
+/* Five tiles on a six-track grid: three across, then two wider ones, no hole. */
+@media (min-width: 960px) and (max-width: 1599px) {
+  .stat-tiles {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .stat-tiles .stat-tile {
+    grid-column: span 2;
+  }
+  .stat-tiles .stat-tile:nth-child(4),
+  .stat-tiles .stat-tile:nth-child(5) {
+    grid-column: span 3;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* History                                                             */
+/* ------------------------------------------------------------------ */
+
+.activity-page {
+  display: grid;
+  gap: 16px;
+}
+
+.activity-page > .filters {
+  margin: 0;
+}
+
+.activity-page > .tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.history-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-2);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) ease;
+}
+
+.seg:hover:not(.is-on) {
+  color: var(--ink);
+}
+
+.seg.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.seg-count {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.history-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1 1 520px;
+  justify-content: flex-end;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-2);
+}
+
+.field-search {
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+
+.field-search input {
+  width: 100%;
+}
+
+.history-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 0;
+  margin-bottom: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.history-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-summary strong {
+  color: var(--ink);
+}
+
+.sum-sep {
+  margin: 0 8px;
+}
+
+.sum-paid { color: var(--ok); font-weight: 600; }
+.sum-wait { color: var(--warn); font-weight: 600; }
+.sum-block { color: var(--danger); font-weight: 600; }
+
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .segmented {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .seg {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0 8px;
+  }
+}
+
+.activity .activity-head {
+  display: none;
+}
+
+@media (min-width: 1100px) {
+  .board-activity .activity .activity-head,
+  .activity-wide .activity .activity-head {
+    display: grid;
+  }
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.history-fields .field {
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-radius: var(--r-3);
+  }
+  .seg {
+    border-radius: var(--r-2);
+  }
+}
+
+/* Tabs share the segmented look instead of separate outlined pills. */
+.filters[role="tablist"] {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  justify-self: start;
+}
+
+.filters[role="tablist"] .chip {
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.filters[role="tablist"] .chip.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+/* One filter row on wide screens: segments, then search, merchant, period. */
+.history-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+}
+
+.history-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  justify-content: stretch;
+}
+
+.history-fields .field-search {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
+@media (min-width: 720px) {
+  .history-fields {
+    grid-template-columns: minmax(200px, 1fr) minmax(160px, 220px) minmax(140px, 180px);
+  }
+  .history-fields .field-search {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 1240px) {
+  .history-bar {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 24px;
+  }
+}
