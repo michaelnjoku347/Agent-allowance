@@ -76,6 +76,23 @@ function stop(child) {
   }
 }
 
+/** Kill Chrome and wait for it to exit, so its profile folder is no longer being written. */
+async function killChrome(chrome) {
+  if (!chrome || chrome.exitCode !== null || chrome.signalCode) return;
+  const exited = new Promise((resolve) => chrome.once('exit', resolve));
+  chrome.kill('SIGKILL');
+  await Promise.race([exited, wait(5000)]);
+}
+
+/** A temp profile is best-effort cleanup. A stray lock file must not fail the test. */
+function removeProfile(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    /* The OS temp cleaner will get it. */
+  }
+}
+
 // A cold Vite pre-bundles React and the Ledger kit on first start. On a slow
 // laptop or a shared CI runner that alone can take most of a minute.
 test('phone pages do not scroll sideways at 320 and 390', { timeout: 150_000 }, async () => {
@@ -236,9 +253,9 @@ test('phone pages do not scroll sideways at 320 and 390', { timeout: 150_000 }, 
     }
     ws.close();
   } finally {
-    if (chrome) chrome.kill('SIGKILL');
+    await killChrome(chrome);
     stop(vite);
-    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    removeProfile(profile);
   }
 });
 
@@ -292,11 +309,11 @@ async function openBrowser(port) {
   };
   return {
     send,
-    close() {
+    async close() {
       ws.close();
-      chrome.kill('SIGKILL');
+      await killChrome(chrome);
       stop(vite);
-      rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+      removeProfile(profile);
     },
   };
 }
@@ -351,6 +368,6 @@ test('the first-run intro is a keyboard dialog that respects reduced motion', { 
     assert.equal(await evaluate('localStorage.getItem("allowance-intro-done")'), 'skipped');
     await send('Target.closeTarget', { targetId: created.targetId });
   } finally {
-    browser.close();
+    await browser.close();
   }
 });
