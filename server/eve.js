@@ -584,7 +584,13 @@ function describeFilter(filters, context, count = 2) {
 }
 
 function intentExport(lower, text, context) {
-  if (!/\b(export|download|csv|spreadsheet|excel)\b/.test(lower)) return null;
+  // "Export this as CSV" or "download my payments", but not "how big is the dashboard download?".
+  const file = /\b(csv|spreadsheet|excel)\b/.test(lower);
+  const verb = /\b(export|download)\b/.test(lower);
+  const rowsAsked = /\b(payments?|purchases?|transactions?|activity|history|rows?|spending|spend|receipts?|records?|table|data)\b/.test(lower)
+    || /^(please )?(export|download)\b/.test(lower)
+    || /\b(export|download) (this|these|them|it|that|those|everything|all)\b/.test(lower);
+  if (!file && !(verb && rowsAsked)) return null;
   const filters = historyFilters(lower, text, context);
   const rows = filteredRows(context, filters);
   return answer(`Exporting ${plural(rows.length, 'row')} of ${describeFilter(filters, context, rows.length)} as a CSV file.`, {
@@ -836,6 +842,34 @@ function intentAudit(lower, text, context) {
   return answer(`The latest audit entries:\n${lines.join('\n')}`, { kind: 'status', ui: { type: 'navigate', route: 'security' } });
 }
 
+const APPROVER_ASKED = /\b(approver|who (approves|can approve|signs)|ledger (account|address)|(is|are) (my |the )?ledger (connected|plugged in|set up|linked|paired|ready)|connect (my |a |the )?ledger|(set|name|change|replace) (up )?(my |the |an )?(approver|ledger))\b/;
+
+function shortAddress(address) {
+  const text = String(address ?? '');
+  return text.length > 12 ? `${text.slice(0, 6)}…${text.slice(-4)}` : text;
+}
+
+function intentApprover(lower, text, context) {
+  if (!APPROVER_ASKED.test(lower)) return null;
+  const address = context.rules?.approverAddress;
+  if (!address) {
+    return answer('No approver is set yet, so a purchase over the cap can only be declined and no limit can be raised. Open Security and name your Ledger account under Approver: read it from the device, or paste its address. You can name it once.', {
+      kind: 'rules',
+      ui: { type: 'navigate', route: 'security' },
+    });
+  }
+  const who = context.simulatedLedger
+    ? `a simulated Ledger signer (${shortAddress(address)}), not a hardware device`
+    : `the Ledger account ${shortAddress(address)}`;
+  const change = /\b(set|name|change|replace)\b/.test(lower)
+    ? ' It is already set, and the dashboard cannot replace it. Only an edit on the server (APPROVER_ADDRESS or agent/rules.json) changes it.'
+    : '';
+  const device = /\b(connected|plugged|ready|paired|linked|connect)\b/.test(lower)
+    ? ' I cannot see your device from here. The approval sheet checks it when you press Approve.'
+    : '';
+  return answer(`Your approver is ${who}. It approves a purchase over your cap, one at a time, and signs any raise to the budget, the cap, the end date, or the merchant list. It cannot pay a merchant off the list or go over the budget.${change}${device}`, { kind: 'rules' });
+}
+
 function intentLedger(lower) {
   if (!/\b(ledger|hardware wallet|how (do|does) (i )?approv\w*|how approvals? work|what does the ledger sign|signing)\b/.test(lower)) return null;
   return answer('When a purchase is over your cap, it waits under Approvals. Approving it asks your Ledger to sign one message for exactly that merchant, that amount, and a short validity window. The server checks the signature came from your approver, then pays that purchase once. A signature can pass the cap, but never an unlisted merchant, an expired allowance, or the budget. Raising a limit is signed the same way.', { kind: 'rules' });
@@ -856,6 +890,7 @@ const INTENTS = [
   intentUnfreeze,
   intentFreezeInfo,
   intentFreeze,
+  intentApprover,
   intentExport,
   intentChangeRules,
   intentApprove,
