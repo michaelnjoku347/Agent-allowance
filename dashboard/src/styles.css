@@ -530,6 +530,27 @@ p { margin: 0; }
   border-radius: 12px;
   padding: 10px 12px;
 }
+.sim-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.sim-label {
+  margin: 8px 0 0 60px;
+  color: var(--warn);
+  font-weight: 700;
+}
+.approval .sim-banner { font-size: 1.125rem; }
+.sim-banner-page {
+  position: sticky;
+  top: 0;
+  z-index: 18;
+}
+.detail .sim-label { margin-left: 0; }
 .note svg { flex: none; }
 
 .tabbar {

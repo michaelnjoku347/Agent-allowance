@@ -1,9 +1,11 @@
 /**
  * DEV-ONLY software signer for automated tests.
  *
- * This is not a Ledger. It does not hold a key of its own: the test passes a
- * throwaway ethers wallet. The dashboard does not import this file, and the
- * API does not expose it. Never present its signature as a device signature.
+ * This is not a Ledger. It does not hold a key of its own: the caller passes a
+ * throwaway ethers wallet. The dashboard does not import this file. The API
+ * calls it only when ALLOWANCE_DEV_SIGNER=1, for the backup demo, and that
+ * screen says "simulated Ledger signature". Never present its signature as a
+ * device signature.
  */
 
 import { ethers } from 'ethers';

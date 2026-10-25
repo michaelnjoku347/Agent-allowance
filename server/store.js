@@ -21,6 +21,15 @@ function storePath() {
   return process.env.ALLOWANCE_STORE || defaultStorePath;
 }
 
+/** Drop the ledger file so the next write starts clean. Used by the backup demo. */
+export function discardStoreFile() {
+  try {
+    unlinkSync(storePath());
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
 function lockPath() {
   return `${storePath()}.lock`;
 }
@@ -160,6 +169,7 @@ function presentPayment(payment) {
     approver: payment.approver ?? null,
     jev: presentJev(payment.jev),
     plan: presentPlan(payment.plan),
+    simulatedLedger: Boolean(payment.simulatedLedger),
   };
 }
 
@@ -271,6 +281,41 @@ export async function recordAgentPayment(input) {
       approver: input.approver ?? null,
       jev: presentJev(input.jev),
       plan: presentPlan(input.plan),
+      createdAt: new Date().toISOString(),
+    };
+    store.payments.unshift(payment);
+    return payment;
+  });
+}
+
+/**
+ * A rules-allowed purchase recorded when this process did not broadcast a voucher.
+ * There is no transaction hash, so the dashboard does not link an explorer.
+ */
+export async function recordUnbroadcastPayment(input) {
+  const amount = formatRlusd(toUnits(input.amount));
+  const merchant = canonicalAddress(input.merchant);
+  return updateStore((store) => {
+    activateAgent(store);
+    const payment = {
+      id: newId('pay'),
+      sample: false,
+      status: 'paid',
+      task: String(input.task ?? ''),
+      merchant,
+      merchantLabel: input.merchantLabel ?? null,
+      amount,
+      txHash: null,
+      resourceUrl: input.resourceUrl ?? null,
+      receiptUrl: null,
+      claimId: null,
+      channelId: null,
+      payoutTx: null,
+      note: input.note ?? null,
+      approver: input.approver ?? null,
+      jev: presentJev(input.jev),
+      plan: presentPlan(input.plan),
+      simulatedLedger: Boolean(input.simulatedLedger),
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);

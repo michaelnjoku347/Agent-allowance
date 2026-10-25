@@ -20,6 +20,7 @@ import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { loadRules } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
+import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { declinePending, listPayments, listPending, readStore, summarize } from './store.js';
 
@@ -42,7 +43,10 @@ export function createApp(options = {}) {
 
   app.get('/api/status', async (req, res, next) => {
     try {
-      res.json(summarize(await readStore(), loadRules()));
+      res.json({
+        ...summarize(await readStore(), loadRules()),
+        simulatedLedger: devSignerEnabled(),
+      });
     } catch (error) {
       next(error);
     }
@@ -80,7 +84,8 @@ export function createApp(options = {}) {
 
   app.post('/api/approve/:id/challenge', async (req, res, next) => {
     try {
-      sendLedger(res, await createApprovalChallenge(req.params.id, ledgerOptions));
+      const env = backupChallengeEnv(ledgerOptions.env ?? process.env);
+      sendLedger(res, await createApprovalChallenge(req.params.id, { ...ledgerOptions, env }));
     } catch (error) {
       next(error);
     }
@@ -89,6 +94,16 @@ export function createApp(options = {}) {
   app.post('/api/approve/:id', async (req, res, next) => {
     try {
       sendLedger(res, await acceptLedgerApproval(req.params.id, req.body ?? {}, ledgerOptions));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Backup demo only. Off unless ALLOWANCE_DEV_SIGNER=1. Does not broadcast a voucher.
+  app.post('/api/demo/simulated-ledger/:id', async (req, res, next) => {
+    try {
+      if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
+      sendLedger(res, await simulateLedgerApproval(req.params.id));
     } catch (error) {
       next(error);
     }
