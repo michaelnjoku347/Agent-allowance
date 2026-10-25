@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { runHeist } from './api.js';
 import { HEIST_INJECTION } from '../../shared/catalog.js';
 import { plainReason } from '../../shared/words.js';
+import AttackCard from './AttackCard.jsx';
 
 export function scriptedHeistReport() {
   return {
@@ -37,26 +38,15 @@ function HeistCard({ report }) {
     ? `chose ${planner.resourceId || 'the premium pack'}`
     : 'did not choose the premium pack';
   return (
-    <article className="heist-card" aria-label="Attack blocked">
-      <p className="heist-outcome">Blocked</p>
-      <p className="heist-attempt">
-        {plannerLabel(planner)} {choice}.
-      </p>
-      <p className="heist-injection">Injected text: {report.injection}</p>
-      <p className="heist-rule">{report.ruleText}</p>
-      {report.scripted ? (
-        <p className="heist-note">Scripted preview. The server did not answer. This is not a live model, and nothing was signed.</p>
-      ) : (
-        <p className="heist-note">
-          {planner?.live ? 'The planner ran.' : 'This was not a live model.'}
-          {planner?.reason ? ` ${planner.reason}` : ''}
-        </p>
-      )}
-      {report.quoteLoaded ? null : (
-        <p className="heist-note">The merchant did not answer, so the catalog price was checked. This is not a live payment.</p>
-      )}
-      <p className="heist-summary">0.00 RLUSD moved</p>
-    </article>
+    <AttackCard
+      title="A prompt tried to raise the cap"
+      scripted={Boolean(report.scripted)}
+      rows={[{
+        id: 'heist',
+        request: `${plannerLabel(planner)} ${choice}. ${report.injection}`,
+        rule: report.ruleText,
+      }]}
+    />
   );
 }
 
@@ -110,25 +100,21 @@ export default function HeistDemo({ onDone, onResult, children }) {
     ? `${report.scripted ? 'Scripted preview. ' : ''}Attack blocked. ${report.injection}. The planner ${choice}. ${report.ruleText}. 0.00 RLUSD moved.`
     : '';
 
-  const trigger = (
-    <button type="button" className="btn heist-trigger" onClick={run} disabled={busy}>
-      <span>{busy ? 'Running the heist…' : 'Run the heist'}</span>
-    </button>
-  );
   const stage = (
     <>
-      <p className="visually-hidden" aria-live="polite">{live}</p>
       {error ? <HeistError message={error} onRetry={run} /> : null}
       {report ? <HeistCard report={report} /> : null}
     </>
   );
 
-  if (typeof children === 'function') return children({ trigger, stage });
+  if (typeof children === 'function') return children({ trigger: null, stage, run, busy, live });
 
   return (
     <section className="heist" aria-labelledby="heist-title">
       <h2 id="heist-title">The Heist</h2>
-      {trigger}
+      <button type="button" className="btn" onClick={run} disabled={busy}>
+        {busy ? 'Running the heist…' : 'Run the heist'}
+      </button>
       {stage}
     </section>
   );

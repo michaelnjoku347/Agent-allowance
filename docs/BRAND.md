@@ -26,7 +26,7 @@ Do not paint large areas with the accent. Amber and red are status, not decorati
 
 ## Type
 
-IBM Plex Sans, weights 400, 500, and 600. Weight 600 is the heaviest. Labels are 13px, sentence case, with no tracking. The balance uses the same family at 600, with tabular figures.
+Inter 400, 500, 600, and 700 for the interface. Outfit 700 is only the balance and large headings. Labels are 13px, sentence case, with no tracking. The lime accent is only the ring that shows what is left.
 
 ## Logo
 

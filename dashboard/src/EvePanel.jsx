@@ -39,7 +39,7 @@ function focusable(root) {
     .filter((node) => !node.disabled && node.getAttribute('aria-hidden') !== 'true');
 }
 
-export function EveDock({ seed, onSeedHandled }) {
+export function EveDock({ seed, onSeedHandled, presenting = false }) {
   const panelId = useId();
   const panelRef = useRef(null);
   const pillRef = useRef(null);
@@ -60,14 +60,18 @@ export function EveDock({ seed, onSeedHandled }) {
   }, [mode]);
 
   useEffect(() => {
-    if (!seed) return undefined;
+    if (presenting) setMode('min');
+  }, [presenting]);
+
+  useEffect(() => {
+    if (!seed || presenting) return undefined;
     setMode('open');
     setUnread(0);
     const frame = requestAnimationFrame(() => {
       panelRef.current?.querySelector('#eve-message')?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [seed]);
+  }, [seed, presenting]);
 
   function minimize() {
     setMode('min');
@@ -75,6 +79,7 @@ export function EveDock({ seed, onSeedHandled }) {
   }
 
   function expand() {
+    if (presenting) return;
     const next = mobileDock() ? 'peek' : 'open';
     setMode(next);
     setUnread(0);
@@ -166,12 +171,11 @@ export function EveDock({ seed, onSeedHandled }) {
 
   return (
     <div className={`eve-dock is-${mode}`}>
-      <div className="sr-only" aria-live="polite">{announcement}</div>
+      {mode === 'min' ? null : (
       <section
         className={`eve-window is-${mode}`}
         id={panelId}
         ref={panelRef}
-        hidden={mode === 'min'}
         role="region"
         aria-label="Eve"
       >
@@ -206,6 +210,7 @@ export function EveDock({ seed, onSeedHandled }) {
           onReply={onReply}
         />
       </section>
+      )}
       <button
         type="button"
         className="eve-pill"
@@ -213,7 +218,7 @@ export function EveDock({ seed, onSeedHandled }) {
         hidden={mode !== 'min'}
         aria-expanded="false"
         aria-controls={panelId}
-        aria-label={pillLabel}
+        aria-label={announcement ? `${pillLabel}. ${announcement}` : pillLabel}
         onClick={expand}
       >
         <EveMark size={28} />

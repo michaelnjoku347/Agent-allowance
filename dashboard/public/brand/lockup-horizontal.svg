@@ -2,8 +2,8 @@
   <svg x="0" y="0" width="48" height="48" viewBox="0 0 36 36" >
   <rect width="36" height="36" rx="8" fill="#1B4D3E"/>
   <path d="M23.5 24.6A8.6 8.6 0 1 1 25.5 13.7" fill="none" stroke="#F7F4EC" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="25.5" cy="13.7" r="2.5" fill="#C6F36B"/>
+  <circle cx="25.5" cy="13.7" r="2.5" fill="#F7F4EC"/>
 </svg>
 
-  <text x="64" y="36" fill="#1A1814" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="22" font-weight="600">Agent Allowance</text>
+  <text x="64" y="36" fill="#1A1814" font-family="Inter, Segoe UI, sans-serif" font-size="22" font-weight="600">Agent Allowance</text>
 </svg>

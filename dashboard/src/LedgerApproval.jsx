@@ -176,7 +176,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
 
   function approve() {
     if (preview) {
-      setError('This is a preview. Nothing was signed. Chain 1449000 cannot clear-sign this message on the device.');
+      setError('This is a preview. Nothing was signed.');
       setPhase('error');
       return;
     }
@@ -186,72 +186,91 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
 
   const canApprove = preview || ((phase === 'ready' || phase === 'error') && (simulated ? Boolean(challenge) : supported && Boolean(challenge)));
 
+  const step = ceremonyStep(phase, payStage, preview);
+  const paid = phase === 'done' && !preview && !simulated;
+  const explorer = result?.explorerUrl
+    || (typeof result?.txHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(result.txHash)
+      ? `https://explorer.testnet.xrplevm.org/tx/${result.txHash}`
+      : '');
+
   return (
-    <div className="approval">
-      <p>
-        The panel shows the readable purchase, merchant, amount, and expiry. The Ledger may show raw fields, or it may ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor.
-      </p>
-      <div className="device ceremony" aria-label="What the room is approving">
-        <p className="device-kicker">Approve on Ledger</p>
-        <p className="ceremony-amount">{amountText}</p>
-        <p className="ceremony-merchant">{merchantName}</p>
-        {expiryText ? <p className="ceremony-date">Expires {expiryText}</p> : null}
-      </div>
-      {simulated && !preview ? (
-        <p className="sim-banner" role="status">simulated Ledger signature. This is not a Ledger device.</p>
-      ) : null}
+    <div className="approval ceremony-body">
+      {paid ? (
+        <div className="ceremony-success" role="status">
+          <span className="spring-check" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="64" height="64">
+              <circle cx="32" cy="32" r="30" fill="#E3F2EA" />
+              <path d="M18 33.5 27.5 43 46 22" fill="none" stroke="#0F5C3D" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <p className="ceremony-signed">Signed by Ledger · Settled on XRPL</p>
+          <p className="ceremony-paid">{amountText}</p>
+          {explorer ? <a className="btn explorer" href={explorer} target="_blank" rel="noreferrer noopener">Explorer</a> : null}
+        </div>
+      ) : (
+        <>
+          <DeviceScreen amount={amountText} merchant={merchantName} expiry={expiryText} />
+          <ol className="ceremony-steps" aria-label="Approval progress">
+            {CEREMONY_STEPS.map((label, index) => (
+              <li key={label} className={index < step ? 'is-done' : index === step ? 'is-now' : ''}>{label}</li>
+            ))}
+          </ol>
+          {step < 2 ? <p className="device-status" role="status">Waiting for your Ledger…</p> : null}
+          {phase === 'paying' ? <p className="device-status" role="status">{status}</p> : null}
+          {simulated && !preview ? (
+            <p className="sim-banner" role="status">simulated Ledger signature. This is not a Ledger device.</p>
+          ) : null}
+          {phase === 'done' && simulated ? (
+            <p className="note" role="status">simulated Ledger signature. Nothing was broadcast.</p>
+          ) : null}
+          {error ? (
+            <div className="state-error" role="alert">
+              <p className="state-error-title">{preview ? 'Preview only' : 'The Ledger did not finish'}</p>
+              <p>{error}</p>
+            </div>
+          ) : null}
+          {phase === 'ready' || phase === 'error' || preview ? (
+            <button
+              type="button"
+              className="btn primary ceremony-approve"
+              disabled={!canApprove || phase === 'loading' || phase === 'device' || phase === 'paying'}
+              onClick={approve}
+            >
+              {approveLabel}
+            </button>
+          ) : null}
+        </>
+      )}
       <details className="device-more">
-        <summary>Account details</summary>
-        {preview || !challenge ? (
-          <p>No device is connected for this preview.</p>
-        ) : simulated ? (
-          <p>Backup demo key <code>{challenge.approverAddress}</code>. Not a hardware account.</p>
-        ) : (
+        <summary>Technical details</summary>
+        <p>Chain 1449000 has no registered clear-signing descriptor. The device may show raw fields, or it may ask for blind signing.</p>
+        {preview || !challenge ? <p>No device is connected for this preview.</p> : null}
+        {!preview && simulated && challenge ? <p>Backup demo key <code>{challenge.approverAddress}</code>. Not a hardware account.</p> : null}
+        {!preview && !simulated && challenge ? (
           <p>Account {challenge.derivationPath}. Registered approver <code>{challenge.approverAddress}</code>.</p>
-        )}
+        ) : null}
       </details>
-
-      {phase === 'loading' ? <p className="device-status" role="status">Preparing the approval…</p> : null}
-      {phase === 'device' || phase === 'paying' ? <p className="device-status" role="status">{status}</p> : null}
-      {phase === 'paying' ? (
-        <ol className="pay-stages" aria-label="Payment progress">
-          {PAY_STAGES.map(([id, label]) => (
-            <li key={id} className={stageClass(payStage, id)}>{label}</li>
-          ))}
-        </ol>
-      ) : null}
-      {phase === 'done' ? (
-        <p className="note" role="status">{result?.note || (simulated ? 'simulated Ledger signature' : 'Approved on the Ledger.')}</p>
-      ) : null}
-      {error ? (
-        <div className="state-error" role="alert">
-          <p className="state-error-title">{preview ? 'Preview only' : 'The Ledger did not finish'}</p>
-          <p>{error}</p>
-        </div>
-      ) : null}
-
-      {phase === 'ready' || phase === 'error' || preview ? (
-        <div className="pair">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={!canApprove || phase === 'loading' || phase === 'device' || phase === 'paying'}
-            onClick={approve}
-          >
-            {approveLabel}
-          </button>
-        </div>
-      ) : null}
-      {!preview && !simulated && phase === 'ready' && !supported ? (
-        <p className="note warn" role="status">
-          Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.
-        </p>
-      ) : null}
-      {!preview && !simulated && phase === 'ready' && supported ? (
-        <p className="meta">
-          Unlock the Ledger, open the Ethereum app if it asks, and confirm there. If the app asks for blind signing, compare the panel with the quote before you allow it. The device is not clear-signing this testnet message.
-        </p>
-      ) : null}
     </div>
+  );
+}
+
+const CEREMONY_STEPS = ['Connect', 'Review on device', 'Signed', 'Paid on XRPL'];
+
+function ceremonyStep(phase, payStage, preview) {
+  if (phase === 'done') return 3;
+  if (phase === 'paying') return payStage === 'settling' || payStage === 'paid' ? 3 : 2;
+  if (phase === 'device' || preview) return 1;
+  return 0;
+}
+
+function DeviceScreen({ amount, merchant, expiry }) {
+  const label = `Approve purchase. ${amount}. ${merchant}.${expiry ? ` Expires ${expiry}.` : ''}`;
+  return (
+    <svg className="device-svg" viewBox="0 0 300 130" role="img" aria-label={label}>
+      <rect x="1" y="1" width="298" height="128" rx="14" fill="#000000" stroke="#3A3A3A" strokeWidth="2" />
+      <text x="150" y="42" textAnchor="middle" fill="#F7F4EC" fontSize="15" fontFamily="Inter, sans-serif">Approve purchase</text>
+      <text x="150" y="68" textAnchor="middle" fill="#F7F4EC" fontSize="16" fontWeight="600" fontFamily="Inter, sans-serif">{amount} · {merchant}</text>
+      {expiry ? <text x="150" y="94" textAnchor="middle" fill="#C9C2B4" fontSize="13" fontFamily="Inter, sans-serif">Expires {expiry}</text> : null}
+    </svg>
   );
 }

@@ -16,7 +16,7 @@ const pen = {
 export function LogoMark({ tone = 'pine', size = 36 }) {
   const bg = tone === 'cream' ? '#F7F4EC' : '#1B4D3E';
   const stroke = tone === 'cream' ? '#1B4D3E' : '#F7F4EC';
-  const dot = tone === 'cream' ? '#143D31' : '#C6F36B';
+  const dot = tone === 'cream' ? '#143D31' : '#F7F4EC';
   return (
     <svg className="logo-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
       <rect width="36" height="36" rx="8" fill={bg} />
@@ -109,6 +109,15 @@ export function IconMinus({ size = 22 }) {
   return (
     <Stroke size={size}>
       <path {...pen} d="M6 12h12" />
+    </Stroke>
+  );
+}
+
+export function IconLock({ size = 16 }) {
+  return (
+    <Stroke size={size}>
+      <rect {...pen} x="6" y="11" width="12" height="8" rx="1.5" />
+      <path {...pen} d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11" />
     </Stroke>
   );
 }

@@ -11,8 +11,10 @@ export function riskDisplay(score) {
   return Math.max(1, Math.min(5, Math.round(score) + 1));
 }
 
-export default function JevCard({ jev }) {
-  if (!jev) return null;
+export default function JevCard({ jev, merchant = '' }) {
+  if (!jev || jev.source !== 'jev') {
+    return <p className="jev-line">Rules decided. Jev not consulted.</p>;
+  }
   const source = jevSourceLabel(jev?.source);
   const needed = percent(jev?.needed);
   const review = percent(jev?.review);
@@ -21,7 +23,7 @@ export default function JevCard({ jev }) {
     ? plainReason(jev.reason)
     : 'No Jev decision was recorded for this purchase.';
   return (
-    <section className="jev" aria-label="Jev decision">
+    <section className="jev" aria-label={merchant ? `Jev decision for ${merchant}` : 'Jev decision'}>
       <header className="jev-head">
         <h3>Jev decision</h3>
         <p className="source">{source}</p>

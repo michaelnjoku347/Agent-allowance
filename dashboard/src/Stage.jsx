@@ -7,10 +7,10 @@ const STATE_WORD = {
   stop: 'stopped here',
 };
 
-export function MoneyFlow({ flow, embedded = false }) {
+export function MoneyFlow({ flow, embedded = false, alert = false }) {
   const steps = flow?.steps ?? [];
   const track = (
-    <ol className="flow-track">
+    <ol className={alert ? 'flow-track is-alert' : 'flow-track'} tabIndex={0} aria-label="Payment path">
       {steps.map((step, index) => {
         const previous = steps[index - 1];
         const lineOn = previous?.state === 'on';
@@ -18,7 +18,7 @@ export function MoneyFlow({ flow, embedded = false }) {
         return (
           <li key={step.id} className="flow-item">
             {index > 0 ? <span className={lineOn ? 'flow-line is-on' : 'flow-line'} aria-hidden="true" /> : null}
-            <span className={`flow-step is-${step.state}`} role="img" aria-label={`${step.label}, ${state}`}>
+            <span className={`flow-step is-${step.state}${step.id === 'rules' ? ' is-rules' : ''}`} role="img" aria-label={`${step.label}, ${state}`}>
               <span className="flow-dot" />
               <span className="flow-label">{step.label}</span>
               <span className="flow-state">{state}</span>
@@ -56,7 +56,7 @@ export function TxFeed({ rows }) {
             <li key={row.id}>
               <span className="tx-name">{row.label}</span>
               <span className="amount">{row.amount ? `${money(row.amount)} RLUSD` : ''}</span>
-              <a href={row.href} target="_blank" rel="noreferrer noopener">View on explorer</a>
+              <a className="explorer" href={row.href} target="_blank" rel="noreferrer noopener">Explorer</a>
             </li>
           ))}
         </ul>
