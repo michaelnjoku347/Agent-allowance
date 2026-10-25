@@ -18,18 +18,23 @@
   },
   "display": {
     "formats": {
-      "ApprovePurchase(string purchaseId,address merchant,string amount,uint256 expiry)": {
+      "ApprovePurchase(string purchaseId,string merchant,string amount,string expiry)": {
         "intent": "Approve purchase",
         "fields": [
           { "path": "purchaseId", "label": "Purchase", "format": "raw" },
-          { "path": "merchant", "label": "Merchant", "format": "addressName" },
+          { "path": "merchant", "label": "Merchant", "format": "raw" },
           { "path": "amount", "label": "Amount", "format": "raw" },
-          {
-            "path": "expiry",
-            "label": "Expires",
-            "format": "date",
-            "params": { "encoding": "timestamp" }
-          }
+          { "path": "expiry", "label": "Expires", "format": "raw" }
+        ]
+      },
+      "SetAllowance(string cap,string budget,string expiry,string merchants,string validUntil)": {
+        "intent": "Set allowance",
+        "fields": [
+          { "path": "cap", "label": "Cap", "format": "raw" },
+          { "path": "budget", "label": "Budget", "format": "raw" },
+          { "path": "expiry", "label": "Allowance expires", "format": "raw" },
+          { "path": "merchants", "label": "Merchants", "format": "raw" },
+          { "path": "validUntil", "label": "Signature expires", "format": "raw" }
         ]
       }
     }

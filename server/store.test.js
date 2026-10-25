@@ -36,8 +36,10 @@ describe('allowance API', { concurrency: false }, () => {
     try {
       const status = await (await fetch(`${base}/api/status`)).json();
       assert.equal(status.budget, '20');
-      assert.equal(status.spent, '7.5');
-      assert.equal(status.remaining, '12.5');
+      assert.equal(status.localSpent, '0');
+      assert.equal(status.spent, '0');
+      assert.equal(status.remaining, '20');
+      assert.equal(status.chain, null);
       assert.equal(status.currency, 'RLUSD');
       assert.equal(status.agentConnected, false);
       assert.equal(await spentRlusd(), '0');
@@ -69,7 +71,8 @@ describe('allowance API', { concurrency: false }, () => {
 
       // An unsigned approval does not spend the allowance or pretend the agent ran.
       const statusAfter = await (await fetch(`${base}/api/status`)).json();
-      assert.equal(statusAfter.spent, '7.5');
+      assert.equal(statusAfter.spent, '0');
+      assert.equal(statusAfter.localSpent, '0');
       assert.equal(statusAfter.agentConnected, false);
 
       const again = await fetch(`${base}/api/approve/${imagery.id}`, {
@@ -151,12 +154,25 @@ describe('allowance API', { concurrency: false }, () => {
     const server = await listen(createApp());
     const { port } = server.address();
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
+      const blocked = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: 'Buy the morning weather brief' }),
+      });
+      assert.equal(blocked.status, 403);
+      const foreign = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.invalid' },
+        body: JSON.stringify({ task: 'Buy the morning weather brief' }),
+      });
+      assert.equal(foreign.status, 403);
+      const response = await fetch(`http://127.0.0.1:${port}/api/run-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
         body: JSON.stringify({ task: 'Buy the morning weather brief; rm -rf /' }),
       });
       assert.equal(response.status, 200);
+      assert.equal(response.headers.get('access-control-allow-origin'), null);
       const body = await response.json();
       assert.equal(body.ok, false);
       assert.equal(body.demo, true);

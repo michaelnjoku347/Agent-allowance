@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
@@ -46,6 +46,7 @@ function expiresOn(iso) {
 }
 
 function pill(item) {
+  if (item.sample) return { label: 'Sample', tone: 'warn' };
   if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
   if (item.status === 'approved') return { label: 'Waiting', tone: 'warn' };
   if (item.status === 'declined' || item.status === 'pending') return { label: 'Blocked', tone: 'danger' };
@@ -117,7 +118,12 @@ export default function App() {
       setSnapshot(next);
       setConnection('online');
     } catch {
-      setConnection('error');
+      setConnection('offline');
+      setSnapshot((current) => (
+        current && !current.offlinePreview
+          ? current
+          : { ...sampleSnapshot, offlinePreview: true }
+      ));
     }
   }
 
@@ -245,20 +251,16 @@ export default function App() {
 
           <main id="main" tabIndex={-1}>
             {connection === 'loading' && !snapshot ? <Skeletons /> : null}
-            {connection === 'error' && !snapshot ? (
-              <div className="card" role="alert">
-                <EmptyState
-                  icon={<IconAlert />}
-                  title="The allowance server is not responding"
-                  action={<button type="button" className="btn primary" onClick={load}>Retry</button>}
-                >
-                  Start it with npm run server, then try again.
-                </EmptyState>
-              </div>
+            {snapshot?.offlinePreview ? (
+              <p className="offline-banner" role="status">
+                Offline sample preview. The allowance server is not running, so these rows are examples, not payments.
+                Start it with npm run server.
+                <button type="button" className="btn" onClick={load}>Retry</button>
+              </p>
             ) : null}
             {snapshot && tab === 'home' ? (
               <div className="stack">
-                {connection === 'error' ? (
+                {connection === 'offline' && !snapshot.offlinePreview ? (
                   <p className="note warn" role="alert">
                     <IconAlert />
                     <span>Could not refresh. Showing the last numbers.</span>
@@ -276,6 +278,17 @@ export default function App() {
                       <p className="meter-caption">
                         {money(view.spent)} of {money(view.budget)} RLUSD spent
                       </p>
+                      <p className="chain-lines">
+                        <span>Local ledger {money(view.localSpent)} RLUSD</span>
+                        <span>
+                          On-chain redeemed {view.chainRedeemed == null ? 'not loaded' : `${money(view.chainRedeemed)} RLUSD`}
+                        </span>
+                        <span>Local budget {money(view.budget)} RLUSD</span>
+                        <span>
+                          Channel cap {view.chainCap == null ? 'not loaded' : `${money(view.chainCap)} RLUSD`}
+                        </span>
+                      </p>
+                      {view.chainWarning ? <p className="note warn" role="status">{view.chainWarning}</p> : null}
                     </div>
                     <SpendRing ratio={view.ratio} label={balanceLabel} />
                   </div>
@@ -356,10 +369,14 @@ export default function App() {
                             <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
                             <JevCard jev={item.jev} />
                             <div className="pair">
-                              <button type="button" className="btn primary" onClick={() => setApproval(item)}>
-                                Approve with Ledger
-                              </button>
-                              <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id)}>
+                              {item.declineOnly || item.sample || snapshot.offlinePreview ? (
+                                <p className="meta">Decline only. A Ledger signature cannot pay this quote.</p>
+                              ) : (
+                                <button type="button" className="btn primary" onClick={() => setApproval(item)}>
+                                  Approve with Ledger
+                                </button>
+                              )}
+                              <button type="button" className="btn" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
                                 Decline
                               </button>
                             </div>
@@ -645,6 +662,13 @@ function ActivityList({ items, onOpen, empty, explorer }) {
               </span>
               <span className="amount">{money(item.amount)} RLUSD</span>
             </button>
+            {item.plan?.reason ? (
+              <p className="row-plan">
+                {item.plan.source === 'fallback' ? <span className="fallback-label">Deterministic fallback. </span> : null}
+                {item.plan.reason}
+                {item.plan.source === 'bedrock' ? <BedrockMark /> : null}
+              </p>
+            ) : null}
             {item.status === 'paid' && (item.txHash || item.payoutTx || item.receiptUrl) ? (
               <ReceiptCard item={item} explorer={explorer} />
             ) : null}
@@ -676,11 +700,12 @@ function Detail({ item, currency }) {
       <p className="meta">{when(item.createdAt)}</p>
       {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
-      {item.plan?.source === 'bedrock' && item.plan.reason ? (
+      {item.plan?.reason ? (
         <div className="plan">
           <h3>Purchase plan</h3>
+          {item.plan.source === 'fallback' ? <p className="fallback-label">Deterministic fallback</p> : null}
           <p>{item.plan.reason}</p>
-          <BedrockMark />
+          {item.plan.source === 'bedrock' ? <BedrockMark /> : null}
         </div>
       ) : null}
       <h3>Rule checks</h3>

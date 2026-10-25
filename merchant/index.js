@@ -7,7 +7,9 @@
  * The payout address is MERCHANT_PAYOUT_ADDRESS.
  *
  * GET /demo/over-cap and GET /demo/unlisted only quote a price. They never
- * redeem a voucher. The demo uses them to show a blocked purchase.
+ * redeem a voucher. The unlisted 0x0bad quote is decline-only.
+ * The 8 RLUSD history sale is a second createX402Merchant on HISTORY_PORT.
+ * Approving that pending row redeems it.
  *
  * Listens on MERCHANT_PORT (default 4308), not PORT. PORT is the allowance API.
  */
@@ -18,6 +20,7 @@ import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
+import { historyPort, historyResourceUrl } from '../shared/catalog.js';
 import { sendPaymentRequired, UNLISTED_MERCHANT } from './quotes.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -148,10 +151,11 @@ async function main() {
   const config = await configResponse.json();
   if (!configResponse.ok) fail(`Could not read AP4M network config (${configResponse.status}).`);
   const provider = new ethers.JsonRpcProvider(process.env.AP4M_RPC_URL || config.network.rpcUrl);
+  const submitter = new ethers.Wallet(submitterKey, provider);
   const merchant = createX402Merchant({
     context,
     provider,
-    submitter: new ethers.Wallet(submitterKey, provider),
+    submitter,
     stateDirectory: process.env.MERCHANT_STATE_DIRECTORY || join(rootDir, 'merchant/state'),
     resourceUrl,
     merchantParticipantId: merchantId,
@@ -165,21 +169,56 @@ async function main() {
     },
   });
 
+  const historyUrl = historyResourceUrl();
+  const historyListenPort = historyPort();
+  if (historyListenPort === port) fail('HISTORY_PORT must be different from MERCHANT_PORT.');
+  let historyPublished;
+  try {
+    historyPublished = new URL(historyUrl);
+  } catch {
+    fail('HISTORY_RESOURCE_URL must be the history merchant /resource URL.');
+  }
+  if (historyPublished.pathname !== '/resource') fail('HISTORY_RESOURCE_URL must end in /resource.');
+  const history = createX402Merchant({
+    context,
+    provider,
+    submitter,
+    stateDirectory: process.env.HISTORY_STATE_DIRECTORY || join(rootDir, 'merchant/state-history'),
+    resourceUrl: historyUrl,
+    merchantParticipantId: merchantId,
+    payout,
+    amount: ethers.parseUnits('8', 18).toString(),
+    content: {
+      type: 'market-data',
+      pair: 'XRP/RLUSD',
+      message: 'Extended market history',
+      servedAt: 'purchase',
+    },
+  });
+
   const app = createQuoteApp({ payout, resourceServer: merchant.server });
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`Merchant selling ${resourceUrl} for ${price} RLUSD`);
+    console.log(`History resource ${historyUrl} for 8 RLUSD`);
     console.log(`Payout ${payout}`);
-    console.log(`Demo quotes at http://127.0.0.1:${port}/demo/over-cap, /demo/over-cap-6, and /demo/unlisted`);
+    console.log(`Decline-only quote at http://127.0.0.1:${port}/demo/unlisted`);
   });
+  const historyServer = history.server.listen(historyListenPort, '127.0.0.1');
 
   server.on('error', (error) => {
     console.error(error.message);
-    merchant.close().finally(() => process.exit(1));
+    history.close().finally(() => merchant.close().finally(() => process.exit(1)));
+  });
+  historyServer.on('error', (error) => {
+    console.error(error.message);
+    server.close();
+    history.close().finally(() => merchant.close().finally(() => process.exit(1)));
   });
 
   const shutdown = () => {
     server.close();
-    merchant.close().finally(() => process.exit(0));
+    historyServer.close();
+    history.close().finally(() => merchant.close().finally(() => process.exit(0)));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

@@ -78,7 +78,16 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
     } catch (err) {
       cancelRef.current = null;
       setError(err.message || 'The Ledger did not approve this purchase.');
-      setPhase('error');
+      setChallenge(null);
+      setPhase('loading');
+      try {
+        const fresh = await requestApprovalChallenge(item.id);
+        setChallenge(fresh);
+        setPhase('error');
+      } catch (refreshErr) {
+        setError(refreshErr.message || err.message || 'The Ledger did not approve this purchase.');
+        setPhase('error');
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -92,8 +92,12 @@ describe('Ledger approval', { concurrency: false }, () => {
       const challenge = await post(base, `/api/approve/${pending.id}/challenge`);
       assert.equal(challenge.status, 200);
       assert.equal(challenge.body.typedData.primaryType, 'ApprovePurchase');
-      assert.equal(challenge.body.display.amount, '8');
-      assert.equal(challenge.body.display.merchant, allowed);
+      assert.equal(challenge.body.typedData.domain.chainId, 1449000);
+      assert.equal(challenge.body.typedData.message.amount, '8 RLUSD');
+      assert.match(challenge.body.typedData.message.merchant, /Field Weather Co \(0x/);
+      assert.match(challenge.body.typedData.message.expiry, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/);
+      assert.equal(challenge.body.display.amount, '8 RLUSD');
+      assert.match(challenge.body.display.merchant, /Field Weather Co/);
       assert.equal(challenge.body.approverAddress, approver.address.toLowerCase());
 
       const signed = await signApprovalForTest(challenge.body.typedData, approver.privateKey);
@@ -190,18 +194,26 @@ describe('Ledger approval', { concurrency: false }, () => {
     }
   });
 
-  test('a different signer is refused', async () => {
+  test('a different signer is refused, and the unlisted desk is decline-only', async () => {
     resetStore();
     const approver = ethers.Wallet.createRandom();
     const stranger = ethers.Wallet.createRandom();
     process.env.APPROVER_ADDRESS = approver.address;
-    const pending = await recordPending({
+    const unlisted = await recordPending({
       task: 'Buy from an outside desk',
       merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad',
       merchantLabel: 'Outside',
       amount: '1',
       reason: 'merchant not allowed',
       resourceUrl: 'http://127.0.0.1:4308/demo/unlisted',
+    });
+    const pending = await recordPending({
+      task: 'Buy the extended market history',
+      merchant: allowed,
+      merchantLabel: 'Field Weather Co',
+      amount: '8',
+      reason: 'over per-purchase cap',
+      resourceUrl: 'http://127.0.0.1:4309/resource',
     });
     let calls = 0;
     const app = createApp({
@@ -213,6 +225,9 @@ describe('Ledger approval', { concurrency: false }, () => {
     const server = await listen(app);
     const base = `http://127.0.0.1:${server.address().port}`;
     try {
+      const blocked = await post(base, `/api/approve/${unlisted.id}/challenge`);
+      assert.equal(blocked.status, 409);
+      assert.equal(blocked.body.error, 'decline_only');
       const challenge = await post(base, `/api/approve/${pending.id}/challenge`);
       const signed = await signApprovalForTest(challenge.body.typedData, stranger.privateKey);
       const response = await post(base, `/api/approve/${pending.id}`, {
@@ -222,7 +237,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       assert.equal(response.status, 400);
       assert.equal(response.body.error, 'wrong_signer');
       assert.equal(calls, 0);
-      assert.equal((await listPending()).length, 1);
+      assert.equal((await listPending()).length, 2);
     } finally {
       await close(server);
     }
@@ -312,6 +327,57 @@ describe('Ledger approval', { concurrency: false }, () => {
       if (savedTeam === undefined) delete process.env.TEAM_NAME;
       else process.env.TEAM_NAME = savedTeam;
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a raise without a signature is refused, and a SetAllowance signature applies once', async () => {
+    const rulesDir = mkdtempSync(join(tmpdir(), 'allowance-rules-'));
+    const rulesPath = join(rulesDir, 'rules.json');
+    copyFileSync(new URL('../agent/rules.json', import.meta.url), rulesPath);
+    const previousRules = process.env.ALLOWANCE_RULES;
+    process.env.ALLOWANCE_RULES = rulesPath;
+    const approver = ethers.Wallet.createRandom();
+    process.env.APPROVER_ADDRESS = approver.address;
+    const server = await listen(createApp());
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      const bare = await post(base, '/api/allowance', { maxPerPurchase: '8' });
+      assert.equal(bare.status, 400);
+      assert.match(bare.body.message, /Ledger signature/);
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '5');
+
+      const challenge = await post(base, '/api/allowance/challenge', { maxPerPurchase: '8' });
+      assert.equal(challenge.status, 200);
+      assert.equal(challenge.body.typedData.primaryType, 'SetAllowance');
+      assert.equal(challenge.body.typedData.domain.chainId, 1449000);
+      assert.equal(challenge.body.typedData.message.cap, '8 RLUSD');
+      assert.match(challenge.body.typedData.message.expiry, / UTC$/);
+      assert.match(challenge.body.typedData.message.validUntil, / UTC$/);
+
+      const signed = await signApprovalForTest(challenge.body.typedData, approver.privateKey);
+      const raised = await post(base, '/api/allowance', {
+        signature: signed.signature,
+        message: challenge.body.typedData.message,
+      });
+      assert.equal(raised.status, 200);
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '8');
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).budget, '20');
+
+      const replay = await post(base, '/api/allowance', {
+        signature: signed.signature,
+        message: challenge.body.typedData.message,
+      });
+      assert.equal(replay.status, 409);
+      assert.equal(replay.body.error, 'replay');
+
+      const lower = await post(base, '/api/allowance/challenge', { maxPerPurchase: '4' });
+      assert.equal(lower.status, 400);
+      assert.equal(lower.body.error, 'not_a_raise');
+    } finally {
+      await close(server);
+      if (previousRules === undefined) delete process.env.ALLOWANCE_RULES;
+      else process.env.ALLOWANCE_RULES = previousRules;
+      rmSync(rulesDir, { recursive: true, force: true });
     }
   });
 

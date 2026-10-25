@@ -4,7 +4,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { loadRules, presentRules, updateAllowance } from '../agent/rules.js';
+import { describeAllowanceChange, loadRules, presentRules, updateAllowance } from '../agent/rules.js';
 import { plainReason, jevSourceLabel } from '../shared/words.js';
 import { converse, parseModelJson, readBedrockSettings } from './bedrock.js';
 import { declinePending, readStore, spentRlusd } from './store.js';
@@ -89,9 +89,12 @@ export function ruleAnswer(message, context) {
         reply: `The cap has to be greater than 0 and no more than the budget of ${context.rules.budget} RLUSD.`,
       };
     }
+    const raises = cap > Number(context.rules.maxPerPurchase);
     return {
-      reply: `I can set the per-purchase cap to ${amount} RLUSD after you confirm.`,
-      action: { type: 'set_cap', amount },
+      reply: raises
+        ? `Raising the per-purchase cap to ${amount} RLUSD needs a Ledger signature. I cannot raise it myself.`
+        : `I can set the per-purchase cap to ${amount} RLUSD after you confirm.`,
+      action: { type: 'set_cap', amount, ledger: raises },
     };
   }
 
@@ -105,9 +108,12 @@ export function ruleAnswer(message, context) {
         reply: `The budget has to be greater than 0 and at least the per-purchase cap of ${context.rules.maxPerPurchase} RLUSD.`,
       };
     }
+    const raises = next > Number(context.rules.budget);
     return {
-      reply: `I can set the budget to ${amount} RLUSD after you confirm.`,
-      action: { type: 'set_budget', amount },
+      reply: raises
+        ? `Raising the budget to ${amount} RLUSD needs a Ledger signature. I cannot raise it myself.`
+        : `I can set the budget to ${amount} RLUSD after you confirm.`,
+      action: { type: 'set_budget', amount, ledger: raises },
     };
   }
 
@@ -164,9 +170,32 @@ export function ruleAnswer(message, context) {
   };
 }
 
+export function allowanceProposal(action, rules) {
+  const merchants = (rules.allowedMerchants ?? []).map((item) => item.address ?? item);
+  const base = {
+    maxPerPurchase: rules.maxPerPurchase,
+    budget: rules.budget,
+    expiresAt: rules.expiresAt,
+    allowedMerchants: merchants,
+  };
+  if (action.type === 'set_cap') return { ...base, maxPerPurchase: action.amount };
+  if (action.type === 'set_budget') return { ...base, budget: action.amount };
+  if (action.type === 'set_expiry') return { ...base, expiresAt: action.expiresAt };
+  if (action.type === 'add_merchant') return { ...base, allowedMerchants: [...merchants, action.merchant] };
+  return null;
+}
+
 export function confirmationSummary(action, context) {
-  if (action.type === 'set_cap') return `Set the per-purchase cap to ${action.amount} RLUSD?`;
-  if (action.type === 'set_budget') return `Set the budget to ${action.amount} RLUSD?`;
+  if (action.type === 'set_cap') {
+    return action.ledger
+      ? `Sign a raise of the per-purchase cap to ${action.amount} RLUSD on the Ledger?`
+      : `Set the per-purchase cap to ${action.amount} RLUSD?`;
+  }
+  if (action.type === 'set_budget') {
+    return action.ledger
+      ? `Sign a raise of the budget to ${action.amount} RLUSD on the Ledger?`
+      : `Set the budget to ${action.amount} RLUSD?`;
+  }
   const item = context.pending.find((row) => row.id === action.id) ?? context.pending[0];
   const name = merchantName(item);
   const amount = item?.amount ?? '';
@@ -220,7 +249,10 @@ function normalizeAction(action, context) {
   if (action.type === 'set_cap' || action.type === 'set_budget') {
     const amount = String(action.amount ?? '').trim();
     if (!/^\d+(\.\d+)?$/.test(amount)) return null;
-    return { type: action.type, amount };
+    const current = action.type === 'set_cap'
+      ? Number(context.rules.maxPerPurchase)
+      : Number(context.rules.budget);
+    return { type: action.type, amount, ledger: Number(amount) > current };
   }
   return null;
 }
@@ -336,10 +368,19 @@ export async function executeConfirmed(action) {
       payment: result.declined,
     };
   }
-  if (action.type === 'set_cap' || action.type === 'set_budget') {
+  if (action.type === 'set_cap' || action.type === 'set_budget' || action.type === 'set_expiry' || action.type === 'add_merchant') {
     const patch = action.type === 'set_cap'
       ? { maxPerPurchase: action.amount }
-      : { budget: action.amount };
+      : action.type === 'set_budget'
+        ? { budget: action.amount }
+        : action.type === 'set_expiry'
+          ? { expiresAt: action.expiresAt }
+          : { allowedMerchants: action.merchants ?? [action.merchant] };
+    const described = describeAllowanceChange(patch);
+    if (described.error) return { error: described.error };
+    if (described.raises || action.ledger) {
+      return { error: 'Raising the cap, budget, or expiry, or adding a merchant, needs a Ledger signature. Nothing was changed.' };
+    }
     let result;
     try {
       result = updateAllowance(patch);
@@ -347,6 +388,12 @@ export async function executeConfirmed(action) {
       return { error: error.message ?? 'That amount is not valid.' };
     }
     if (result.error) return { error: result.error };
+    if (action.type === 'set_expiry') {
+      return { reply: `The allowance now expires ${result.rules.expiresAt}. Nothing was paid.` };
+    }
+    if (action.type === 'add_merchant') {
+      return { reply: 'The merchant list was updated. Nothing was paid.' };
+    }
     const label = action.type === 'set_cap' ? 'per-purchase cap' : 'budget';
     const value = action.type === 'set_cap' ? result.rules.maxPerPurchase : result.rules.budget;
     return { reply: `The ${label} is now ${value} RLUSD. Nothing was paid.` };

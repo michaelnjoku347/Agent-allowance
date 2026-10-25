@@ -8,7 +8,8 @@
  */
 
 import { payExactQuote } from '../agent/agent.js';
-import { activeApprover, checkApprovalHardRules, loadRules } from '../agent/rules.js';
+import { higherSpent, readOpenChannel } from '../agent/chain-spend.js';
+import { activeApprover, canonicalAddress, checkApprovalHardRules, loadRules } from '../agent/rules.js';
 import { plainReason } from '../shared/words.js';
 import {
   CHALLENGE_TTL_SECONDS,
@@ -19,6 +20,7 @@ import {
   normalizeSignature,
 } from '../shared/approval.js';
 import network from '../shared/network.json' with { type: 'json' };
+import { UNLISTED_MERCHANT } from '../merchant/quotes.js';
 import {
   claimApprovalSignature,
   completeApprovedPurchase,
@@ -59,16 +61,20 @@ export async function createApprovalChallenge(id, options = {}) {
   if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');
   if (found.missing || found.pending.sample) return missingPurchase();
   if (found.pending.status !== 'pending' && found.pending.status !== 'paying') return missingPurchase();
+  if (isDeclineOnlyMerchant(found.pending.merchant)) {
+    return httpError(409, 'decline_only', 'This quote is from an unlisted desk. Decline it. A Ledger signature cannot pay it.');
+  }
 
   // A retry in the same second must not rebuild the signature that already failed.
   let expiry = Math.floor(nowMs / 1000) + ttl;
-  const previousExpiry = Number(found.pending.approvalChallenge?.expiry);
+  const previousExpiry = Number(found.pending.approvalChallenge?.expiry ?? found.pending.lastChallengeExpiry);
   if (Number.isFinite(previousExpiry) && expiry <= previousExpiry) expiry = previousExpiry + 1;
   let typedData;
   try {
     typedData = buildApprovalTypedData({
       purchaseId: found.pending.id,
       merchant: found.pending.merchant,
+      merchantLabel: found.pending.merchantLabel,
       amount: found.pending.amount,
       expiry,
     }, network.chainId);
@@ -93,6 +99,26 @@ export async function createApprovalChallenge(id, options = {}) {
       display: approvalDisplay(found.pending, typedData.message),
     },
   };
+}
+
+function isDeclineOnlyMerchant(merchant) {
+  try {
+    return canonicalAddress(merchant) === canonicalAddress(UNLISTED_MERCHANT);
+  } catch {
+    return false;
+  }
+}
+
+async function spentForApproval(options) {
+  if (options.spent !== undefined) return options.spent;
+  const local = await spentRlusd();
+  let chain = null;
+  try {
+    chain = options.channelState ? await options.channelState() : await readOpenChannel(options.env ?? process.env);
+  } catch {
+    chain = null;
+  }
+  return higherSpent(local, chain?.redeemed);
 }
 
 function publicPaymentError(error) {
@@ -144,6 +170,9 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
   const found = await readPendingRecord(id);
   if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');
   if (found.missing || found.pending.sample) return missingPurchase();
+  if (isDeclineOnlyMerchant(found.pending.merchant)) {
+    return httpError(409, 'decline_only', 'This quote is from an unlisted desk. Decline it. A Ledger signature cannot pay it.');
+  }
 
   const verdict = judgeApproval({
     pending: found.pending,
@@ -160,7 +189,7 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
     return httpError(status, verdict.error, verdict.message);
   }
 
-  const spent = options.spent ?? await spentRlusd();
+  const spent = await spentForApproval(options);
   const hard = checkApprovalHardRules({
     merchant: found.pending.merchant,
     amount: found.pending.amount,
@@ -211,6 +240,18 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
       };
     }
     await releaseApprovalPayment(id);
-    return httpError(502, 'payment_failed', publicPaymentError(error));
+    let challenge = null;
+    try {
+      const fresh = await createApprovalChallenge(id, options);
+      if (fresh.status === 200) challenge = fresh.body;
+    } catch {
+      challenge = null;
+    }
+    return {
+      status: 502,
+      error: 'payment_failed',
+      message: publicPaymentError(error),
+      challenge,
+    };
   }
 }

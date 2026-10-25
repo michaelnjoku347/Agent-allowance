@@ -131,24 +131,81 @@ function readApprover(rules) {
 }
 
 /**
- * Change the cap or the budget. The cap has to stay above zero and within the
- * budget. Nothing here signs a payment.
+ * The allowance that `patch` would write. A raise is a higher cap, a higher
+ * budget, a later expiry, or a merchant that was not already listed.
+ * Nothing here writes the file or signs a payment.
  */
-export function updateAllowance({ maxPerPurchase, budget } = {}, file = rulesFile()) {
+export function describeAllowanceChange(patch = {}, file = rulesFile()) {
   const current = loadRules(file);
   let nextBudget = current.budget;
   let nextCap = current.maxPerPurchase;
-  if (budget !== undefined) nextBudget = toUnits(budget);
-  if (maxPerPurchase !== undefined) nextCap = toUnits(maxPerPurchase);
-  if (nextBudget <= 0n || nextCap <= 0n) {
-    return { error: 'Amount must be greater than 0.' };
+  let nextExpiry = current.expiresAt;
+  let nextMerchants = [...current.allowedMerchants];
+  try {
+    if (patch.budget !== undefined) nextBudget = toUnits(patch.budget);
+    if (patch.maxPerPurchase !== undefined) nextCap = toUnits(patch.maxPerPurchase);
+  } catch (error) {
+    return { error: error.message ?? 'That amount is not valid.' };
   }
-  if (nextCap > nextBudget) {
-    return { error: 'The per-purchase cap cannot be larger than the budget.' };
+  if (patch.expiresAt !== undefined) {
+    const ms = Date.parse(patch.expiresAt);
+    if (Number.isNaN(ms)) return { error: 'expiresAt must be an ISO date.' };
+    nextExpiry = new Date(ms).toISOString();
+  }
+  if (patch.allowedMerchants !== undefined) {
+    if (!Array.isArray(patch.allowedMerchants) || patch.allowedMerchants.length === 0) {
+      return { error: 'Keep at least one merchant.' };
+    }
+    try {
+      const list = [];
+      for (const merchant of patch.allowedMerchants) {
+        const address = canonicalAddress(merchant);
+        if (!list.includes(address)) list.push(address);
+      }
+      nextMerchants = list;
+    } catch (error) {
+      return { error: error.message ?? 'That merchant is not valid.' };
+    }
+  }
+  if (nextBudget <= 0n || nextCap <= 0n) return { error: 'Amount must be greater than 0.' };
+  if (nextCap > nextBudget) return { error: 'The per-purchase cap cannot be larger than the budget.' };
+  const added = nextMerchants.some((address) => !current.allowedMerchants.includes(address));
+  const raises = nextCap > current.maxPerPurchase
+    || nextBudget > current.budget
+    || Date.parse(nextExpiry) > Date.parse(current.expiresAt)
+    || added;
+  return {
+    current,
+    next: {
+      budget: nextBudget,
+      maxPerPurchase: nextCap,
+      expiresAt: nextExpiry,
+      allowedMerchants: nextMerchants,
+    },
+    raises,
+  };
+}
+
+/**
+ * Change the allowance. Lowering a limit is applied here.
+ * Raising the cap, the budget, or the expiry, or adding a merchant, is refused
+ * unless `ledger` is true — that flag is set only after a SetAllowance signature.
+ * Nothing here signs a payment.
+ */
+export function updateAllowance(patch = {}, file = rulesFile(), options = {}) {
+  const described = describeAllowanceChange(patch, file);
+  if (described.error) return described;
+  if (described.raises && !options.ledger) {
+    return {
+      error: 'Raising the cap, budget, or expiry, or adding a merchant, needs a Ledger signature.',
+      code: 'needs_ledger',
+    };
   }
   const raw = JSON.parse(readFileSync(file, 'utf8'));
-  if (budget !== undefined) raw.budget = formatRlusd(nextBudget);
-  if (maxPerPurchase !== undefined) raw.maxPerPurchase = formatRlusd(nextCap);
+  raw.budget = formatRlusd(described.next.budget);
+  raw.maxPerPurchase = formatRlusd(described.next.maxPerPurchase);
+  raw.expiresAt = described.next.expiresAt;
+  raw.allowedMerchants = described.next.allowedMerchants;
   writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
   return { ok: true, rules: presentRules(loadRules(file)) };
 }

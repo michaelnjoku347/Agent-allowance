@@ -14,6 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import sampleData from '../shared/sample-data.json' with { type: 'json' };
 import network from '../shared/network.json' with { type: 'json' };
 import { canonicalAddress, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
+import { UNLISTED_MERCHANT } from '../merchant/quotes.js';
 
 const defaultStorePath = join(dirname(fileURLToPath(import.meta.url)), 'data', 'store.json');
 
@@ -122,13 +123,19 @@ function activateAgent(store) {
 }
 
 function presentPlan(value) {
-  if (!value || typeof value !== 'object' || value.source !== 'bedrock') return null;
+  if (!value || typeof value !== 'object') return null;
+  if (value.source !== 'bedrock' && value.source !== 'fallback') return null;
   const reason = typeof value.reason === 'string' ? value.reason.trim().slice(0, 500) : '';
   if (!reason) return null;
   const resourceId = typeof value.resourceId === 'string' && value.resourceId.trim()
     ? value.resourceId.trim().slice(0, 80)
     : null;
-  return { source: 'bedrock', resourceId, reason };
+  return {
+    source: value.source,
+    resourceId,
+    reason,
+    fallback: value.source === 'fallback',
+  };
 }
 
 function presentJev(value) {
@@ -188,7 +195,16 @@ function presentPending(item) {
     sample: Boolean(item.sample),
     jev: presentJev(item.jev),
     plan: presentPlan(item.plan),
+    declineOnly: isDeclineOnly(item.merchant),
   };
+}
+
+function isDeclineOnly(merchant) {
+  try {
+    return canonicalAddress(merchant) === canonicalAddress(UNLISTED_MERCHANT);
+  } catch {
+    return false;
+  }
 }
 
 function liveRows(store, rows) {
@@ -410,7 +426,11 @@ export async function claimApprovalSignature(id, signature, nowMs = Date.now()) 
   });
 }
 
-/** Return a quote to the approval list after a payment that did not broadcast. */
+/**
+ * Return a quote to Needs you after a broadcast that did not land.
+ * The used signature stays used. The old challenge is dropped so the next
+ * one is a new message.
+ */
 export async function releaseApprovalPayment(id) {
   if (!validPendingId(id)) return { error: 'invalid' };
   return updateStore((store) => {
@@ -418,6 +438,9 @@ export async function releaseApprovalPayment(id) {
     if (!item) return { missing: true };
     item.status = 'pending';
     delete item.paymentStartedAt;
+    if (item.approvalChallenge?.expiry) item.lastChallengeExpiry = item.approvalChallenge.expiry;
+    delete item.approvalChallenge;
+    delete item.approvalSignature;
     return { ok: true };
   });
 }
@@ -450,6 +473,64 @@ export async function declinePending(id) {
     };
     store.payments.unshift(declined);
     return { declined: presentPayment(declined) };
+  });
+}
+
+export async function readAllowanceChange() {
+  const store = await readStore();
+  return store.allowanceChange ?? null;
+}
+
+/** Remember the SetAllowance message the device is asked to sign. */
+export async function saveAllowanceChallenge(proposal, challenge) {
+  return updateStore((store) => {
+    const previous = Number(store.allowanceChange?.approvalChallenge?.expiry ?? store.allowanceChange?.lastChallengeExpiry);
+    store.allowanceChange = {
+      proposal,
+      approvalChallenge: { expiry: challenge.expiry, issuedAt: challenge.issuedAt },
+      lastChallengeExpiry: Number.isFinite(previous) ? previous : null,
+    };
+    return { change: structuredClone(store.allowanceChange) };
+  });
+}
+
+export async function claimAllowanceSignature(signature, nowMs = Date.now()) {
+  const sig = String(signature ?? '').toLowerCase();
+  return updateStore((store) => {
+    store.usedApprovalSignatures ??= [];
+    const change = store.allowanceChange;
+    if (!change?.proposal || !change.approvalChallenge) return { missing: true };
+    if (change.status === 'applying' && nowMs - Date.parse(change.startedAt || 0) < PAYMENT_LOCK_MS) {
+      return { error: 'in_progress' };
+    }
+    if (store.usedApprovalSignatures.some((row) => String(row).toLowerCase() === sig)) {
+      return { error: 'replay' };
+    }
+    store.usedApprovalSignatures.push(sig);
+    change.status = 'applying';
+    change.startedAt = new Date(nowMs).toISOString();
+    change.approvalSignature = sig;
+    return { ok: true, proposal: structuredClone(change.proposal) };
+  });
+}
+
+export async function releaseAllowanceChange() {
+  return updateStore((store) => {
+    const change = store.allowanceChange;
+    if (!change) return { missing: true };
+    if (change.approvalChallenge?.expiry) change.lastChallengeExpiry = change.approvalChallenge.expiry;
+    delete change.approvalChallenge;
+    delete change.approvalSignature;
+    delete change.status;
+    delete change.startedAt;
+    return { ok: true };
+  });
+}
+
+export async function completeAllowanceChange() {
+  return updateStore((store) => {
+    delete store.allowanceChange;
+    return { ok: true };
   });
 }
 

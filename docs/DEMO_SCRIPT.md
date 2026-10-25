@@ -47,28 +47,29 @@ Gesture at the hero while you say the numbers: **RLUSD left**, **Per purchase 5.
 
 > Nothing on that path asked a person. The agent stayed inside the allowance.
 
-## 1:15 — Purchase 2, over the cap, blocked (about 40 seconds)
+## 1:15 — Purchase 2, over the cap, approved on the Ledger (about 50 seconds)
 
-> Second purchase. Same merchant. Eight RLUSD. The cap is five. Watch what does not happen: no voucher, no signature.
+> Second purchase. Same merchant. Eight RLUSD of history. The cap is five, so the agent does not sign. A person can, on a Ledger. That signature redeems the 8 RLUSD resource. It still cannot pass an expired allowance or a blown budget.
 
 1. Under **Needs you**, find the **8.00 RLUSD** card. The reason reads **This is over the per-purchase cap.**
-2. Do not click **Approve with Ledger** on this card. Leave it blocked.
-3. Point at **Jev decision**. The source is **rules only**. Jev never gets a vote on a quote the rules already stopped.
+2. Click **Approve with Ledger**.
+3. Read the dark panel out loud. The device shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date.
+4. Click **Connect Ledger**.
+5. In the browser prompt, pick the Ledger. On the device, confirm only if those values match the panel.
+6. Wait until the sheet says the quote was approved and paid once. Click **Close**.
+7. Click the explorer link on that paid row.
 
-> The quote is saved. The budget did not move.
+> One signature, one redemption, and it cannot be replayed.
 
-## 1:55 — Purchase 3, off the allowlist, approved on the Ledger (about 50 seconds)
+## 1:55 — Purchase 3, off the allowlist, decline only (about 25 seconds)
 
-> Third purchase. One RLUSD, but the merchant is not on the list. The agent will not pay that on its own. A person can, on a Ledger. The signature can pass the allowlist. It still cannot pass an expired allowance or a blown budget.
+> Third purchase. One RLUSD, but the merchant is the unlisted desk. There is no Approve button. Decline is the only action. A Ledger signature cannot pay `0x0bad…`.
 
-1. On the **1.00 RLUSD** card whose reason is **This merchant is not on the allowlist**, click **Approve with Ledger**.
-2. Read the dark panel out loud: `purchaseId`, `merchant`, `amount`, `expiry`. Those are the EIP-712 fields the Ethereum app shows.
-3. Click **Connect Ledger**.
-4. In the browser prompt, pick the Ledger. On the device, confirm only if the four values match the panel.
-5. Wait until the sheet says the quote was approved and paid once. Click **Close**.
-6. Click **Activity** in the side nav (on a phone, the **Activity** tab). The outside-desk purchase is **Paid**. The 8 RLUSD quote is still **Blocked**.
+1. On the **1.00 RLUSD** card whose reason is **This merchant is not on the allowlist**, point at **Decline only**.
+2. Do not look for **Approve with Ledger**. It is not there.
+3. Click **Activity**. The history purchase is **Paid**. The outside desk is still **Blocked**.
 
-> One signature, one quote, and it cannot be replayed. Eve can explain a block. Eve cannot approve one. That stays on the Ledger.
+> Eve can explain a block. Eve cannot approve one, and she cannot raise a limit without a Ledger signature. That stays on the device.
 
 ## 2:45 — Close (about 15 seconds)
 
@@ -88,7 +89,7 @@ Then either:
 - Show it live, only as a labeled fallback:
   1. Stop the API. Start it again with `ALLOWANCE_DEV_SIGNER=1 npm run server`. Leave the merchant and the dashboard running. Refresh the page.
   2. A banner at the top says **simulated Ledger signature**.
-  3. Click **Approve with Ledger** on the outside-desk card. The sheet repeats **simulated Ledger signature**. There is no **Connect Ledger** button.
+  3. Click **Approve with Ledger** on the 8 RLUSD card. The sheet repeats **simulated Ledger signature**. There is no **Connect Ledger** button. The unlisted card has no approve button.
   4. Click **simulated Ledger signature**. The new paid row carries the same label.
   5. Say again that this key is throwaway and nothing was broadcast. Stop the API and start it without the flag before any real Ledger attempt.
 
@@ -99,8 +100,8 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 | Click | When |
 | --- | --- |
 | The paid **morning market brief** row, then **Close** | Purchase 1 |
-| Nothing on the **8.00 RLUSD** card | Purchase 2 stays blocked |
-| **Approve with Ledger**, then **Connect Ledger**, then **Close** | Purchase 3 |
-| **Activity** | Show the paid exception beside the still-blocked cap |
+| **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | Purchase 2 is redeemed |
+| Nothing except **Decline** on the unlisted card | Purchase 3 stays blocked |
+| **Activity** | Show the paid history row beside the still-blocked desk |
 | **Minimize Eve** | Only if her chat covers the board |
 | **Run agent**, **Try an over-cap purchase**, **Decline** | Not in this three minutes. The over-cap button files an extra 6 RLUSD quote and muddies the story. |

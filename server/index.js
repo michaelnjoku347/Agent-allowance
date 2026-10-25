@@ -16,13 +16,26 @@ import express from 'express';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { channelWarning, higherSpent, readOpenChannel } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
-import { loadRules } from '../agent/rules.js';
+import { formatRlusd, loadRules, toUnits } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
-import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
+import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
+import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
-import { declinePending, listPayments, listPending, readStore, summarize } from './store.js';
+import { declinePending, listPayments, listPending, readStore, spentRlusd, summarize } from './store.js';
+
+export function dashboardOrigins(env = process.env) {
+  const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  const extra = String(env.DASHBOARD_ORIGIN ?? '').trim();
+  if (extra && !origins.includes(extra)) origins.push(extra);
+  return origins;
+}
+
+export function fromDashboard(req, env = process.env) {
+  return dashboardOrigins(env).includes(String(req.get('origin') ?? ''));
+}
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: join(rootDir, '.env') });
@@ -33,18 +46,33 @@ const confirmations = createConfirmations();
 export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
-  app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    next();
-  });
 
   app.get('/api/status', async (req, res, next) => {
     try {
+      const rules = loadRules();
+      const summary = summarize(await readStore(), rules);
+      const localSpent = await spentRlusd();
+      let chain = null;
+      let chainUnavailable = false;
+      try {
+        chain = options.channelState ? await options.channelState() : await readOpenChannel();
+      } catch {
+        chain = null;
+        chainUnavailable = true;
+      }
+      const spent = higherSpent(localSpent, chain?.redeemed);
+      const budget = toUnits(summary.budget);
+      const spentUnits = toUnits(spent);
+      const remaining = budget > spentUnits ? budget - spentUnits : 0n;
       res.json({
-        ...summarize(await readStore(), loadRules()),
+        ...summary,
+        localSpent,
+        spent,
+        remaining: formatRlusd(remaining),
+        spentRatio: budget === 0n ? 0 : Number((spentUnits * 10_000n) / budget) / 10_000,
+        chain,
+        chainWarning: channelWarning({ localSpent, budget: summary.budget, chain }),
+        chainUnavailable,
         simulatedLedger: devSignerEnabled(),
       });
     } catch (error) {
@@ -79,7 +107,9 @@ export function createApp(options = {}) {
 
   function sendLedger(res, result) {
     if (result.body) return res.status(result.status).json(result.body);
-    return res.status(result.status).json({ error: result.error, message: result.message });
+    const payload = { error: result.error, message: result.message };
+    if (result.challenge) payload.challenge = result.challenge;
+    return res.status(result.status).json(payload);
   }
 
   app.post('/api/approve/:id/challenge', async (req, res, next) => {
@@ -104,6 +134,23 @@ export function createApp(options = {}) {
     try {
       if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
       sendLedger(res, await simulateLedgerApproval(req.params.id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/allowance/challenge', async (req, res, next) => {
+    try {
+      const env = backupChallengeEnv(ledgerOptions.env ?? process.env);
+      sendLedger(res, await createAllowanceChallenge(req.body ?? {}, { ...ledgerOptions, env }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/allowance', async (req, res, next) => {
+    try {
+      sendLedger(res, await acceptAllowanceChange(req.body ?? {}, ledgerOptions));
     } catch (error) {
       next(error);
     }
@@ -144,6 +191,8 @@ export function createApp(options = {}) {
         token,
         summary: confirmationSummary(result.action, context),
         action: result.action,
+        ledger: Boolean(result.action.ledger),
+        proposal: result.action.ledger ? allowanceProposal(result.action, context.rules) : null,
       };
       res.json(payload);
     } catch (error) {
@@ -194,6 +243,9 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/run-agent', (req, res) => {
+    if (!fromDashboard(req)) {
+      return res.status(403).json({ ok: false, error: 'Open the dashboard to run the agent.' });
+    }
     const raw = typeof req.body?.task === 'string' ? req.body.task : '';
     const task = raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Buy the morning weather brief';
     const ready = Boolean(

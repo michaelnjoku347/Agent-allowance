@@ -22,10 +22,11 @@ import { ethers } from 'ethers';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { higherSpent, readOpenChannel } from './chain-spend.js';
 import { selectOpenChannel } from './channel.js';
 import { pendingPurchase, validateRecovery } from './recovery.js';
 import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
-import { planPurchase } from './planner.js';
+import { chooseLiveResource, planPurchase } from './planner.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
@@ -526,16 +527,40 @@ export async function payExactQuote({
  */
 export async function runOnce({
   task = taskText(),
-  resourceUrl = process.env.RESOURCE_URL,
+  resourceUrl,
   requestQuote: readQuote = requestQuote,
   rules = loadRules(),
   spent,
   session = null,
+  chooseResource = chooseLiveResource,
 } = {}) {
   if (!task) {
     throw new Error('Pass a task. Example: npm run agent -- "Buy the morning market brief"');
   }
-  const url = canonicalResourceUrl(resourceUrl);
+  let presetPlan = null;
+  let selectedUrl = resourceUrl;
+  if (!selectedUrl) {
+    const picked = await chooseResource({ task, rules });
+    if (picked?.skipped || !picked?.url) {
+      const reason = picked?.reason || 'Nothing was selected. Nothing was signed.';
+      console.log(reason);
+      return {
+        decision: 'skipped',
+        reason,
+        amount: null,
+        merchant: null,
+        txHash: null,
+        claimId: null,
+        receiptUrl: null,
+        explorerUrl: null,
+        plan: picked?.plan ?? null,
+        line: `nothing signed — ${reason}`,
+      };
+    }
+    selectedUrl = picked.url;
+    presetPlan = picked.plan ?? null;
+  }
+  const url = canonicalResourceUrl(selectedUrl);
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const previousFetch = globalThis.fetch;
   globalThis.fetch = retryingFetch(previousFetch.bind(globalThis));
@@ -547,7 +572,16 @@ export async function runOnce({
     if (new URL(quote.resourceUrl).href !== url) {
       throw new Error('Merchant quote is for a different resource than the one requested.');
     }
-    const spentNow = spent ?? await spentRlusd();
+    const localSpent = await spentRlusd();
+    let chain = null;
+    if (spent === undefined) {
+      try {
+        chain = await readOpenChannel();
+      } catch (error) {
+        console.log(`On-chain channel was not read: ${error.message ?? error}`);
+      }
+    }
+    const spentNow = spent ?? higherSpent(localSpent, chain?.redeemed);
     const recentPayments = (await listPayments())
       .filter((item) => !item.sample)
       .slice(0, 5)
@@ -565,6 +599,7 @@ export async function runOnce({
       rules,
       spent: spentNow,
       recentPayments,
+      plan: presetPlan ? async () => presetPlan : planPurchase,
       pay: (args) => payWithX402({ session: active, ...args }),
       report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
     });

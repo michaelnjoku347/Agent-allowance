@@ -73,6 +73,28 @@ export async function runOverCap() {
   return body;
 }
 
+export async function requestAllowanceChallenge(proposal) {
+  const response = await fetch('/api/allowance/challenge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proposal ?? {}),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that allowance change.');
+  return body;
+}
+
+export async function submitAllowance(payload) {
+  const response = await fetch('/api/allowance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not change the allowance.');
+  return body;
+}
+
 /** Ask the API to start the agent. A missing wallet still returns 200 with an error the page can show. */
 export async function runAgent(task) {
   const response = await fetch('/api/run-agent', {

@@ -76,6 +76,35 @@ test('decimal strings do not drift and left stays at zero when spent passes the 
   assert.equal(over.ratio, 1);
 });
 
+test('offline preview lists the sample rows and does not spend them', () => {
+  const view = allowanceView({ ...samples, offlinePreview: true, chain: null });
+  assert.equal(view.offlinePreview, true);
+  assert.equal(view.spent, '0');
+  assert.equal(view.localSpent, '0');
+  assert.equal(view.left, '20');
+  assert.equal(view.activity.length, 4);
+  assert.equal(view.chainRedeemed, null);
+  assert.equal(view.chainWarning, null);
+});
+
+test('on-chain redeemed raises spent above the local ledger', () => {
+  const view = allowanceView({
+    rules: { budget: '20' },
+    payments: [
+      { id: 'paid', status: 'paid', amount: '1', createdAt: '2026-10-24T16:00:00.000Z' },
+    ],
+    pending: [],
+    chain: { cap: '5', redeemed: '8' },
+  });
+  assert.equal(view.localSpent, '1');
+  assert.equal(view.chainRedeemed, '8');
+  assert.equal(view.chainCap, '5');
+  assert.equal(view.spent, '8');
+  assert.equal(view.left, '12');
+  assert.match(view.chainWarning, /disagree/);
+  assert.match(view.chainWarning, /channel cap is 5/);
+});
+
 test('an empty snapshot still has a consistent zero balance', () => {
   const view = allowanceView(null);
   assert.equal(view.budget, '0');

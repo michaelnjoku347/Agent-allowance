@@ -272,6 +272,31 @@ p { margin: 0; }
   color: var(--muted);
 }
 .meter-caption { margin-top: 10px; font-size: 0.9375rem; }
+.chain-lines {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.offline-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 650;
+}
+.row-plan {
+  margin: 0 0 8px 60px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.fallback-label { color: var(--warn); font-weight: 700; }
 .rule-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

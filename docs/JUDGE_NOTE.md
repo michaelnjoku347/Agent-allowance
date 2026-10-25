@@ -1,0 +1,33 @@
+# Judge note
+
+Scripted path for a funded XRPL EVM Testnet run. Do not invent transaction hashes. If this environment has no funded wallet, leave the TODO lines below.
+
+## Quickstart
+
+1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). Fund the team budget in the [participant portal](https://hackathon.ap4m.build/participant).
+2. Fill `.env` from `.env.example`. Put the Ledger Ethereum address (`m/44'/60'/0'/0/0`) in `APPROVER_ADDRESS`.
+3. From the repo root:
+
+```bash
+npm install
+npm install --prefix dashboard
+npm run server
+npm run merchant
+npm run dashboard
+npm run demo
+```
+
+4. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+5. Under **Needs you**, approve the **8 RLUSD** history row on a Ledger. The device shows `8 RLUSD`, the merchant label, and the expiry as a date.
+6. Click the explorer link on that paid row. The row also keeps the claim id and the receipt URL.
+
+`npm run demo` pays the 1 RLUSD brief, saves the 8 RLUSD history quote for that approval, and saves the unlisted `0x0bad…` desk as decline-only. A broadcast that fails returns the 8 RLUSD row to **Needs you** with a fresh challenge.
+
+## Live explorer links
+
+TODO: paste links from a funded run. Do not fill these with sample or guessed hashes.
+
+- 1 RLUSD morning brief redemption: TODO
+- 8 RLUSD history redemption after Ledger approval: TODO
+- Claim id: TODO
+- Receipt URL: TODO

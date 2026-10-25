@@ -66,14 +66,20 @@ export function prepareLedger() {
   return Promise.resolve();
 }
 
+const MESSAGE_SHAPES = {
+  ApprovePurchase: 'purchaseId:string,merchant:string,amount:string,expiry:string',
+  SetAllowance: 'cap:string,budget:string,expiry:string,merchants:string,validUntil:string',
+};
+
 function assertTypedData(typedData) {
   const domain = typedData?.domain ?? {};
-  const names = (typedData?.types?.ApprovePurchase ?? []).map((field) => field.name);
+  const primary = typedData?.primaryType;
+  const shape = (typedData?.types?.[primary] ?? []).map((field) => `${field.name}:${field.type}`).join(',');
   if (domain.name !== 'Agent Allowance' || domain.version !== '1' || Number(domain.chainId) !== CHAIN_ID) {
     throw userError('This approval is not for the XRPL EVM Testnet allowance.', 'invalid');
   }
-  if (typedData.primaryType !== 'ApprovePurchase' || names.join(',') !== 'purchaseId,merchant,amount,expiry') {
-    throw userError('This approval is not an ApprovePurchase message.', 'invalid');
+  if (!MESSAGE_SHAPES[primary] || shape !== MESSAGE_SHAPES[primary]) {
+    throw userError('This approval is not an allowance message.', 'invalid');
   }
 }
 

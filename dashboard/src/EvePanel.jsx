@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { askEve, confirmEve } from './api.js';
+import { askEve, confirmEve, requestAllowanceChallenge, submitAllowance } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
+import { prepareLedger, signOnLedger } from './ledger.js';
 import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
@@ -365,6 +366,33 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   async function accept(card) {
     if (!card || busy) return;
+    if (card.ledger) {
+      setBusy(true);
+      setError('');
+      try {
+        prepareLedger();
+        const challenge = await requestAllowanceChallenge(card.proposal);
+        const signature = await signOnLedger(challenge.typedData, {
+          expectedAddress: challenge.approverAddress,
+        });
+        const body = await submitAllowance({
+          signature,
+          message: challenge.typedData.message,
+        });
+        setConfirmation(null);
+        const text = body.note || 'Allowance raised after a Ledger signature. Nothing was paid.';
+        setMessages((current) => [...current, { role: 'eve', text }]);
+        onReply?.(text);
+        speak(text, () => {
+          if (voiceRef.current) startListening();
+        });
+      } catch (err) {
+        setError(err.message || 'The Ledger did not sign that change.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -415,7 +443,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
         <div className="confirm" role="group" aria-label="Confirmation">
           <p>{confirmation.summary}</p>
           <div className="pair">
-            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>Confirm</button>
+            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>
+              {confirmation.ledger ? 'Sign on Ledger' : 'Confirm'}
+            </button>
             <button type="button" className="btn" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>
           </div>
         </div>

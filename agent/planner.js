@@ -6,6 +6,7 @@
  * checkRules and Jev still decide whether anything is signed.
  */
 
+import { liveCatalog } from '../shared/catalog.js';
 import { converse, parseModelJson, readBedrockSettings } from '../server/bedrock.js';
 import { formatRlusd } from './rules.js';
 
@@ -108,9 +109,56 @@ export async function selectResource(task, catalog, options = {}) {
   }
 }
 
+const FALLBACK_REASON = 'Deterministic fallback. Bedrock is not configured, so the 1 RLUSD morning brief is selected.';
+
+/**
+ * Pick one of the three live resources.
+ * A configured model that returns null, an unknown id, or an error signs nothing.
+ * The labeled fallback runs only when Bedrock is not configured.
+ */
+export async function chooseLiveResource({ task, catalog, env, client, rules } = {}) {
+  const items = catalog ?? liveCatalog(env ?? process.env);
+  const brief = items.find((item) => item?.id === 'brief') ?? null;
+  if (!readBedrockSettings(env).configured) {
+    if (!brief?.url) return { skipped: true, url: null, reason: 'The morning brief is not in the catalog.', plan: null };
+    return {
+      skipped: false,
+      url: brief.url,
+      reason: FALLBACK_REASON,
+      plan: {
+        source: 'fallback',
+        resourceId: 'brief',
+        reason: FALLBACK_REASON,
+        fallback: true,
+      },
+    };
+  }
+  const selected = await selectResource(task, items, { env, client, rules: rulesContext(rules) });
+  if (!selected.answered || !selected.resource?.url) {
+    const reason = selected.reason || 'Nothing was selected. Nothing was signed.';
+    return {
+      skipped: true,
+      url: null,
+      reason,
+      plan: { source: 'bedrock', resourceId: null, reason },
+    };
+  }
+  return {
+    skipped: false,
+    url: selected.resource.url,
+    reason: selected.reason,
+    plan: {
+      source: 'bedrock',
+      resourceId: selected.resource.id,
+      reason: selected.reason,
+    },
+  };
+}
+
 /**
  * Plan the live quote. Returns null when Bedrock is not configured or did not
- * answer, so the agent keeps its existing rules-and-Jev behavior.
+ * answer, so an explicit resource still follows the rules and Jev.
+ * Choosing among resources is chooseLiveResource.
  */
 export async function planPurchase({ task, quote, rules } = {}, options = {}) {
   if (!readBedrockSettings(options.env).configured) return null;
