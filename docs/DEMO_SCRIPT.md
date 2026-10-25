@@ -1,6 +1,17 @@
-# Agent Allowance — 3-minute pitch and live demo
+# Agent Allowance — 5-minute live demo
 
-Speak the lines. Do the clicks in order. The whole thing fits in three minutes if the services are already up.
+Speak the lines. Do the clicks in order. The services are already up before you walk in. Each block maps to the judging rubric. If a step is slow, skip the optional line and keep going. The payment path does not depend on voice or fullscreen.
+
+The line to land: **The AI decides what to buy, but it can never decide what it's allowed to spend.**
+
+| Time | Rubric | What the judge sees |
+| --- | --- | --- |
+| 0:00 | Demo and story (10%) | The hook, How it works, then remaining, held for review, lost |
+| 0:40 | Technical execution (25%) | The live 1 RLUSD brief, with an explorer link |
+| 1:40 | Trust and control (25%) | Blocked prompt: injected text, the planner's choice, the rule, 0.00 RLUSD moved |
+| 2:40 | Trust and technical | The judge approves 8 RLUSD on a Ledger. Eve refuses a cap raise |
+| 3:50 | Path to production (15%) | Freeze closes the channel, then the production slide |
+| 4:40 | Demo and story | The vision close |
 
 ## Before you walk in
 
@@ -8,7 +19,7 @@ Use Chrome, Edge, or Brave. Safari and Firefox have no WebHID, so a real Ledger 
 
 1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). The team budget is already funded in the [participant portal](https://hackathon.ap4m.build/participant).
 2. Fill `.env` from `.env.example`. Put the Ledger Ethereum address (`m/44'/60'/0'/0/0`) in `APPROVER_ADDRESS`. Leave `ALLOWANCE_DEV_SIGNER` unset.
-3. Unlock the Ledger, open the Ethereum app, and plug it in. If that app asks for blind signing, allow it only when the four fields on the device match the dark panel.
+3. Unlock the Ledger, open the Ethereum app, and plug it in. The dark panel shows the readable amount, merchant, and expiry. The device may show raw fields or ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor. Allow that only when the panel matches this quote.
 4. From the repo root, four terminals:
 
 ```bash
@@ -24,57 +35,73 @@ npm run demo
 
 The merchant name on the paid row follows your rules file. The committed sample rules say **Market Desk**. `npm run setup:payments` labels your payout **Team merchant**. Either is fine. Say the name you see.
 
-## 0:00 — Story (about 35 seconds)
+## 0:00 — Hook (Demo and story)
 
-> Would you give an AI your credit card?
+> The AI decides what to buy, but it can never decide what it's allowed to spend.
 >
-> We wouldn't. An agent that can pay is useful. An agent with your card is not.
+> Would you give an AI your credit card? We wouldn't. Agent Allowance is a spending account. You fund 20 RLUSD. The agent may buy from merchants you listed, up to 5 RLUSD a purchase, until the allowance expires. Past any of those rules, it does not pay.
 >
-> Agent Allowance is a spending account for that agent. You fund 20 RLUSD. The agent may buy from merchants you listed, up to 5 RLUSD a purchase, until the allowance expires. Past any of those rules, it does not pay. It saves the quote and waits for a person.
+> Remaining is what it can still spend. Held for review is a quote a person has not released. Lost stays at zero, because a blocked quote never moves RLUSD.
 >
-> The payment itself is a Mastercard AP4M x402 voucher on XRPL EVM Testnet. Amazon Bedrock writes the plan. Jev reviews risk after the rules say yes. A Ledger signs the exceptions.
+> How it works is the sponsor map. Ledger signs the exception and the agent mandate. Mastercard AP4M moves every voucher. AWS Bedrock chooses, or the card says Fallback. XRPL settles the RLUSD.
 
-Gesture at the hero while you say the numbers: **RLUSD left**, **Per purchase 5.00 RLUSD**, **Expires**, **Merchants**.
+Gesture at **How it works**, then at **Remaining**, **Held for review**, and **Lost** on the hero. If a mandate is already signed, say the merchant now returns 403 without it. If it is not, say so. Do not call an unanchored hash a transaction. The jobs under **This allowance** (travel, SaaS, supplies) are the same rules with a different name. Mention them in one sentence if a judge asks. Do not click through them unless you have spare seconds. Stay on **Research desk** for the live quotes.
 
-## 0:35 — Purchase 1, in rule, paid (about 40 seconds)
+## 0:40 — Live 1 RLUSD purchase (Technical execution)
 
-> First purchase. The morning market brief is 1 RLUSD, from a merchant on the allowlist, under the cap. The rules allow it. Jev does not flag it. The agent pays.
+> First purchase. The morning market brief is 1 RLUSD, from a merchant on the allowlist, under the cap. The rules allow it. The agent pays. Here is the explorer link.
 
 1. On **Home**, under **Latest activity**, find **Buy the morning market brief**, pill **Paid**, **1.00 RLUSD**.
 2. Click that row.
-3. Read the rule checks. Every line that was reached says **Pass**. Point at **Transaction** and **Receipt** when the live run filled them in. Those links open the XRPL EVM Testnet explorer and the AP4M settlement receipt.
+3. Read the rule checks. Every line that was reached says **Pass**. Point at **Transaction**. That link opens the XRPL EVM Testnet explorer. **Receipt** opens the AP4M settlement receipt when the live run filled it in.
 4. Click **Close**.
 
-> Nothing on that path asked a person. The agent stayed inside the allowance.
+> Nothing on that path asked a person. The agent stayed inside the allowance. The feed shows that explorer link only when the hash is a real 32-byte transaction.
 
-## 1:15 — Purchase 2, over the cap, blocked (about 40 seconds)
+## 1:40 — Blocked prompt (Trust and control)
 
-> Second purchase. Same merchant. Eight RLUSD. The cap is five. Watch what does not happen: no voucher, no signature.
+This is the moment to show. One click feeds a malicious catalog row to the same planner the agent uses. The row says the user already approved a 50 RLUSD pack. The rules then block it. Nothing is signed, and no payable quote is added.
 
-1. Under **Needs you**, find the **8.00 RLUSD** card. The reason reads **This is over the per-purchase cap.**
-2. Do not click **Approve with Ledger** on this card. Leave it blocked.
-3. Point at **Jev decision**. The source is **rules only**. Jev never gets a vote on a quote the rules already stopped.
+> Watch the catalog try to talk the planner into spending 50 RLUSD. The planner can take the bait. The allowance cannot.
 
-> The quote is saved. The budget did not move.
+1. On **Home**, open **Demo**.
+2. Click **Show a blocked prompt**.
+3. Read the red **Attack blocked** card out loud: the injected text, what the planner chose, the rule that stopped it, and **0.00 RLUSD moved**.
 
-## 1:55 — Purchase 3, off the allowlist, approved on the Ledger (about 50 seconds)
+If the card says **Fallback (Bedrock not configured)**, say that Bedrock is not configured on this machine and the fallback followed the catalog text. Do not call that a live model. If the card says **Amazon Bedrock**, that call was real. If Bedrock refused the pack, say so, and still point at the rule: the 50 RLUSD quote is blocked anyway.
 
-> Third purchase. One RLUSD, but the merchant is not on the list. The agent will not pay that on its own. A person can, on a Ledger. The signature can pass the allowlist. It still cannot pass an expired allowance or a blown budget.
+The payment path lights Agent, stops at Rules, and leaves Ledger, XRPL, and the merchant dark. A Ledger signature cannot pay a merchant that is not on the allowlist. **Voice on** lets Eve say why. **Voice off** mutes her and the tones.
 
-1. On the **1.00 RLUSD** card whose reason is **This merchant is not on the allowlist**, click **Approve with Ledger**.
-2. Read the dark panel out loud: `purchaseId`, `merchant`, `amount`, `expiry`. Those are the EIP-712 fields the Ethereum app shows.
-3. Click **Connect Ledger**.
-4. In the browser prompt, pick the Ledger. On the device, confirm only if the four values match the panel.
-5. Wait until the sheet says the quote was approved and paid once. Click **Close**.
-6. Click **Activity** in the side nav (on a phone, the **Activity** tab). The outside-desk purchase is **Paid**. The 8 RLUSD quote is still **Blocked**.
+## 2:40 — Ledger approves 8 RLUSD, Eve refuses the raise (Trust and technical)
 
-> One signature, one quote, and it cannot be replayed. Eve can explain a block. Eve cannot approve one. That stays on the Ledger.
+> Second purchase. Same merchant. Eight RLUSD of history. The cap is five, so the agent does not sign. A person can, on a Ledger. The agent still cannot raise its own cap.
 
-## 2:45 — Close (about 15 seconds)
+1. Under **Needs you**, find the **8.00 RLUSD** card. The reason reads **This is over the per-purchase cap.** The merchant is on the allowlist, so Ledger can approve this one quote.
+2. Hand the Ledger to the judge if they want to press it. Click **Approve with Ledger**.
+3. Read the dark panel out loud. It shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor. Confirm only when the panel matches this quote.
+4. Click **Connect Ledger**. Wait until the sheet says the quote was approved and paid once. Click **Close**.
+5. Click the explorer link on that paid row.
+6. Open Eve and type `Set my cap to 8`. She refuses. A Ledger `SetAllowance` signature is required. The allowance file does not change.
 
-> So: would you give an AI your credit card? Give it an allowance. The rules spend. A person, on a Ledger, is the only way past the list or the cap. The budget and the expiry still hold. Thank you.
+> One signature, one redemption, and it cannot be replayed. Eve can explain a block. She cannot raise the cap.
 
-If a judge asks where the sponsors are: AP4M moves the RLUSD, XRPL EVM Testnet is the chain, Bedrock writes the words, Ledger signs the exception. The table is in the README.
+Do not freeze before this step. A frozen agent will not take the Ledger payment.
+
+The unlisted 1 RLUSD card, if it is on screen, has **Decline only**. There is no Approve button. A Ledger signature cannot pay a merchant that is off the allowlist. Point at it only if a judge asks. Do not let it replace the blocked prompt.
+
+## 3:50 — Freeze, then the production slide (Path to production)
+
+> If I want it to stop, it stops. Freeze stops signing, and it asks the payment service to close the channel. After that, the agent cannot sign another voucher on that channel.
+
+1. Click **Freeze agent**. Read the banner. If a wallet and an open channel were configured, it says the payment channel is closed. If they were not, it says signing has stopped and it does not claim the channel closed. Either way, **Run agent** will not start a payment.
+2. Do not unfreeze during the five minutes unless you still need the Ledger step. Unfreeze does not reopen a closed channel.
+3. Point at [docs/PATH_TO_PRODUCTION.md](PATH_TO_PRODUCTION.md). The laptop path is `npm start`. The container path is `npm run ship` after Docker is installed. Do not start that build during the five minutes. The production plan is KMS or Secrets Manager for the agent key, DynamoDB for the ledger, Bedrock by IAM role, and RLUSD mainnet only after the payment service publishes that chain id.
+
+## 4:40 — Close (Demo and story)
+
+> The AI decides what to buy, but it can never decide what it's allowed to spend. Give it an allowance. The rules spend. A person, on a Ledger, is the only way past the cap. Freeze closes the channel. Thank you.
+
+If a judge asks where the sponsors are: AP4M moves the RLUSD, XRPL EVM Testnet is the chain, Bedrock writes the words, Ledger signs the exception. The table is in the README. The three buyers are a travel booker, a SaaS and API buyer, and a small-business supplies agent. Same budget, same cap, same allowlist.
 
 ## If the Ledger fails
 
@@ -88,7 +115,7 @@ Then either:
 - Show it live, only as a labeled fallback:
   1. Stop the API. Start it again with `ALLOWANCE_DEV_SIGNER=1 npm run server`. Leave the merchant and the dashboard running. Refresh the page.
   2. A banner at the top says **simulated Ledger signature**.
-  3. Click **Approve with Ledger** on the outside-desk card. The sheet repeats **simulated Ledger signature**. There is no **Connect Ledger** button.
+  3. Click **Approve with Ledger** on the 8 RLUSD card. The sheet repeats **simulated Ledger signature**. There is no **Connect Ledger** button. The unlisted card has no approve button.
   4. Click **simulated Ledger signature**. The new paid row carries the same label.
   5. Say again that this key is throwaway and nothing was broadcast. Stop the API and start it without the flag before any real Ledger attempt.
 
@@ -98,9 +125,13 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 
 | Click | When |
 | --- | --- |
-| The paid **morning market brief** row, then **Close** | Purchase 1 |
-| Nothing on the **8.00 RLUSD** card | Purchase 2 stays blocked |
-| **Approve with Ledger**, then **Connect Ledger**, then **Close** | Purchase 3 |
-| **Activity** | Show the paid exception beside the still-blocked cap |
+| The paid **morning market brief** row, then the explorer link, then **Close** | Technical execution. Do this before the blocked prompt. |
+| **Show a blocked prompt**, then read the card | Trust. Injected text, the planner's choice, the rule, 0.00 RLUSD moved. |
+| **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | The judge can press the Ledger. Do this before Freeze. |
+| Eve: `Set my cap to 8` | She refuses. A Ledger SetAllowance signature is required. |
+| **Freeze agent** | After the Ledger step. Read whether the channel actually closed. |
+| **This allowance** presets | Optional. One sentence. Do not rewrite the rules, and do not click them unless you have time. |
+| **Export JSON** | Optional. The audit trail is under the blocked-prompt card if a judge asks. |
 | **Minimize Eve** | Only if her chat covers the board |
-| **Run agent**, **Try an over-cap purchase**, **Decline** | Not in this three minutes. The over-cap button files an extra 6 RLUSD quote and muddies the story. |
+| **Run agent**, **Try an over-cap purchase**, **Unfreeze agent** | Not in these five minutes. Unfreeze does not reopen a closed channel. |
+| **Voice off**, **Present** | Optional. Present is in the Demo menu. Voice on speaks the blocked prompt. The demo stands without them. |

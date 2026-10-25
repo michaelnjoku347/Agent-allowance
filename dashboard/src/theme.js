@@ -16,7 +16,7 @@ export function useTheme() {
     const dark = theme === 'dark' || (
       theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches
     );
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#121411' : '#EFECE4');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#121411' : '#1B4D3E');
     try {
       localStorage.setItem(KEY, theme);
     } catch {

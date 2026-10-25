@@ -41,7 +41,13 @@ test('a Ledger approval still stops at expiry and the budget', () => {
     amount: '1',
     spent: '0',
   }, rules);
-  assert.equal(unlisted.decision, 'allow');
+  assert.equal(unlisted.reason, 'merchant not allowed');
+  const other = checkApprovalHardRules({
+    merchant: '0x2222222222222222222222222222222222222222',
+    amount: '1',
+    spent: '0',
+  }, rules);
+  assert.equal(other.reason, 'merchant not allowed');
   assert.equal(checkApprovalHardRules({ merchant, amount: '8', spent: '16' }, rules).reason, 'over budget');
   assert.equal(checkApprovalHardRules({ merchant, amount: '1', spent: '0', at: rules.expiresAt }, rules).reason, 'expired');
 });

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { askEve, confirmEve } from './api.js';
+import { askEve, confirmEve, requestAllowanceChallenge, submitAllowance } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
+import { prepareLedger, signOnLedger } from './ledger.js';
 import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
@@ -29,7 +30,7 @@ function readMode() {
   } catch {
     /* Private browsing can block storage. */
   }
-  return mobileDock() ? 'peek' : 'open';
+  return 'min';
 }
 
 function focusable(root) {
@@ -38,7 +39,7 @@ function focusable(root) {
     .filter((node) => !node.disabled && node.getAttribute('aria-hidden') !== 'true');
 }
 
-export function EveDock({ seed, onSeedHandled }) {
+export function EveDock({ seed, onSeedHandled, presenting = false }) {
   const panelId = useId();
   const panelRef = useRef(null);
   const pillRef = useRef(null);
@@ -59,14 +60,18 @@ export function EveDock({ seed, onSeedHandled }) {
   }, [mode]);
 
   useEffect(() => {
-    if (!seed) return undefined;
+    if (presenting) setMode('min');
+  }, [presenting]);
+
+  useEffect(() => {
+    if (!seed || presenting) return undefined;
     setMode('open');
     setUnread(0);
     const frame = requestAnimationFrame(() => {
       panelRef.current?.querySelector('#eve-message')?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [seed]);
+  }, [seed, presenting]);
 
   function minimize() {
     setMode('min');
@@ -74,6 +79,7 @@ export function EveDock({ seed, onSeedHandled }) {
   }
 
   function expand() {
+    if (presenting) return;
     const next = mobileDock() ? 'peek' : 'open';
     setMode(next);
     setUnread(0);
@@ -165,12 +171,11 @@ export function EveDock({ seed, onSeedHandled }) {
 
   return (
     <div className={`eve-dock is-${mode}`}>
-      <div className="sr-only" aria-live="polite">{announcement}</div>
+      {mode === 'min' ? null : (
       <section
         className={`eve-window is-${mode}`}
         id={panelId}
         ref={panelRef}
-        hidden={mode === 'min'}
         role="region"
         aria-label="Eve"
       >
@@ -205,6 +210,7 @@ export function EveDock({ seed, onSeedHandled }) {
           onReply={onReply}
         />
       </section>
+      )}
       <button
         type="button"
         className="eve-pill"
@@ -212,7 +218,7 @@ export function EveDock({ seed, onSeedHandled }) {
         hidden={mode !== 'min'}
         aria-expanded="false"
         aria-controls={panelId}
-        aria-label={pillLabel}
+        aria-label={announcement ? `${pillLabel}. ${announcement}` : pillLabel}
         onClick={expand}
       >
         <EveMark size={28} />
@@ -235,6 +241,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [failedText, setFailedText] = useState('');
   const [confirmation, setConfirmation] = useState(null);
   const [interim, setInterim] = useState('');
   const [listening, setListening] = useState(false);
@@ -257,7 +264,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   }, [listening, speaking, onStatus]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'nearest' });
+    const node = bottomRef.current;
+    if (!node || node.closest('[hidden]')) return;
+    node.scrollIntoView({ block: 'nearest' });
   }, [messages, interim, confirmation]);
 
   useEffect(() => () => {
@@ -357,6 +366,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
         if (voiceRef.current) startListening();
       });
     } catch (err) {
+      setFailedText(message);
       setError(err.message || 'Eve could not answer.');
     } finally {
       setBusy(false);
@@ -365,6 +375,33 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   async function accept(card) {
     if (!card || busy) return;
+    if (card.ledger) {
+      setBusy(true);
+      setError('');
+      try {
+        prepareLedger();
+        const challenge = await requestAllowanceChallenge(card.proposal);
+        const signature = await signOnLedger(challenge.typedData, {
+          expectedAddress: challenge.approverAddress,
+        });
+        const body = await submitAllowance({
+          signature,
+          message: challenge.typedData.message,
+        });
+        setConfirmation(null);
+        const text = body.note || 'Allowance raised after a Ledger signature. Nothing was paid.';
+        setMessages((current) => [...current, { role: 'eve', text }]);
+        onReply?.(text);
+        speak(text, () => {
+          if (voiceRef.current) startListening();
+        });
+      } catch (err) {
+        setError(err.message || 'The Ledger did not sign that change.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -400,7 +437,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   return (
     <div className="eve">
-      <div className="transcript" id={listId} aria-relevant="additions">
+      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions">
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
@@ -415,7 +452,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
         <div className="confirm" role="group" aria-label="Confirmation">
           <p>{confirmation.summary}</p>
           <div className="pair">
-            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>Confirm</button>
+            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>
+              {confirmation.ledger ? 'Sign on Ledger' : 'Confirm'}
+            </button>
             <button type="button" className="btn" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>
           </div>
         </div>
@@ -484,7 +523,13 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
           The microphone is blocked. Allow it in the browser site settings, then reload this page.
         </p>
       ) : null}
-      {error ? <p className="note warn" role="alert">{error}</p> : null}
+      {error ? (
+        <div className="state-error" role="alert">
+          <p className="state-error-title">Eve is offline</p>
+          <p>{error}</p>
+          <button type="button" className="btn" onClick={() => send(failedText)} disabled={busy || !failedText}>Retry</button>
+        </div>
+      ) : null}
     </div>
   );
 }

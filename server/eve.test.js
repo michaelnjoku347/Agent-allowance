@@ -14,6 +14,7 @@ delete process.env.JEV_API_KEY;
 const { createApp } = await import('./index.js');
 const { recordAgentPayment, recordPending, listPending } = await import('./store.js');
 const { answerEve } = await import('./eve.js');
+const { updateAllowance } = await import('../agent/rules.js');
 
 for (const name of [
   'AWS_REGION',
@@ -109,7 +110,7 @@ describe('Eve', { concurrency: false }, () => {
     const base = `http://127.0.0.1:${port}`;
     const ask = (message) => fetch(`${base}/api/eve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
       body: JSON.stringify({ message }),
     });
     try {
@@ -137,13 +138,42 @@ describe('Eve', { concurrency: false }, () => {
       assert.match(cap.confirmation.summary, /cap to 3 RLUSD/);
       const saved = await fetch(`${base}/api/eve/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
         body: JSON.stringify({ token: cap.confirmation.token }),
       });
       assert.equal(saved.status, 200);
       const file = JSON.parse(readFileSync(process.env.ALLOWANCE_RULES, 'utf8'));
       assert.equal(file.maxPerPurchase, '3');
       assert.equal(file.budget, '20');
+
+      const raise = await (await ask('Set my cap to 8')).json();
+      assert.equal(raise.confirmation.ledger, true);
+      assert.match(raise.confirmation.summary, /Ledger/);
+      const refused = await fetch(`${base}/api/eve/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
+        body: JSON.stringify({ token: raise.confirmation.token }),
+      });
+      assert.equal(refused.status, 400);
+      const refusedBody = await refused.json();
+      assert.match(refusedBody.error, /Ledger signature/);
+      assert.equal(JSON.parse(readFileSync(process.env.ALLOWANCE_RULES, 'utf8')).maxPerPurchase, '3');
+
+      assert.equal(updateAllowance({ maxPerPurchase: '8' }).code, 'needs_ledger');
+      assert.equal(updateAllowance({ budget: '30' }).code, 'needs_ledger');
+      assert.equal(updateAllowance({ expiresAt: '2027-06-01T00:00:00.000Z' }).code, 'needs_ledger');
+      assert.equal(updateAllowance({
+        allowedMerchants: [...file.allowedMerchants, '0x1212121212121212121212121212121212121212'],
+      }).code, 'needs_ledger');
+      const unchanged = JSON.parse(readFileSync(process.env.ALLOWANCE_RULES, 'utf8'));
+      assert.equal(unchanged.maxPerPurchase, '3');
+      assert.equal(unchanged.budget, '20');
+      assert.equal(unchanged.expiresAt, file.expiresAt);
+      assert.deepEqual(unchanged.allowedMerchants, file.allowedMerchants);
+
+      const shorter = updateAllowance({ expiresAt: '2026-11-01T00:00:00.000Z' });
+      assert.equal(shorter.ok, true);
+      assert.equal(JSON.parse(readFileSync(process.env.ALLOWANCE_RULES, 'utf8')).expiresAt, '2026-11-01T00:00:00.000Z');
     } finally {
       await close(server);
       rmSync(dir, { recursive: true, force: true });

@@ -29,7 +29,8 @@ export function buildConfiguration({ current = {}, source = {}, settings = {}, r
   env.RESOURCE_URL ||= 'http://127.0.0.1:4308/resource';
   env.MERCHANT_PORT ||= '4308';
   env.PORT ||= '8787';
-  env.CHANNEL_CAP ||= '5';
+  const budgetCap = String(rules.budget ?? '20');
+  if (!env.CHANNEL_CAP || env.CHANNEL_CAP === '5') env.CHANNEL_CAP = budgetCap;
   if (env.CHANNEL_ID) throw new Error('Clear CHANNEL_ID locally before setup; the integrated agent selects an open channel.');
   const payout = env.MERCHANT_PAYOUT_ADDRESS.toLowerCase();
   const localRules = structuredClone(rules);
@@ -46,10 +47,9 @@ export function main(argv = process.argv.slice(2), projectRoot = root) {
   if (sourceIndex >= 0 && !argv[sourceIndex + 1]) throw new Error('--from requires the tested starter folder path.');
   const readEnv = file => existsSync(file) ? dotenv.parse(readFileSync(file)) : {};
   const settingsFile = join(sourceDir, 'x402-settings.json');
-  const rulesFile = join(root, 'agent/rules.local.json');
+  const rulesFile = join(root, 'agent/rules.json');
   const current = readEnv(join(root, '.env'));
   if (current.ALLOWANCE_RULES && resolve(root, current.ALLOWANCE_RULES) !== rulesFile) throw new Error('An existing custom ALLOWANCE_RULES file is configured; keep its setup rather than replacing it.');
-  if (existsSync(rulesFile)) throw new Error('agent/rules.local.json already exists. Keep your current rules and edit them locally if needed.');
   const configured = buildConfiguration({
     current,
     source: readEnv(join(sourceDir, '.env')),
@@ -58,11 +58,11 @@ export function main(argv = process.argv.slice(2), projectRoot = root) {
     useAgentAsSubmitter: argv.includes('--use-agent-as-submitter'),
   });
   configured.env.ALLOWANCE_RULES = rulesFile.replaceAll('\\', '/');
-  // Write only local, gitignored files. Keys are never printed or sent to a service.
-  writeFileSync(rulesFile, JSON.stringify(configured.rules, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  // .env stays gitignored. rules.json is updated in place so the agent loads this payout.
+  writeFileSync(rulesFile, JSON.stringify(configured.rules, null, 2) + '\n', { mode: 0o600 });
   const serialized = Object.entries(configured.env).map(([key, value]) => key + '=' + JSON.stringify(value)).join('\n') + '\n';
   writeFileSync(join(root, '.env'), serialized, { mode: 0o600 });
-  console.log('Configured local .env and agent/rules.local.json. No payment sent.');
+  console.log('Configured local .env and wrote the payout address into agent/rules.json. No payment sent.');
   console.log('Next: npm run server; npm run merchant; npm run dashboard; npm run demo (one 1 RLUSD purchase).');
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

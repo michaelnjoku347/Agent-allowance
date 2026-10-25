@@ -7,6 +7,7 @@
 import rules from '../../agent/rules.json';
 import network from '../../shared/network.json';
 import sample from '../../shared/sample-data.json';
+import { presentUseCase } from '../../shared/use-cases.js';
 
 const budget = Number(rules.budget);
 const spent = sample.payments
@@ -45,6 +46,10 @@ export const sampleSnapshot = {
     note: null,
   })),
   pending: sample.pending,
+  frozen: false,
+  frozenAt: null,
+  useCase: presentUseCase('research'),
+  audit: [],
 };
 
 export async function fetchSnapshot() {
@@ -65,11 +70,98 @@ export async function fetchSnapshot() {
   return { ...status, payments, pending };
 }
 
+/** One injected catalog row. The planner runs. The rules block it. Nothing is signed. */
+export async function runHeist() {
+  const response = await fetch('/api/demo/heist', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok) throw new Error(body.error || 'The heist did not run.');
+  return body;
+}
+
+/** Three scripted attacks. The server runs the rules. Nothing is signed. */
+export async function runRogueDemo() {
+  const response = await fetch('/api/demo/rogue', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok) throw new Error(body.error || 'The rogue demo did not run.');
+  return body;
+}
+
 /** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
 export async function runOverCap() {
   const response = await fetch('/api/demo/over-cap', { method: 'POST' });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || 'The over-cap demo did not run.');
+  return body;
+}
+
+export async function requestAllowanceChallenge(proposal) {
+  const response = await fetch('/api/allowance/challenge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proposal ?? {}),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that allowance change.');
+  return body;
+}
+
+export async function submitAllowance(payload) {
+  const response = await fetch('/api/allowance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not change the allowance.');
+  return body;
+}
+
+export async function requestMandateChallenge() {
+  const response = await fetch('/api/mandate/challenge', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare the agent mandate.');
+  return body;
+}
+
+export async function submitMandate(payload) {
+  const response = await fetch('/api/mandate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'The agent mandate was not accepted.');
+  return body;
+}
+
+export async function anchorDecisions() {
+  const response = await fetch('/api/anchor', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'The decision was not anchored.');
+  return body;
+}
+
+/** Kill switch. Frozen refuses new payments until the dashboard unfreezes it. */
+export async function setAgentFrozen(frozen) {
+  const response = await fetch('/api/freeze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frozen }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not change the freeze.');
+  return body;
+}
+
+/** Name the job. The server does not rewrite the allowance file. */
+export async function selectUseCase(id) {
+  const response = await fetch('/api/use-case', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not select that job.');
   return body;
 }
 
@@ -90,7 +182,19 @@ export async function runAgent(task) {
 export async function requestApprovalChallenge(id) {
   const response = await fetch(`/api/approve/${encodeURIComponent(id)}/challenge`, { method: 'POST' });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that approval.');
+  if (!response.ok) {
+    const error = new Error(body.message || body.error || 'Could not prepare that approval.');
+    error.status = response.status;
+    error.code = body.error;
+    throw error;
+  }
+  return body;
+}
+
+export async function fetchApprovalProgress(id) {
+  const response = await fetch(`/api/approve/${encodeURIComponent(id)}/progress`, { cache: 'no-store' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) return { inFlight: false, missing: true, phase: null };
   return body;
 }
 
@@ -109,6 +213,7 @@ export async function submitLedgerApproval(id, payload) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
+  if (response.status === 202 && body.inFlight) return body;
   if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
   return body;
 }

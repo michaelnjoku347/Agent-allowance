@@ -14,6 +14,7 @@ import {
   describeLedgerInteraction,
   webHidSupported,
 } from '../../shared/ledger-device.js';
+import { ledgerClearSign } from '../../shared/ledger-clear-sign.js';
 
 const CHAIN_ID = 1449000;
 let dmk;
@@ -31,9 +32,14 @@ function wrap(error) {
   return userError(described.message, described.code);
 }
 
-/** Local context only. No Ledger registry call and no invented clear-signing certificate. */
+/**
+ * Load the local ERC-7730 descriptor, then refuse clear-signing.
+ * Chain 1449000 is not in Ledger's registry, and a success filter without a
+ * Ledger PKI certificate can make signTypedData fail.
+ */
 function fieldContextModule() {
-  const skip = { type: 'error', error: new Error('No Ledger registry descriptor for this approval.') };
+  const decision = ledgerClearSign(CHAIN_ID);
+  const skip = { type: 'error', error: new Error(decision.reason) };
   return {
     async getTypedDataFilters() {
       return skip;
@@ -66,14 +72,21 @@ export function prepareLedger() {
   return Promise.resolve();
 }
 
+const MESSAGE_SHAPES = {
+  ApprovePurchase: 'purchaseId:string,merchant:string,amount:string,expiry:string',
+  SetAllowance: 'cap:string,budget:string,expiry:string,merchants:string,validUntil:string',
+  AgentMandate: 'agent:string,budget:string,cap:string,expiry:string,merchants:string,validUntil:string',
+};
+
 function assertTypedData(typedData) {
   const domain = typedData?.domain ?? {};
-  const names = (typedData?.types?.ApprovePurchase ?? []).map((field) => field.name);
+  const primary = typedData?.primaryType;
+  const shape = (typedData?.types?.[primary] ?? []).map((field) => `${field.name}:${field.type}`).join(',');
   if (domain.name !== 'Agent Allowance' || domain.version !== '1' || Number(domain.chainId) !== CHAIN_ID) {
     throw userError('This approval is not for the XRPL EVM Testnet allowance.', 'invalid');
   }
-  if (typedData.primaryType !== 'ApprovePurchase' || names.join(',') !== 'purchaseId,merchant,amount,expiry') {
-    throw userError('This approval is not an ApprovePurchase message.', 'invalid');
+  if (!MESSAGE_SHAPES[primary] || shape !== MESSAGE_SHAPES[primary]) {
+    throw userError('This approval is not an allowance message.', 'invalid');
   }
 }
 

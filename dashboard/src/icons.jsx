@@ -13,20 +13,6 @@ const pen = {
   strokeLinejoin: 'round',
 };
 
-export function LogoMark({ tone = 'pine', size = 36 }) {
-  const bg = tone === 'cream' ? '#F4F0E6' : '#1B4D3E';
-  const stroke = tone === 'cream' ? '#1B4D3E' : '#F4F0E6';
-  const dot = tone === 'cream' ? '#8C5A1E' : '#E2B15A';
-  return (
-    <svg className="logo-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
-      <rect width="36" height="36" rx="10" fill={bg} />
-      <path d="M18 8.2a9.8 9.8 0 1 1-8.4 4.8" stroke={stroke} strokeWidth="2.2" fill="none" strokeLinecap="round" />
-      <path d="M18 14v6.4" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="18" cy="23.4" r="1.45" fill={dot} />
-    </svg>
-  );
-}
-
 export function IconHome() {
   return (
     <Stroke>
@@ -93,7 +79,8 @@ export function EveMark({ size = 28 }) {
   return (
     <svg className="eve-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="9" fill="#1B4D3E" />
-      <path d="M10.5 10.5h11M10.5 16h7.5M10.5 21.5h11" stroke="#F4F0E6" strokeWidth="2" strokeLinecap="round" />
+      <path d="M11 9.2v13.6M11 9.2h10.2M11 16h7.2M11 22.8h10.2" fill="none" stroke="#F7F4EC" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="22.4" cy="16" r="2.1" fill="#C6F36B" />
     </svg>
   );
 }
@@ -114,9 +101,18 @@ export function IconMinus({ size = 22 }) {
   );
 }
 
-export function IconAlert() {
+export function IconLock({ size = 16 }) {
   return (
-    <Stroke>
+    <Stroke size={size}>
+      <rect {...pen} x="6" y="11" width="12" height="8" rx="1.5" />
+      <path {...pen} d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11" />
+    </Stroke>
+  );
+}
+
+export function IconAlert({ size = 18 }) {
+  return (
+    <Stroke size={size}>
       <path {...pen} d="M12 4.5 20.5 19H3.5L12 4.5z" />
       <path {...pen} d="M12 10v4.2M12 16.8h.01" />
     </Stroke>

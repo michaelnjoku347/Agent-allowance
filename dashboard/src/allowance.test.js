@@ -24,6 +24,8 @@ test('sample preview totals are not spent, so left matches the budget', () => {
   assert.equal(view.left, '20');
   assert.equal(view.ratio, 0);
   assert.equal(view.activity.length, 0);
+  assert.equal(view.held, '0');
+  assert.equal(view.lost, '0');
   assert.equal(view.payments.length, 0);
   assert.equal(view.pending.length, 0);
   assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
@@ -47,6 +49,8 @@ test('real payments keep spent, left, and budget in agreement', () => {
   assert.equal(view.budget, '20');
   assert.equal(view.pending.length, 1);
   assert.equal(view.pending[0].status, 'pending');
+  assert.equal(view.held, '2');
+  assert.equal(view.lost, '0');
   assert.equal(view.activity[0].id, 'wait');
   assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
 });
@@ -74,6 +78,38 @@ test('decimal strings do not drift and left stays at zero when spent passes the 
   assert.equal(over.spent, '25');
   assert.equal(over.left, '0');
   assert.equal(over.ratio, 1);
+});
+
+test('offline preview counts the sample payments in the one balance', () => {
+  const view = allowanceView({ ...samples, offlinePreview: true, chain: null });
+  assert.equal(view.offlinePreview, true);
+  assert.equal(view.spent, '7.5');
+  assert.equal(view.localSpent, '7.5');
+  assert.equal(view.left, '12.5');
+  assert.equal(view.ratio, 0.375);
+  assert.equal(view.held, '8');
+  assert.equal(view.activity.length, 4);
+  assert.equal(view.chainRedeemed, null);
+  assert.equal(view.chainWarning, null);
+  assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
+});
+
+test('on-chain redeemed raises spent above the local ledger', () => {
+  const view = allowanceView({
+    rules: { budget: '20' },
+    payments: [
+      { id: 'paid', status: 'paid', amount: '1', createdAt: '2026-10-24T16:00:00.000Z' },
+    ],
+    pending: [],
+    chain: { cap: '5', redeemed: '8' },
+  });
+  assert.equal(view.localSpent, '1');
+  assert.equal(view.chainRedeemed, '8');
+  assert.equal(view.chainCap, '5');
+  assert.equal(view.spent, '8');
+  assert.equal(view.left, '12');
+  assert.match(view.chainWarning, /disagree/);
+  assert.match(view.chainWarning, /channel cap is 5/);
 });
 
 test('an empty snapshot still has a consistent zero balance', () => {

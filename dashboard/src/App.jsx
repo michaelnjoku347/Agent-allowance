@@ -1,22 +1,29 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
+import HeistDemo from './HeistDemo.jsx';
+import HowItWorks from './HowItWorks.jsx';
+import RogueDemo from './RogueDemo.jsx';
+import { flowForHeist, flowForItem, narrationFor, narrationForHeist, toneKind, txFeed } from './present.js';
+import { MoneyFlow, TxFeed } from './Stage.jsx';
+import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
 import {
   IconActivity,
   IconAlert,
   IconCheck,
   IconHome,
+  IconLock,
   IconReceipt,
   IconSettings,
-  LogoMark,
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
-import { money, shortAddress, when } from './format.js';
+import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
+import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
 
 const TABS = [
@@ -26,11 +33,10 @@ const TABS = [
 
 const EXPLORER = 'https://explorer.testnet.xrplevm.org';
 
-const FILTERS = [
+const ACTIVITY_VIEWS = [
   ['all', 'All'],
-  ['paid', 'Paid'],
-  ['blocked', 'Blocked'],
-  ['waiting', 'Waiting'],
+  ['audit', 'Audit'],
+  ['chain', 'On-chain'],
 ];
 
 function expiresOn(iso) {
@@ -46,17 +52,38 @@ function expiresOn(iso) {
 }
 
 function pill(item) {
+  const ledgerPaid = item.approvedBy === 'ledger' || item.simulatedLedger || item.reason === 'ledger approved';
+  if (item.status === 'paid' && ledgerPaid) return { label: 'Paid · Ledger', tone: 'ok' };
   if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
-  if (item.status === 'approved') return { label: 'Waiting', tone: 'warn' };
-  if (item.status === 'declined' || item.status === 'pending') return { label: 'Blocked', tone: 'danger' };
-  return { label: item.status || 'Waiting', tone: 'warn' };
+  if (item.declineOnly || item.reason === 'merchant not allowed' || item.status === 'declined' || item.status === 'skipped') {
+    return { label: 'Blocked', tone: 'danger' };
+  }
+  return { label: 'Needs you', tone: 'warn' };
 }
 
-function matchesFilter(item, filter) {
-  if (filter === 'paid') return item.status === 'paid';
-  if (filter === 'waiting') return item.status === 'approved';
-  if (filter === 'blocked') return item.status === 'pending' || item.status === 'declined';
-  return true;
+function cannotApprove(item) {
+  return Boolean(item.declineOnly) || item.reason === 'merchant not allowed';
+}
+
+function reasonChip(item, cap) {
+  if (item.reason === 'over per-purchase cap') {
+    const over = Number(item.amount) - Number(cap);
+    if (Number.isFinite(over) && over > 0) return `Over cap by ${money(over)}`;
+  }
+  return plainReason(item.reason);
+}
+
+function planLabel(plan) {
+  if (plan?.source === 'bedrock') return 'Amazon Bedrock';
+  if (plan?.source === 'fallback') return 'Fallback (Bedrock not configured)';
+  return '';
+}
+
+function planDetail(plan) {
+  const label = planLabel(plan);
+  const reason = String(plan?.reason ?? '').trim();
+  if (!label || !reason || reason.replace(/\.$/, '') === label) return '';
+  return reason;
 }
 
 function ruleRows(item) {
@@ -80,6 +107,82 @@ function ruleRows(item) {
   });
 }
 
+function auditPill(row) {
+  if (row.rule === 'freeze') return ['Frozen', 'is-block'];
+  if (row.rule === 'unfreeze') return ['Unfrozen', 'is-ok'];
+  if (row.outcome === 'ledger-approved') return ['Ledger approved', 'is-wait'];
+  if (row.outcome === 'allowed') return ['Allowed', 'is-ok'];
+  return ['Blocked', 'is-block'];
+}
+
+function UseCaseCard({ selected, busy, disabled, onSelect }) {
+  const current = USE_CASES.find((item) => item.id === selected) || USE_CASES[0];
+  return (
+    <section className="card" aria-labelledby="usecase-title">
+      <div className="section-head">
+        <h2 id="usecase-title">This allowance</h2>
+        <p>{current.summary}</p>
+      </div>
+      <div className="filters" role="toolbar" aria-label="Choose a job">
+        {USE_CASES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={item.id === current.id ? 'chip is-on' : 'chip'}
+            aria-pressed={item.id === current.id}
+            disabled={disabled || busy === item.id}
+            onClick={() => onSelect(item.id)}
+          >
+            {item.title}
+          </button>
+        ))}
+      </div>
+      <ul className="use-jobs">
+        {current.jobs.map((job) => <li key={job}>{job}</li>)}
+      </ul>
+      <p className="meta">Choosing a job names the work. The budget, the cap, and the merchant list stay as they are.</p>
+    </section>
+  );
+}
+
+function AuditCard({ rows, onExport }) {
+  const shown = (rows || []).slice(0, 8);
+  return (
+    <section className="card" aria-labelledby="audit-title">
+      <div className="audit-head">
+        <div className="section-head">
+          <h2 id="audit-title">Audit trail</h2>
+          <p>Every allow, block, and Ledger approval is kept with the rule, the reason, and the signer.</p>
+        </div>
+        <button type="button" className="btn" onClick={onExport}>Export JSON</button>
+      </div>
+      {shown.length === 0 ? (
+        <p className="meta">Decisions land here as soon as the agent or the rules make one. Export downloads that list.</p>
+      ) : (
+        <ul className="audit-list">
+          {shown.map((row) => {
+            const [label, tone] = auditPill(row);
+            return (
+              <li key={row.id} className="audit-row">
+                <div className="audit-top">
+                  <span className={`audit-pill ${tone}`}>{label}</span>
+                  <span className="meta">{row.rule}</span>
+                </div>
+                <p>{row.reason}</p>
+                <p className="meta">
+                  {row.signer ? `Signer ${row.signer}` : 'Nothing signed'}
+                  {row.amount ? ` · ${row.amount} RLUSD` : ''}
+                  {row.merchantLabel ? ` · ${row.merchantLabel}` : ''}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function initial(label) {
   const text = (label || 'M').trim();
   return text.slice(0, 1).toUpperCase();
@@ -101,6 +204,8 @@ export default function App() {
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [pathAlert, setPathAlert] = useState(false);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -108,8 +213,22 @@ export default function App() {
   const [runNote, setRunNote] = useState('');
   const [overCap, setOverCap] = useState(null);
   const [overCapBusy, setOverCapBusy] = useState(false);
+  const [controlBusy, setControlBusy] = useState('');
   const [announce, setAnnounce] = useState('');
+  const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
+  const [presenting, setPresenting] = useState(false);
+  const demoBridge = useRef({ runHeist: null, runRogue: null });
+  const [demoBusy, setDemoBusy] = useState({ heist: false, rogue: false });
+  const syncDemoBusy = useCallback((next) => {
+    setDemoBusy((current) => (
+      current.heist === next.heist && current.rogue === next.rogue ? current : next
+    ));
+  }, []);
+  const [flowOverride, setFlowOverride] = useState(null);
+  const [flashId, setFlashId] = useState('');
+  const [ringMood, setRingMood] = useState('');
   const seen = useRef(null);
+  const moodTimer = useRef(0);
 
   async function load() {
     try {
@@ -117,7 +236,12 @@ export default function App() {
       setSnapshot(next);
       setConnection('online');
     } catch {
-      setConnection('error');
+      setConnection('offline');
+      setSnapshot((current) => (
+        current && !current.offlinePreview
+          ? current
+          : { ...sampleSnapshot, offlinePreview: true }
+      ));
     }
   }
 
@@ -139,6 +263,7 @@ export default function App() {
   useEffect(() => {
     const ids = view.activity.map((item) => item.id);
     if (seen.current === null) {
+      if (!snapshot) return;
       seen.current = new Set(ids);
       return;
     }
@@ -146,9 +271,78 @@ export default function App() {
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
     const newest = added[0];
+    const spoken = narrationFor(newest);
     const status = pill(newest).label;
-    setAnnounce(`${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
-  }, [view.activity]);
+    setAnnounce(spoken || `${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
+    setFlashId(newest.id);
+    const kind = toneKind(newest);
+    if (kind) pulseRing(kind === 'approve' ? 'ok' : 'block');
+    if (voiceOn && spoken) {
+      speakLine(spoken);
+      playTone(kind);
+    }
+  }, [view.activity, voiceOn, snapshot]);
+
+  useEffect(() => () => {
+    window.clearTimeout(moodTimer.current);
+    stopSpeech();
+  }, []);
+
+  useEffect(() => {
+    function onFullscreen() {
+      if (!document.fullscreenElement) setPresenting(false);
+    }
+    document.addEventListener('fullscreenchange', onFullscreen);
+    return () => document.removeEventListener('fullscreenchange', onFullscreen);
+  }, []);
+
+  function pulseRing(mood) {
+    setRingMood(mood);
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
+  }
+
+  function toggleVoice() {
+    setVoiceOn((current) => {
+      const next = !current;
+      writeVoiceEnabled(next);
+      if (!next) stopSpeech();
+      return next;
+    });
+  }
+
+  async function togglePresent() {
+    const next = !presenting;
+    setPresenting(next);
+    try {
+      await setPresentation(next);
+    } catch {
+      /* Larger type still applies from the class on the page. */
+    }
+  }
+
+  const onRogueBeat = useCallback((card) => {
+    setPathAlert(true);
+    if (card?.phase === 'summary') setAnnounce(card.attempt || '3 attempts, 3 blocked, 0 RLUSD lost');
+    else if (card?.ruleText) setAnnounce(`Blocked. ${card.ruleText}`);
+  }, []);
+
+  const onHeist = useCallback((report) => {
+    setPathAlert(true);
+    setAnnounce(report?.scripted
+      ? 'Scripted preview. Attack blocked. 0.00 RLUSD lost.'
+      : 'Attack blocked. 0.00 RLUSD lost.');
+    const flow = flowForHeist(report);
+    if (flow) setFlowOverride(flow);
+    if (!voiceOn) return;
+    const line = narrationForHeist(report);
+    if (!line) return;
+    speakLine(line);
+    playTone('block');
+    setRingMood('block');
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
+  }, [voiceOn]);
 
   async function decide(id) {
     setBusyId(id);
@@ -173,6 +367,44 @@ export default function App() {
     }
   }
 
+  async function onFreeze() {
+    setControlBusy('freeze');
+    try {
+      const nextFrozen = !snapshot?.frozen;
+      await setAgentFrozen(nextFrozen);
+      setAnnounce(nextFrozen ? 'Agent frozen' : 'Agent can pay inside the allowance again.');
+      await load();
+    } catch (error) {
+      setRunNote(error.message || 'Could not change the freeze.');
+    } finally {
+      setControlBusy('');
+    }
+  }
+
+  async function onUseCase(id) {
+    if (snapshot?.offlinePreview) return;
+    setControlBusy(id);
+    try {
+      await selectUseCase(id);
+      await load();
+    } catch (error) {
+      setRunNote(error.message || 'Could not select that job.');
+    } finally {
+      setControlBusy('');
+    }
+  }
+
+  function exportAudit() {
+    const rows = Array.isArray(snapshot?.audit) ? snapshot.audit : [];
+    const blob = new Blob([`${JSON.stringify(rows, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'allowance-audit.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function onOverCap() {
     setOverCapBusy(true);
     setOverCap(null);
@@ -191,21 +423,27 @@ export default function App() {
     setEveSeed({ id: `${Date.now()}-${text}`, text });
   }
 
-  const shown = view.activity.filter((item) => matchesFilter(item, filter));
-  const latest = view.activity.slice(0, 5);
+  const shown = view.activity;
+  const latest = view.activity.slice(0, 3);
+  const leftRatio = view.budgetNumber > 0 ? Math.max(0, view.leftNumber / view.budgetNumber) : 0;
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
+  const liveFlow = flowOverride || flowForItem(view.activity[0]);
+  const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
+
+  const loading = connection === 'loading' && !snapshot;
+  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
 
   return (
-    <div className="app">
+    <div className={appClass}>
       <a className="skip" href="#main">Skip to content</a>
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
-        <div className="sidenav-brand" aria-hidden="true">
-          <LogoMark size={32} />
-          <p>Agent Allowance</p>
+        <div className="sidenav-brand">
+          <BrandMark size={32} />
+          <h1>Agent Allowance</h1>
         </div>
-        <nav className="sidenav-nav" aria-label="Sections">
+        <nav className="sidenav-nav" aria-label="Primary">
           {TABS.map(([id, label, Icon]) => (
             <button
               key={id}
@@ -218,57 +456,86 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <p className="sidenav-foot">
-          <span>{snapshot?.network?.name || 'XRPL EVM Testnet'}</span>
-          <span>Chain {snapshot?.network?.chainId || '1449000'}</span>
-        </p>
+        <p className="sidenav-foot">Spending account</p>
       </aside>
 
       <div className="frame">
         <div className="shell">
           <header className="top">
-            <div className="brand">
-              <LogoMark size={40} />
-              <div>
-                <p className="eyebrow">Mastercard × XRPL Hackathon</p>
+            <div className="brand-lockup">
+              <div className="brand">
+                <BrandMark size={40} />
                 <h1>Agent Allowance</h1>
               </div>
+              <p className="hero-tagline">Spending power for AI, with a human key.</p>
             </div>
-            <ThemeControl theme={theme} setTheme={setTheme} />
+            <div className="top-tools">
+              <button
+                type="button"
+                className={snapshot?.frozen ? 'chip is-on freeze-toggle' : 'chip freeze-toggle'}
+                aria-pressed={Boolean(snapshot?.frozen)}
+                onClick={onFreeze}
+                disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+              >
+                <IconLock />
+                <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
+              </button>
+              <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
+              {tab === 'home' && snapshot && !presenting ? (
+                <DemoMenu
+                  onOverCap={onOverCap}
+                  onHeist={() => demoBridge.current.runHeist?.()}
+                  onRogue={() => demoBridge.current.runRogue?.()}
+                  onPresent={togglePresent}
+                  overCapBusy={overCapBusy}
+                  heistBusy={demoBusy.heist}
+                  rogueBusy={demoBusy.rogue}
+                />
+              ) : null}
+              {presenting ? (
+                <button type="button" className="chip is-on present-toggle" aria-pressed="true" onClick={togglePresent}>
+                  Exit presentation
+                </button>
+              ) : null}
+              <ThemeControl theme={theme} setTheme={setTheme} />
+            </div>
           </header>
-          <p className="lede">Each purchase is checked against your rules before it is paid.</p>
-          {snapshot?.simulatedLedger ? (
-            <p className="sim-banner sim-banner-page" role="status">
-              Backup demo only. simulated Ledger signature. This is not a Ledger device and it does not broadcast a voucher.
-            </p>
-          ) : null}
-
           <main id="main" tabIndex={-1}>
-            {connection === 'loading' && !snapshot ? <Skeletons /> : null}
-            {connection === 'error' && !snapshot ? (
-              <div className="card" role="alert">
-                <EmptyState
-                  icon={<IconAlert />}
-                  title="The allowance server is not responding"
-                  action={<button type="button" className="btn primary" onClick={load}>Retry</button>}
-                >
-                  Start it with npm run server, then try again.
-                </EmptyState>
+            {loading ? <Skeletons /> : null}
+            {snapshot?.offlinePreview ? (
+              <div className="offline-banner" role="status">
+                <p>Sample preview. These rows are examples, not payments.</p>
+                <button type="button" className="btn" onClick={load}>Retry</button>
               </div>
             ) : null}
             {snapshot && tab === 'home' ? (
-              <div className="stack">
-                {connection === 'error' ? (
-                  <p className="note warn" role="alert">
-                    <IconAlert />
-                    <span>Could not refresh. Showing the last numbers.</span>
+              <HeistDemo onDone={load} onResult={onHeist}>
+                {({ stage: heistStage, run: runHeist, busy: heistBusy }) => (
+              <RogueDemo onBeat={onRogueBeat}>
+                {({ stage: rogueStage, run: runRogue, busy: rogueBusy }) => (
+              <>
+              <DemoBridge
+                bridge={demoBridge}
+                onBusy={syncDemoBusy}
+                runHeist={runHeist}
+                runRogue={runRogue}
+                heistBusy={heistBusy}
+                rogueBusy={rogueBusy}
+              />
+              <div className="home-grid">
+                <div className="home-main">
+                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen</p> : null}
+                {connection === 'offline' && !snapshot.offlinePreview ? (
+                  <div className="state-error" role="alert">
+                    <p className="state-error-title">Could not refresh</p>
+                    <p>Showing the last numbers.</p>
                     <button type="button" className="btn" onClick={load}>Retry</button>
-                  </p>
+                  </div>
                 ) : null}
                 <section className="card hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
                     <div className="hero-copy">
-                      <h2 id="allowance-title" className="eyebrow">RLUSD left</h2>
+                      <h2 id="allowance-title" className="eyebrow">Left to spend</h2>
                       <p className="figure">
                         <CountUp value={view.leftNumber} />
                         <span className="unit">RLUSD</span>
@@ -277,104 +544,82 @@ export default function App() {
                         {money(view.spent)} of {money(view.budget)} RLUSD spent
                       </p>
                     </div>
-                    <SpendRing ratio={view.ratio} label={balanceLabel} />
+                    <SpendRing ratio={leftRatio} label={`${Math.round(leftRatio * 100)} percent left. ${balanceLabel}`} mood={ringMood} />
                   </div>
-                  <dl className="rule-grid">
-                    <div>
-                      <dt>Per purchase</dt>
-                      <dd>{money(snapshot.rules.maxPerPurchase)} RLUSD</dd>
-                    </div>
-                    <div>
-                      <dt>Expires</dt>
-                      <dd>{expiresOn(snapshot.rules.expiresAt) || 'No date'}</dd>
-                    </div>
-                    <div>
-                      <dt>Merchants</dt>
-                      <dd>{merchantCount} allowed</dd>
-                    </div>
-                  </dl>
+                  {view.chainWarning ? (
+                    <p className="chain-chip is-warn">Check reconciliation</p>
+                  ) : view.chainRedeemed != null ? (
+                    <p className="chain-chip">Matches on-chain</p>
+                  ) : null}
+                  <ul className="rule-chips">
+                    <li>Per purchase {money(snapshot.rules.maxPerPurchase)} RLUSD</li>
+                    <li>Expires {expiresOn(snapshot.rules.expiresAt) || 'No date'}</li>
+                    <li>{merchantCount} merchants</li>
+                  </ul>
+                  <MoneyFlow flow={liveFlow} embedded alert={pathAlert} />
                   <div className="hero-actions">
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
-                    <button type="button" className="btn" onClick={onOverCap} disabled={overCapBusy}>
-                      {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
-                    </button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
 
-                {overCap ? (
-                  <section className="card rejection" role="alert" aria-labelledby="over-cap-title">
-                    <div className="rejection-top">
-                      <span className="empty-icon" aria-hidden="true"><IconAlert /></span>
-                      <div>
-                        <h2 id="over-cap-title">{overCap.error ? 'The over-cap demo did not finish' : 'Rejected before signing'}</h2>
-                        {overCap.error ? <p>{overCap.error}</p> : (
-                          <p>
-                            The agent requested a {money(overCap.amount)} RLUSD quote. The {money(overCap.cap)} RLUSD per-purchase cap stopped it. No voucher was signed.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    {overCap.reason ? <p className="rejection-reason">{plainReason(overCap.reason)}</p> : null}
-                    {overCap.contract ? (
-                      <div className="contract-note">
-                        {overCap.contract.ran ? (
-                          <>
-                            <p>The ledger rejected a {overCap.contract.rejectedCumulativeRlusd || '6'} RLUSD cumulative voucher in simulation. Redeemed balance stayed {overCap.contract.redeemedBefore}.</p>
-                            <p className="meta">Block {overCap.contract.blockNumber}. Revert <code>{overCap.contract.rejectionData}</code></p>
-                          </>
-                        ) : <p>{overCap.contract.reason}</p>}
-                      </div>
-                    ) : null}
-                  </section>
-                ) : null}
-
-                <div className="split">
-                  <section className="card" aria-labelledby="needs-title">
-                    <div className="section-head">
-                      <h2 id="needs-title">Needs you</h2>
-                      <p>A quote outside the rules waits here. Approving it asks the Ledger to sign, then pays that quote once.</p>
-                    </div>
+                <section className="card needs-card" aria-labelledby="needs-title">
+                    <h2 id="needs-title">Needs you</h2>
                     {view.pending.length === 0 ? (
-                      <EmptyState
-                        icon={<IconCheck />}
-                        title="Nothing is waiting"
-                        action={<button type="button" className="btn" onClick={() => askEvePrompt('What is waiting for approval?')}>Ask Eve</button>}
-                      >
-                        A quote outside the rules will land here.
-                      </EmptyState>
+                      <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
                     ) : (
                       <ul className="needs">
-                        {view.pending.map((item) => (
-                          <li key={item.id} className="need">
+                        {[...view.pending].sort((a, b) => Number(cannotApprove(a)) - Number(cannotApprove(b))).map((item) => (
+                          <li key={item.id} className={cannotApprove(item) ? 'need is-neutral' : 'need'}>
                             <div className="need-top">
                               <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
                               <h3>{item.merchantLabel || 'Merchant'}</h3>
                               <p className="amount">{money(item.amount)} RLUSD</p>
                             </div>
-                            <p>{plainReason(item.reason)}</p>
-                            <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
-                            <JevCard jev={item.jev} />
-                            <div className="pair">
-                              <button type="button" className="btn primary" onClick={() => setApproval(item)}>
-                                Approve with Ledger
-                              </button>
-                              <button type="button" className="btn" disabled={busyId === item.id} onClick={() => decide(item.id)}>
-                                Decline
-                              </button>
-                            </div>
+                            {cannotApprove(item) ? (
+                              <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
+                            ) : (
+                              <>
+                                <p className="reason-chip">{reasonChip(item, snapshot.rules.maxPerPurchase)}</p>
+                                <JevCard jev={item.jev} merchant={item.merchantLabel} />
+                                {snapshot.frozen && !item.sample && !snapshot.offlinePreview ? (
+                                  <p className="meta">Agent frozen</p>
+                                ) : (
+                                  <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
+                                    Approve with Ledger
+                                  </button>
+                                )}
+                                <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
+                                  Decline
+                                </button>
+                              </>
+                            )}
                           </li>
                         ))}
                       </ul>
                     )}
-                    {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
+                    {overCap?.error ? (
+                      <div className="state-error" role="alert">
+                        <p className="state-error-title">The over-cap demo did not finish</p>
+                        <p>{overCap.error}</p>
+                        <button type="button" className="btn" onClick={onOverCap}>Retry</button>
+                      </div>
+                    ) : null}
+                    {actionError ? (
+                      <div className="state-error" role="alert">
+                        <p className="state-error-title">That did not finish</p>
+                        <p>{actionError}</p>
+                      </div>
+                    ) : null}
                   </section>
-
-                  <section className="card" aria-labelledby="latest-title">
+                </div>
+                <div className="home-side">
+                  <div className="heist-stage">{heistStage}{rogueStage}</div>
+                  <section className="card activity-card" aria-labelledby="latest-title">
                     <h2 id="latest-title">Latest activity</h2>
                     <ActivityList
                       items={latest}
-                      explorer={snapshot.network?.explorerUrl}
+                      flashId={flashId}
                       onOpen={setDetail}
                       empty={(
                         <EmptyState
@@ -389,49 +634,55 @@ export default function App() {
                   </section>
                 </div>
               </div>
+              </>
+                )}
+              </RogueDemo>
+                )}
+              </HeistDemo>
             ) : null}
 
             {snapshot && tab === 'activity' ? (
               <section className="card" aria-labelledby="activity-title">
                 <h2 id="activity-title">Activity</h2>
-                <div className="filters" role="toolbar" aria-label="Filter activity">
-                  {FILTERS.map(([id, label]) => (
+                <div className="filters" role="tablist" aria-label="Activity views">
+                  {ACTIVITY_VIEWS.map(([id, label]) => (
                     <button
                       key={id}
                       type="button"
+                      role="tab"
                       className={filter === id ? 'chip is-on' : 'chip'}
-                      aria-pressed={filter === id}
+                      aria-selected={filter === id}
                       onClick={() => setFilter(id)}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
+                {filter === 'audit' ? <AuditCard rows={snapshot.audit} onExport={exportAudit} /> : null}
+                {filter === 'chain' ? (feed.length ? <TxFeed rows={feed} /> : <p className="meta">Explorer links appear when a transaction hash is recorded.</p>) : null}
+                {filter === 'all' ? (
                 <ActivityList
                   items={shown}
-                  explorer={snapshot.network?.explorerUrl}
+                  flashId={flashId}
                   onOpen={setDetail}
-                  empty={filter === 'all' ? (
+                  empty={(
                     <EmptyState
                       icon={<IconReceipt />}
                       title="No payments yet"
-                      action={<button type="button" className="btn" onClick={() => askEvePrompt('What should the agent do next?')}>Ask Eve</button>}
+                      action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
                     >
                       Run the agent, or ask Eve what to do next.
                     </EmptyState>
-                  ) : (
-                    <EmptyState icon={<IconActivity />} title={`Nothing is ${filter} right now`}>
-                      Try another filter, or come back after the agent runs.
-                    </EmptyState>
                   )}
                 />
+                ) : null}
               </section>
             ) : null}
 
           </main>
         </div>
 
-        <nav className="tabbar" aria-label="Sections">
+        <nav className="tabbar" aria-label="Mobile sections">
           <div className="tabbar-inner">
             {TABS.map(([id, label, Icon]) => (
               <button
@@ -448,15 +699,37 @@ export default function App() {
         </nav>
       </div>
 
-      <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
+      <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
       {approval ? (
-        <Sheet title="Approve with Ledger" onClose={() => setApproval(null)}>
-          <LedgerApproval item={approval} onPaid={load} simulated={Boolean(snapshot?.simulatedLedger)} />
+        <Sheet variant="ceremony" title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
+          <LedgerApproval
+            item={approval}
+            onPaid={load}
+            preview={Boolean(approval.sample || snapshot?.offlinePreview)}
+            expiresAt={snapshot?.rules?.expiresAt || ''}
+            simulated={Boolean(snapshot?.simulatedLedger) && !approval.sample && !snapshot?.offlinePreview}
+          />
         </Sheet>
       ) : null}
       {detail ? (
         <Sheet title={detail.task || 'Purchase'} onClose={() => setDetail(null)}>
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
+        </Sheet>
+      ) : null}
+      {setupOpen ? (
+        <Sheet title="Set up allowance" onClose={() => setSetupOpen(false)}>
+          <UseCaseCard
+            selected={snapshot?.useCase?.id}
+            busy={controlBusy}
+            disabled={Boolean(snapshot?.offlinePreview)}
+            onSelect={onUseCase}
+          />
+          {snapshot ? <HowItWorks snapshot={snapshot} onChange={load} /> : null}
+          <details className="device-more">
+            <summary>Technical details</summary>
+            <p>{snapshot?.network?.name || 'XRPL EVM Testnet'}. Chain {snapshot?.network?.chainId || '1449000'}.</p>
+            {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
+          </details>
         </Sheet>
       ) : null}
     </div>
@@ -525,14 +798,26 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
-function SpendRing({ ratio, label }) {
+function BrandMark({ size }) {
+  return (
+    <>
+      <img className="logo-mark mark-for-light" src="/brand/mark-light.svg" width={size} height={size} alt="" />
+      <img className="logo-mark mark-for-dark" src="/brand/mark-dark.svg" width={size} height={size} alt="" />
+    </>
+  );
+}
+
+function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, ratio));
   const percent = Math.round(clamped * 100);
+  const angle = clamped * Math.PI * 2;
+  const dotX = 60 + radius * Math.cos(angle);
+  const dotY = 60 + radius * Math.sin(angle);
   return (
     <div
-      className="ring"
+      className={mood ? `ring is-${mood}` : 'ring'}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -541,20 +826,73 @@ function SpendRing({ ratio, label }) {
     >
       <svg viewBox="0 0 120 120" aria-hidden="true">
         <circle className="ring-track" cx="60" cy="60" r={radius} />
-        {clamped > 0 ? (
-          <circle
-            className="ring-value"
-            cx="60"
-            cy="60"
-            r={radius}
-            strokeDasharray={`${circumference * clamped} ${circumference}`}
-          />
-        ) : null}
+        <circle
+          className="ring-value"
+          cx="60"
+          cy="60"
+          r={radius}
+          strokeDasharray={`${circumference * clamped} ${circumference}`}
+        />
+        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="6" /> : null}
       </svg>
       <div className="ring-label" aria-hidden="true">
         <strong>{percent}%</strong>
-        <span>spent</span>
+        <span>left</span>
       </div>
+    </div>
+  );
+}
+
+function StatusPill({ status }) {
+  return (
+    <span className={`pill ${status.tone}`}>
+      {status.tone === 'danger' ? <IconAlert size={14} /> : status.tone === 'warn' ? <IconAlert size={14} /> : <IconCheck size={14} />}
+      {status.label}
+    </span>
+  );
+}
+
+function DemoBridge({ bridge, onBusy, runHeist, runRogue, heistBusy, rogueBusy }) {
+  bridge.current.runHeist = runHeist;
+  bridge.current.runRogue = runRogue;
+  useEffect(() => {
+    onBusy({ heist: heistBusy, rogue: rogueBusy });
+  }, [heistBusy, rogueBusy, onBusy]);
+  return null;
+}
+
+function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBusy, rogueBusy }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDoc(event) {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('pointerdown', onDoc);
+    return () => document.removeEventListener('pointerdown', onDoc);
+  }, [open]);
+  return (
+    <div className="demo-menu" ref={ref}>
+      <button type="button" className="chip" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
+        Demo
+      </button>
+      {open ? (
+        <div className="demo-pop" role="menu">
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onOverCap(); }} disabled={overCapBusy}>
+            {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onHeist(); }} disabled={heistBusy}>
+            {heistBusy ? 'Showing the blocked prompt…' : 'Show a blocked prompt'}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onRogue(); }} disabled={rogueBusy}>
+            {rogueBusy ? 'Running the three blocks…' : 'Run the three blocks'}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onPresent(); }}>
+            Present
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -606,6 +944,14 @@ function ReceiptCard({ item, explorer }) {
           <dt>Settlement</dt>
           <dd>{receipt ? <a href={receipt} target="_blank" rel="noreferrer noopener">Settlement receipt</a> : 'Not recorded'}</dd>
         </div>
+        <div>
+          <dt>AP4M channel</dt>
+          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>AP4M claim</dt>
+          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+        </div>
       </dl>
       {kitReceipt ? (
         <a className="explorer" href={receipt} target="_blank" rel="noreferrer noopener">Verify receipt</a>
@@ -626,7 +972,7 @@ function RowSkeleton() {
   );
 }
 
-function ActivityList({ items, onOpen, empty, explorer }) {
+function ActivityList({ items, onOpen, empty, flashId = '' }) {
   if (!items.length) return empty;
   return (
     <ul className="activity">
@@ -634,21 +980,24 @@ function ActivityList({ items, onOpen, empty, explorer }) {
         const status = pill(item);
         return (
           <li key={item.id}>
-            <button type="button" className="row" onClick={() => onOpen(item)}>
-              <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
-              <span className="row-main">
+            <button
+                type="button"
+                className={flashId === item.id ? 'row is-flash' : 'row'}
+                aria-label={`${item.merchantLabel || 'Merchant'}, ${money(item.amount)} RLUSD, ${status.label}, ${when(item.createdAt)}`}
+                onClick={() => onOpen(item)}
+              >
+              <span className="row-line">
+                <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
                 <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="meta">
-                  <span className={`pill ${status.tone}`}>{status.label}</span>
-                  <span>{item.task || 'Purchase'} · {when(item.createdAt)}</span>
-                </span>
+                <span className="amount">{money(item.amount)} RLUSD</span>
               </span>
-              <span className="amount">{money(item.amount)} RLUSD</span>
+              <span className="row-line row-sub">
+                <span className="row-task">{item.task || 'Purchase'}</span>
+                <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
+                {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Bedrock</span> : null}
+              </span>
+              <StatusPill status={status} />
             </button>
-            {item.status === 'paid' && (item.txHash || item.payoutTx || item.receiptUrl) ? (
-              <ReceiptCard item={item} explorer={explorer} />
-            ) : null}
-            {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
           </li>
         );
       })}
@@ -668,32 +1017,41 @@ function Detail({ item, currency }) {
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      {item.status === 'paid' ? <ReceiptCard item={item} explorer={EXPLORER} /> : (
+      {item.sample ? <p>Sample preview</p> : null}
+      {item.sample || item.status !== 'paid' ? (
         <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
+      ) : (
+        <ReceiptCard item={item} explorer={EXPLORER} />
       )}
       <p className="detail-name">{name}</p>
-      <p className="meta"><code>{item.merchant}</code></p>
+      {item.sample ? null : <p className="meta"><code>{item.merchant}</code></p>}
       <p className="meta">{when(item.createdAt)}</p>
       {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
-      {item.plan?.source === 'bedrock' && item.plan.reason ? (
+      {planLabel(item.plan) ? (
         <div className="plan">
           <h3>Purchase plan</h3>
-          <p>{item.plan.reason}</p>
-          <BedrockMark />
+          <p className="fallback-label">{planLabel(item.plan)}</p>
+          {planDetail(item.plan) ? <p>{planDetail(item.plan)}</p> : null}
+          {item.plan.source === 'bedrock' ? <BedrockMark /> : null}
         </div>
       ) : null}
       <h3>Rule checks</h3>
       <ul className="checks">
         {ruleRows(item).map((row) => (
           <li key={row.label} className={row.state}>
-            <span aria-hidden="true">{row.state === 'pass' ? '✓' : row.state === 'fail' ? '✗' : '–'}</span>
+            <span className={`check-icon is-${row.state}`} aria-hidden="true">
+              {row.state === 'fail' ? <IconAlert size={16} /> : <IconCheck size={16} />}
+            </span>
             <span>{row.text}</span>
             <span>{row.label}</span>
           </li>
         ))}
       </ul>
-      <JevCard jev={item.jev} />
+      <JevCard jev={item.jev} merchant={name} />
+      {item.sample ? null : (
+      <details className="device-more">
+        <summary>Technical details</summary>
       <dl className="facts">
         <div>
           <dt>Transaction</dt>
@@ -704,7 +1062,7 @@ function Detail({ item, currency }) {
           <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
         </div>
         <div>
-          <dt>Channel</dt>
+          <dt>AP4M channel</dt>
           <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
@@ -712,7 +1070,7 @@ function Detail({ item, currency }) {
           <dd>{settlementLabel(item.settlementStatus)}</dd>
         </div>
         <div>
-          <dt>Claim ID</dt>
+          <dt>AP4M claim</dt>
           <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
@@ -721,14 +1079,16 @@ function Detail({ item, currency }) {
         </div>
         <div>
           <dt>Explorer</dt>
-          <dd>{item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
+          <dd>{item.explorerUrl ? <a className="explorer" href={item.explorerUrl} target="_blank" rel="noreferrer noopener">Explorer</a> : 'Not recorded'}</dd>
         </div>
       </dl>
+      </details>
+      )}
     </div>
   );
 }
 
-function Sheet({ title, onClose, children }) {
+function Sheet({ title, onClose, children, variant = 'sheet' }) {
   const titleId = useId();
   const ref = useRef(null);
   const closeRef = useRef(onClose);
@@ -767,7 +1127,7 @@ function Sheet({ title, onClose, children }) {
   return (
     <div className="sheet-back" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div
-        className="sheet"
+        className={variant === 'ceremony' ? 'sheet ceremony-modal' : 'sheet'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -786,8 +1146,13 @@ function Sheet({ title, onClose, children }) {
 
 function Skeletons() {
   return (
-    <div className="stack" aria-busy="true" aria-live="polite">
+    <div className="loading-splash" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
+      <div className="loading-brand">
+        <BrandMark size={40} />
+        <h1>Agent Allowance</h1>
+      </div>
+      <div className="stack loading-skeleton">
       <div className="card hero-skeleton" aria-hidden="true">
         <div className="sk-copy">
           <span className="sk sk-label" />
@@ -807,6 +1172,7 @@ function Skeletons() {
           <RowSkeleton />
           <RowSkeleton />
         </div>
+      </div>
       </div>
     </div>
   );

@@ -13,7 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import sampleData from '../shared/sample-data.json' with { type: 'json' };
 import network from '../shared/network.json' with { type: 'json' };
-import { canonicalAddress, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
+import { canonicalAddress, declineReason, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
+import { plainReason } from '../shared/words.js';
+import { presentUseCase, useCaseById } from '../shared/use-cases.js';
 
 const defaultStorePath = join(dirname(fileURLToPath(import.meta.url)), 'data', 'store.json');
 
@@ -113,6 +115,63 @@ function newId(prefix) {
   return `${prefix}_${randomBytes(4).toString('hex')}`;
 }
 
+const AUDIT_CAP = 200;
+const AUDIT_OUTCOMES = new Set(['allowed', 'blocked', 'ledger-approved']);
+
+function pushAudit(store, input) {
+  const outcome = input.outcome;
+  if (!AUDIT_OUTCOMES.has(outcome)) throw new Error(`Unknown audit outcome: ${outcome}`);
+  store.audit ??= [];
+  const paymentId = input.paymentId ?? null;
+  if (paymentId && store.audit.some((row) => row.paymentId === paymentId && row.outcome === outcome)) {
+    return store.audit.find((row) => row.paymentId === paymentId && row.outcome === outcome);
+  }
+  const row = {
+    id: newId('audit'),
+    at: new Date().toISOString(),
+    outcome,
+    rule: String(input.rule || 'decision').slice(0, 80),
+    reason: String(input.reason || '').slice(0, 500),
+    signer: input.signer ? String(input.signer).slice(0, 120) : null,
+    amount: input.amount ?? null,
+    merchantLabel: input.merchantLabel ? String(input.merchantLabel).slice(0, 80) : null,
+    task: input.task ? String(input.task).slice(0, 180) : null,
+    paymentId,
+  };
+  store.audit.unshift(row);
+  if (store.audit.length > AUDIT_CAP) store.audit.length = AUDIT_CAP;
+  return row;
+}
+
+function presentAudit(store) {
+  return (store.audit ?? []).map((row) => ({
+    id: row.id,
+    at: row.at,
+    outcome: row.outcome,
+    rule: row.rule,
+    reason: row.reason,
+    signer: row.signer ?? null,
+    amount: row.amount ?? null,
+    merchantLabel: row.merchantLabel ?? null,
+    task: row.task ?? null,
+    paymentId: row.paymentId ?? null,
+  }));
+}
+
+/** A rules decision for the export. Does not create a payment or mark the agent connected. */
+export async function recordBlockedDecision(input) {
+  return updateStore((store) => pushAudit(store, {
+    outcome: 'blocked',
+    rule: input.rule,
+    reason: input.reason,
+    signer: null,
+    amount: input.amount ?? null,
+    merchantLabel: input.merchantLabel ?? null,
+    task: input.task ?? null,
+    paymentId: null,
+  }));
+}
+
 /** Drop the demo rows the first time the agent records a real decision. */
 function activateAgent(store) {
   if (store.agentConnected) return;
@@ -122,13 +181,19 @@ function activateAgent(store) {
 }
 
 function presentPlan(value) {
-  if (!value || typeof value !== 'object' || value.source !== 'bedrock') return null;
+  if (!value || typeof value !== 'object') return null;
+  if (value.source !== 'bedrock' && value.source !== 'fallback') return null;
   const reason = typeof value.reason === 'string' ? value.reason.trim().slice(0, 500) : '';
   if (!reason) return null;
   const resourceId = typeof value.resourceId === 'string' && value.resourceId.trim()
     ? value.resourceId.trim().slice(0, 80)
     : null;
-  return { source: 'bedrock', resourceId, reason };
+  return {
+    source: value.source,
+    resourceId,
+    reason,
+    fallback: value.source === 'fallback',
+  };
 }
 
 function presentJev(value) {
@@ -188,6 +253,9 @@ function presentPending(item) {
     sample: Boolean(item.sample),
     jev: presentJev(item.jev),
     plan: presentPlan(item.plan),
+    declineOnly: Boolean(declineReason(item.merchant)),
+    declineReason: declineReason(item.merchant),
+    paymentPhase: item.paymentPhase ?? null,
   };
 }
 
@@ -209,6 +277,14 @@ export function summarize(store, rules = loadRules()) {
     spentRatio,
     currency: 'RLUSD',
     agentConnected: Boolean(store.agentConnected),
+    frozen: Boolean(store.frozen),
+    frozenAt: store.frozenAt ?? null,
+    channelClosed: Boolean(store.channelClosed),
+    freezeDetail: typeof store.freezeDetail === 'string' ? store.freezeDetail : null,
+    mandate: presentMandate(store.mandate),
+    anchor: presentAnchor(store.anchor),
+    useCase: presentUseCase(store.useCase),
+    audit: presentAudit(store),
     rules: presentRules(rules),
     network: {
       name: network.name,
@@ -219,13 +295,61 @@ export function summarize(store, rules = loadRules()) {
   };
 }
 
-/** RLUSD already paid by the agent. Sample rows are a preview and are not spent. */
-export async function spentRlusd() {
-  const store = await readStore();
-  const spent = store.payments
+function paidUnits(store) {
+  return (store.payments ?? [])
     .filter((payment) => payment.status === 'paid' && !payment.sample)
     .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
-  return formatRlusd(spent);
+}
+
+function reservedUnits(store) {
+  return (store.reservations ?? [])
+    .reduce((sum, row) => sum + toUnits(row.amount), 0n);
+}
+
+/** RLUSD already paid, plus amounts reserved for a payment still in flight. */
+export async function spentRlusd() {
+  const store = await readStore();
+  return formatRlusd(paidUnits(store) + reservedUnits(store));
+}
+
+/**
+ * Hold this amount inside the store lock before a payment starts.
+ * The returned spent figure does not include this hold, so the budget check
+ * adds the price once. Another payer sees the hold.
+ */
+export async function reserveSpend(amount) {
+  const price = toUnits(amount);
+  return updateStore((store) => {
+    const rules = loadRules();
+    const spent = paidUnits(store) + reservedUnits(store);
+    if (store.frozen) {
+      return { ok: false, reason: 'agent frozen', spent: formatRlusd(spent) };
+    }
+    if (spent + price > rules.budget) {
+      return { ok: false, reason: 'over budget', spent: formatRlusd(spent) };
+    }
+    const id = newId('rsv');
+    store.reservations ??= [];
+    store.reservations.push({
+      id,
+      purchaseId: null,
+      amount: formatRlusd(price),
+      createdAt: new Date().toISOString(),
+    });
+    return { ok: true, id, spent: formatRlusd(spent) };
+  });
+}
+
+export async function releaseReservation(id) {
+  if (!id) return { ok: true };
+  return updateStore((store) => {
+    store.reservations = (store.reservations ?? []).filter((row) => row.id !== id);
+    return { ok: true };
+  });
+}
+
+function dropReservation(store, { id = '', purchaseId = '' } = {}) {
+  store.reservations = (store.reservations ?? []).filter((row) => row.id !== id && row.purchaseId !== purchaseId);
 }
 
 export async function listPayments() {
@@ -236,8 +360,118 @@ export async function listPayments() {
 export async function listPending() {
   const store = await readStore();
   return liveRows(store, store.pending)
-    .filter((item) => item.status === 'pending')
+    .filter((item) => item.status === 'pending' || item.status === 'paying')
     .map(presentPending);
+}
+
+export async function listAudit() {
+  const store = await readStore();
+  return presentAudit(store);
+}
+
+export async function readFrozen() {
+  const store = await readStore();
+  return { frozen: Boolean(store.frozen), frozenAt: store.frozenAt ?? null };
+}
+
+/** Instant kill switch. Frozen refuses new payments. Unfreeze lets the rules decide again. */
+export async function setFreeze(frozen) {
+  const on = Boolean(frozen);
+  return updateStore((store) => {
+    store.frozen = on;
+    store.frozenAt = on ? new Date().toISOString() : null;
+    pushAudit(store, {
+      outcome: on ? 'blocked' : 'allowed',
+      rule: on ? 'freeze' : 'unfreeze',
+      reason: plainReason(on ? 'freeze' : 'unfreeze'),
+      signer: 'person',
+      amount: null,
+      merchantLabel: null,
+      task: null,
+      paymentId: null,
+    });
+    return { frozen: store.frozen, frozenAt: store.frozenAt };
+  });
+}
+
+function presentMandate(mandate) {
+  if (!mandate?.signature || !mandate.message) return { signed: false };
+  return {
+    signed: true,
+    agent: mandate.message.agent ?? null,
+    budget: mandate.message.budget ?? null,
+    cap: mandate.message.cap ?? null,
+    expiry: mandate.message.expiry ?? null,
+    merchants: mandate.message.merchants ?? null,
+    validUntil: mandate.message.validUntil ?? null,
+    approver: mandate.approver ?? null,
+  };
+}
+
+function presentAnchor(anchor) {
+  if (!anchor || typeof anchor !== 'object') return null;
+  const txHash = /^0x[0-9a-fA-F]{64}$/.test(anchor.txHash ?? '') ? anchor.txHash : null;
+  return {
+    anchored: Boolean(anchor.anchored && txHash),
+    hash: typeof anchor.hash === 'string' ? anchor.hash : null,
+    txHash,
+    reason: typeof anchor.reason === 'string' ? anchor.reason : null,
+  };
+}
+
+export async function readMandate() {
+  const store = await readStore();
+  if (!store.mandate?.signature || !store.mandate.message) return null;
+  return store.mandate;
+}
+
+export async function saveMandate({ message, signature, approver, header }) {
+  return updateStore((store) => {
+    store.mandate = {
+      message,
+      signature,
+      approver,
+      header,
+      signedAt: new Date().toISOString(),
+    };
+    return presentMandate(store.mandate);
+  });
+}
+
+export async function readAnchor() {
+  const store = await readStore();
+  return presentAnchor(store.anchor);
+}
+
+export async function saveAnchor(anchor) {
+  return updateStore((store) => {
+    store.anchor = {
+      anchored: Boolean(anchor.anchored),
+      hash: anchor.hash ?? null,
+      txHash: anchor.txHash ?? null,
+      reason: anchor.reason ?? null,
+      at: new Date().toISOString(),
+    };
+    return presentAnchor(store.anchor);
+  });
+}
+
+/** What the freeze did to the payment channel. Unfreeze does not reopen it. */
+export async function noteChannelClose({ closed, detail }) {
+  return updateStore((store) => {
+    store.channelClosed = Boolean(closed);
+    store.freezeDetail = typeof detail === 'string' ? detail.slice(0, 240) : null;
+    return { channelClosed: store.channelClosed, freezeDetail: store.freezeDetail };
+  });
+}
+
+/** Remember which job this allowance is demonstrating. The rules file stays as it is. */
+export async function setUseCase(id) {
+  if (!useCaseById(id)) return { error: 'unknown' };
+  return updateStore((store) => {
+    store.useCase = id;
+    return { useCase: presentUseCase(id) };
+  });
 }
 
 export async function recordAgentPayment(input) {
@@ -248,6 +482,7 @@ export async function recordAgentPayment(input) {
   }
   return updateStore((store) => {
     activateAgent(store);
+    if (input.reservationId) dropReservation(store, { id: input.reservationId, purchaseId: input.purchaseId });
     const existing = store.payments.find((row) => !row.sample && row.txHash?.toLowerCase() === input.txHash.toLowerCase());
     if (existing) {
       if (existing.merchant !== merchant || existing.amount !== amount || (input.channelId && existing.channelId && input.channelId !== existing.channelId)) {
@@ -284,6 +519,16 @@ export async function recordAgentPayment(input) {
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
+    pushAudit(store, {
+      outcome: input.approver ? 'ledger-approved' : 'allowed',
+      rule: input.rule || (input.approver ? 'ledger approved' : 'within allowance'),
+      reason: input.note || plainReason(input.approver ? 'ledger approved' : 'within allowance'),
+      signer: input.approver || 'agent',
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: payment.task,
+      paymentId: payment.id,
+    });
     return payment;
   });
 }
@@ -319,6 +564,18 @@ export async function recordUnbroadcastPayment(input) {
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
+    pushAudit(store, {
+      outcome: input.approver || input.simulatedLedger ? 'ledger-approved' : 'allowed',
+      rule: input.simulatedLedger ? 'simulated Ledger signature' : (input.approver ? 'ledger approved' : 'within allowance'),
+      reason: input.note || (input.simulatedLedger
+        ? 'Backup demo only. simulated Ledger signature. Nothing was broadcast.'
+        : plainReason('within allowance')),
+      signer: input.approver || (input.simulatedLedger ? 'simulated Ledger' : 'agent'),
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: payment.task,
+      paymentId: payment.id,
+    });
     return payment;
   });
 }
@@ -344,6 +601,17 @@ export async function recordPending(input) {
       createdAt: new Date().toISOString(),
     };
     store.pending.unshift(pending);
+    const known = plainReason(pending.reason);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: known === pending.reason && pending.reason.length > 40 ? 'needs approval' : pending.reason,
+      reason: pending.description || known,
+      signer: null,
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: pending.task,
+      paymentId: pending.id,
+    });
     return pending;
   });
 }
@@ -389,7 +657,7 @@ export async function saveApprovalChallenge(id, challenge, nowMs = Date.now()) {
  * Mark this signature used and take the quote for payment.
  * A second use of the same signature is a replay, even if payment later fails.
  */
-export async function claimApprovalSignature(id, signature, nowMs = Date.now()) {
+export async function claimApprovalSignature(id, signature, nowMs = Date.now(), options = {}) {
   if (!validPendingId(id)) return { error: 'invalid' };
   const sig = String(signature ?? '').toLowerCase();
   return updateStore((store) => {
@@ -397,20 +665,81 @@ export async function claimApprovalSignature(id, signature, nowMs = Date.now()) 
     const item = store.pending.find((row) => row.id === id && !row.sample);
     if (!item || (item.status !== 'pending' && item.status !== 'paying')) return { missing: true };
     if (item.status === 'paying' && nowMs - Date.parse(item.paymentStartedAt || 0) < PAYMENT_LOCK_MS) {
-      return { error: 'in_progress' };
+      return { inFlight: true, phase: item.paymentPhase || 'broadcasting' };
     }
     if (store.usedApprovalSignatures.some((row) => String(row).toLowerCase() === sig)) {
       return { error: 'replay' };
     }
+    const rules = loadRules();
+    const price = toUnits(options.amount ?? item.amount);
+    const spent = paidUnits(store) + reservedUnits(store);
+    if (spent + price > rules.budget) return { error: 'over_budget', spent: formatRlusd(spent) };
+    const reservationId = newId('rsv');
+    store.reservations ??= [];
+    store.reservations.push({
+      id: reservationId,
+      purchaseId: id,
+      amount: formatRlusd(price),
+      createdAt: new Date(nowMs).toISOString(),
+    });
     store.usedApprovalSignatures.push(sig);
     item.status = 'paying';
     item.paymentStartedAt = new Date(nowMs).toISOString();
+    item.paymentPhase = 'signed';
     item.approvalSignature = sig;
-    return { ok: true };
+    item.reservationId = reservationId;
+    return { ok: true, reservationId, spent: formatRlusd(spent), phase: 'signed' };
   });
 }
 
-/** Return a quote to the approval list after a payment that did not broadcast. */
+export async function setPaymentPhase(id, phase) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  return updateStore((store) => {
+    const item = store.pending.find((row) => row.id === id);
+    if (!item) return { missing: true };
+    item.paymentPhase = phase;
+    return { phase };
+  });
+}
+
+/** A choice that signed nothing, so the dashboard can show why. */
+export async function recordSkipped(input) {
+  return updateStore((store) => {
+    activateAgent(store);
+    const row = {
+      id: newId('skip'),
+      sample: false,
+      status: 'skipped',
+      task: String(input.task ?? ''),
+      merchant: input.merchant ?? '',
+      merchantLabel: input.merchantLabel ?? 'No purchase',
+      amount: input.amount ?? '0',
+      reason: String(input.reason ?? 'Nothing was signed.'),
+      note: input.note ?? null,
+      plan: presentPlan(input.plan),
+      txHash: null,
+      createdAt: new Date().toISOString(),
+    };
+    store.payments.unshift(row);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: 'nothing signed',
+      reason: row.reason,
+      signer: null,
+      amount: row.amount,
+      merchantLabel: row.merchantLabel,
+      task: row.task,
+      paymentId: row.id,
+    });
+    return presentPayment(row);
+  });
+}
+
+/**
+ * Return a quote to Needs you after a broadcast that did not land.
+ * The used signature stays used. The old challenge is dropped so the next
+ * one is a new message.
+ */
 export async function releaseApprovalPayment(id) {
   if (!validPendingId(id)) return { error: 'invalid' };
   return updateStore((store) => {
@@ -418,6 +747,12 @@ export async function releaseApprovalPayment(id) {
     if (!item) return { missing: true };
     item.status = 'pending';
     delete item.paymentStartedAt;
+    delete item.paymentPhase;
+    dropReservation(store, { id: item.reservationId, purchaseId: id });
+    delete item.reservationId;
+    if (item.approvalChallenge?.expiry) item.lastChallengeExpiry = item.approvalChallenge.expiry;
+    delete item.approvalChallenge;
+    delete item.approvalSignature;
     return { ok: true };
   });
 }
@@ -426,6 +761,7 @@ export async function releaseApprovalPayment(id) {
 export async function completeApprovedPurchase(id) {
   if (!validPendingId(id)) return { error: 'invalid' };
   return updateStore((store) => {
+    dropReservation(store, { purchaseId: id });
     const index = store.pending.findIndex((row) => row.id === id);
     if (index !== -1) store.pending.splice(index, 1);
     return { ok: true };
@@ -449,7 +785,75 @@ export async function declinePending(id) {
       note: 'Declined. Nothing was signed or paid.',
     };
     store.payments.unshift(declined);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: item.reason || 'declined',
+      reason: 'Declined. Nothing was signed or paid.',
+      signer: null,
+      amount: item.amount ?? null,
+      merchantLabel: item.merchantLabel ?? null,
+      task: item.task ?? null,
+      paymentId: declined.id,
+    });
     return { declined: presentPayment(declined) };
+  });
+}
+
+export async function readAllowanceChange() {
+  const store = await readStore();
+  return store.allowanceChange ?? null;
+}
+
+/** Remember the SetAllowance message the device is asked to sign. */
+export async function saveAllowanceChallenge(proposal, challenge) {
+  return updateStore((store) => {
+    const previous = Number(store.allowanceChange?.approvalChallenge?.expiry ?? store.allowanceChange?.lastChallengeExpiry);
+    store.allowanceChange = {
+      proposal,
+      approvalChallenge: { expiry: challenge.expiry, issuedAt: challenge.issuedAt },
+      lastChallengeExpiry: Number.isFinite(previous) ? previous : null,
+    };
+    return { change: structuredClone(store.allowanceChange) };
+  });
+}
+
+export async function claimAllowanceSignature(signature, nowMs = Date.now()) {
+  const sig = String(signature ?? '').toLowerCase();
+  return updateStore((store) => {
+    store.usedApprovalSignatures ??= [];
+    const change = store.allowanceChange;
+    if (!change?.proposal || !change.approvalChallenge) return { missing: true };
+    if (change.status === 'applying' && nowMs - Date.parse(change.startedAt || 0) < PAYMENT_LOCK_MS) {
+      return { error: 'in_progress' };
+    }
+    if (store.usedApprovalSignatures.some((row) => String(row).toLowerCase() === sig)) {
+      return { error: 'replay' };
+    }
+    store.usedApprovalSignatures.push(sig);
+    change.status = 'applying';
+    change.startedAt = new Date(nowMs).toISOString();
+    change.approvalSignature = sig;
+    return { ok: true, proposal: structuredClone(change.proposal) };
+  });
+}
+
+export async function releaseAllowanceChange() {
+  return updateStore((store) => {
+    const change = store.allowanceChange;
+    if (!change) return { missing: true };
+    if (change.approvalChallenge?.expiry) change.lastChallengeExpiry = change.approvalChallenge.expiry;
+    delete change.approvalChallenge;
+    delete change.approvalSignature;
+    delete change.status;
+    delete change.startedAt;
+    return { ok: true };
+  });
+}
+
+export async function completeAllowanceChange() {
+  return updateStore((store) => {
+    delete store.allowanceChange;
+    return { ok: true };
   });
 }
 

@@ -7,10 +7,10 @@ import test from 'node:test';
 const dir = mkdtempSync(join(tmpdir(), 'allowance-plan-'));
 process.env.ALLOWANCE_STORE = join(dir, 'store.json');
 
-const { finishQuote } = await import('./agent.js');
+const { finishQuote, runOnce } = await import('./agent.js');
 const { loadRules } = await import('./rules.js');
 const { listPayments, listPending } = await import('../server/store.js');
-const { planPurchase, selectResource } = await import('./planner.js');
+const { chooseLiveResource, planPurchase, selectResource } = await import('./planner.js');
 
 for (const name of [
   'AWS_REGION',
@@ -236,6 +236,109 @@ test('Jev can still hold an allowed quote that Bedrock planned', async () => {
   assert.equal(result.reason, 'Jev flagged for review');
   const pending = await listPending();
   assert.equal(pending.some((item) => item.reason === 'Jev flagged for review' && item.plan?.reason === 'It fits.'), true);
+});
+
+test('Bedrock chooses among the three live resources, and null signs nothing', async () => {
+  const client = mockClient('{"resourceId":"history","reason":"The task asks for the longer history."}');
+  const picked = await chooseLiveResource({ task: 'Buy the extended market history', env, client });
+  assert.equal(picked.skipped, false);
+  assert.equal(picked.plan.source, 'bedrock');
+  assert.equal(picked.plan.resourceId, 'history');
+  assert.match(picked.url, /\/resource$/);
+  const sent = userPayload(client.calls[0]);
+  assert.deepEqual(sent.catalog.map((item) => item.id), ['brief', 'history', 'outside']);
+  assert.equal(JSON.stringify(sent).includes('"price"'), false);
+
+  const none = await chooseLiveResource({
+    task: 'Surprise me',
+    env,
+    client: mockClient('{"resourceId":null,"reason":"Nothing fits."}'),
+  });
+  assert.equal(none.skipped, true);
+  assert.equal(none.plan.resourceId, null);
+
+  const unknown = await chooseLiveResource({
+    task: 'Buy a secret feed',
+    env,
+    client: mockClient('{"resourceId":"made-up","reason":"Invented."}'),
+  });
+  assert.equal(unknown.skipped, true);
+  assert.match(unknown.reason, /Invalid AI response/);
+
+  const skipped = await runOnce({
+    task: 'Buy something unclear',
+    chooseResource: async () => ({ skipped: true, reason: 'Nothing fits.', plan: null }),
+  });
+  assert.equal(skipped.decision, 'skipped');
+  assert.match(skipped.line, /nothing signed/);
+  const row = (await listPayments()).find((item) => item.status === 'skipped' && item.task === 'Buy something unclear');
+  assert.ok(row);
+  assert.match(row.reason, /nothing signed/);
+  assert.equal(row.plan.source, 'fallback');
+  assert.match(row.plan.reason, /Fallback \(Bedrock not configured\)/);
+});
+
+test('an outside-desk choice explains the denylist and signs nothing', async () => {
+  const result = await runOnce({
+    task: 'Buy from the outside desk',
+    chooseResource: async () => ({
+      skipped: false,
+      url: 'http://127.0.0.1:4308/demo/unlisted',
+      reason: 'The task asks for the other desk.',
+      plan: {
+        source: 'bedrock',
+        resourceId: 'outside',
+        reason: 'The task asks for the other desk.',
+      },
+    }),
+  });
+  assert.equal(result.decision, 'skipped');
+  assert.match(result.reason, /Decline is the only action/);
+  assert.match(result.reason, /Nothing was signed/);
+  const row = (await listPayments()).find((item) => item.merchantLabel === 'Unlisted Research API');
+  assert.equal(row.status, 'skipped');
+  assert.match(row.reason, /denylist/);
+  assert.equal(row.plan.source, 'bedrock');
+});
+
+test('the deterministic fallback is used only when Bedrock is not configured', async () => {
+  let called = false;
+  const picked = await chooseLiveResource({
+    task: 'Buy the morning market brief',
+    env: {},
+    client: { async send() { called = true; } },
+  });
+  assert.equal(called, false);
+  assert.equal(picked.skipped, false);
+  assert.equal(picked.plan.source, 'fallback');
+  assert.equal(picked.plan.fallback, true);
+  assert.equal(picked.plan.resourceId, 'brief');
+  assert.match(picked.plan.reason, /Deterministic fallback/);
+  assert.match(picked.url, /\/resource$/);
+  assert.equal(picked.url.includes('unlisted'), false);
+});
+
+test('a deterministic fallback plan is saved on the activity row', async () => {
+  const result = await finishQuote({
+    task: 'Buy the morning market brief',
+    resourceUrl: 'http://127.0.0.1:4308/resource',
+    quote: quote('1', allowed),
+    rules,
+    spent: '0',
+    plan: async () => ({
+      source: 'fallback',
+      resourceId: 'brief',
+      reason: 'Deterministic fallback. Bedrock is not configured, so the 1 RLUSD morning brief is selected.',
+      fallback: true,
+    }),
+    pay: async () => ({ transactionHash: `0x${'ef'.repeat(32)}` }),
+    report: async () => ({ claimId: null, payoutTx: null, receiptUrl: null }),
+  });
+  assert.equal(result.decision, 'allow');
+  const row = (await listPayments()).find((item) => item.txHash === `0x${'ef'.repeat(32)}`);
+  assert.equal(row.plan.source, 'fallback');
+  assert.equal(row.plan.fallback, true);
+  assert.match(row.plan.reason, /Deterministic fallback/);
 });
 
 test('a plan failure leaves the rules decision unchanged', async () => {

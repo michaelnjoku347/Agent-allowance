@@ -78,11 +78,12 @@ async function main() {
     writeFileSync(join(evidenceDir, 'cap-test-' + channelId + '.json'), JSON.stringify(evidence, null, 2) + '\n');
     console.log('PASS: in-cap voucher accepted; 6 RLUSD voucher rejected against 5 RLUSD cap at the same block.');
     console.log('Redeemed amount and merchant balance unchanged. Evidence saved under agent/receipts/.');
-    if (process.argv.includes('--close')) {
+    const openedHere = !process.env.CAP_TEST_CHANNEL_ID;
+    if ((openedHere || process.argv.includes('--close')) && !process.argv.includes('--keep')) {
       if (!token) ({ token } = await signIn(api, process.env.TEAM_NAME, wallet));
       const closed = await closeChannel(api, token, wallet, channelId);
-      console.log('Test-channel closure TX:', closed.tx_hash);
-    } else console.log('Channel remains open. Preserve this ID for reuse or closure.');
+      console.log('Closed the 5 RLUSD test channel so the demo will not reuse it. TX:', closed.tx_hash);
+    } else console.log('Channel remains open. Pass --close to close it, or leave --keep when you passed CAP_TEST_CHANNEL_ID.');
   } finally { provider.destroy(); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

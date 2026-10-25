@@ -1,0 +1,19 @@
+# AWS App Runner. Secrets stay in Secrets Manager, not in this file.
+# If the console does not offer runtime nodejs22, pick the Node 22 runtime it lists.
+version: 1.0
+runtime: nodejs22
+build:
+  commands:
+    build:
+      - npm ci
+      - npm --prefix dashboard ci
+      - npm --prefix dashboard run build
+run:
+  command: node server/index.js
+  network:
+    port: 8787
+  env:
+    - name: SERVE_DASHBOARD
+      value: "1"
+    - name: PORT
+      value: "8787"

@@ -21,6 +21,21 @@ export function when(iso) {
   }).format(date);
 }
 
+/** Short relative time. The exact timestamp belongs in a title attribute. */
+export function relativeTime(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const then = date.getTime();
+  if (Number.isNaN(then)) return '';
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (Math.abs(minutes) < 1) return 'Just now';
+  if (Math.abs(minutes) < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return `${hours} hour${Math.abs(hours) === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${Math.abs(days) === 1 ? '' : 's'} ago`;
+}
+
 export function clock(iso) {
   if (!iso) return '';
   const date = new Date(iso);
@@ -30,6 +45,21 @@ export function clock(iso) {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
+  }).format(date);
+}
+
+/** Readable expiry for the approval sheet, for example "Dec 31, 2026, 11:59 PM". */
+export function ceremonyDate(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
   }).format(date);
 }
 

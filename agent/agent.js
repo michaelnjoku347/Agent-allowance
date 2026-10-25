@@ -22,15 +22,18 @@ import { ethers } from 'ethers';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { higherSpent, paymentBlockedByChain, requireSpendChannel } from './chain-spend.js';
 import { selectOpenChannel } from './channel.js';
 import { pendingPurchase, validateRecovery } from './recovery.js';
 import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
-import { planPurchase } from './planner.js';
+import { chooseLiveResource, planPurchase } from './planner.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
-import { recordAgentPayment, recordPending, spentRlusd, listPayments } from '../server/store.js';
+import { spendRateDecision } from './spend-rate.js';
+import { readBedrockSettings } from '../server/bedrock.js';
+import { listPayments, readFrozen, readMandate, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -127,7 +130,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     description,
     resourceUrl,
     jev: record,
-    plan,
+    plan: displayPlan(plan),
   });
   console.log('Not paying. Saved for approval.');
   return {
@@ -163,9 +166,21 @@ export async function finishQuote({
   recentPayments = [],
   review = askJev,
   plan = planPurchase,
+  reservationId = '',
 }) {
   const label = merchantLabel(rules, quote.merchant);
   const merchant = canonicalAddress(quote.merchant);
+  if ((await readFrozen()).frozen) {
+    return hold({
+      recordHold,
+      task,
+      quote,
+      label,
+      resourceUrl,
+      reason: 'agent frozen',
+      description: 'The agent is frozen. Nothing was signed.',
+    });
+  }
   let purchasePlan = null;
   try {
     purchasePlan = await plan({ task, quote, rules });
@@ -180,6 +195,23 @@ export async function finishQuote({
   }, rules);
   console.log(`Quote: ${quote.amount} RLUSD to ${shortAddress(merchant)}${label ? ` (${label})` : ''}`);
   console.log(`Rules: ${decision.decision} — ${decision.reason}`);
+  if (decision.decision === 'allow') {
+    const rate = spendRateDecision({ payments: await listPayments(), amount: quote.amount });
+    if (rate.decision !== 'allow') {
+      console.log(`Rate: ${rate.reason}`);
+      return hold({
+        recordHold,
+        task,
+        quote,
+        label,
+        resourceUrl,
+        reason: rate.reason,
+        description: rate.detail,
+        jev: rulesOnlyJev(rate.reason).jev,
+        plan: purchasePlan,
+      });
+    }
+  }
   if (decision.decision !== 'allow') {
     return hold({
       recordHold,
@@ -266,7 +298,8 @@ export async function finishQuote({
   let saved = await recordPayment({
     task, merchant, merchantLabel: label, amount: quote.amount, txHash,
     claimId: purchase.claimId ?? null, channelId, resourceUrl, jev: verdict.jev,
-    plan: purchasePlan,
+    plan: displayPlan(purchasePlan),
+    reservationId,
   });
   const settled = await report(purchase);
   const claimId = settled?.claimId ?? purchase.claimId ?? null;
@@ -285,7 +318,8 @@ export async function finishQuote({
       receiptUrl,
       resourceUrl,
       jev: verdict.jev,
-      plan: purchasePlan,
+      plan: displayPlan(purchasePlan),
+      reservationId,
     });
   } catch (error) {
     console.error('Payment is on-chain but the local ledger was not updated.');
@@ -334,10 +368,14 @@ async function openSession(apiUrl, rules, resourceUrl) {
   console.log('Agent wallet:', wallet.address);
   console.log('Signing in…');
   const { token } = await signIn(apiUrl, teamName, wallet);
-  let channel = selectOpenChannel(await listChannels(apiUrl, token), requestedChannel);
+  const capRlusd = process.env.CHANNEL_CAP?.trim() || formatRlusd(rules.budget);
+  const payout = process.env.MERCHANT_PAYOUT_ADDRESS?.trim() ?? '';
+  let channel = selectOpenChannel(await listChannels(apiUrl, token), requestedChannel, {
+    payout,
+    minCapWei: toUnits(capRlusd),
+  });
   if (!channel) {
-    const capRlusd = process.env.CHANNEL_CAP?.trim() || formatRlusd(rules.budget);
-    console.log(`No open Channel. Opening one with a ${capRlusd} RLUSD cap…`);
+    console.log(`No open Channel with this payout and enough cap. Opening one with a ${capRlusd} RLUSD cap…`);
     channel = await requestChannel(apiUrl, token, wallet, { capRlusd });
     console.log('Channel open', channel.channel_id);
   } else {
@@ -345,6 +383,16 @@ async function openSession(apiUrl, rules, resourceUrl) {
   }
   const context = await loadX402Context(apiUrl);
   return { config, provider, wallet, token, channel, context, pending };
+}
+
+async function fetchWithMandate(fetchImpl) {
+  const mandate = await readMandate();
+  if (!mandate?.header) return fetchImpl;
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers || {});
+    headers.set('X-Agent-Mandate', mandate.header);
+    return fetchImpl(url, { ...init, headers });
+  };
 }
 
 async function payWithX402({ session, quote, resourceUrl, task, operation = null }) {
@@ -374,6 +422,7 @@ async function payWithX402({ session, quote, resourceUrl, task, operation = null
     channelId: session.channel.channel_id.toLowerCase(),
     maximumAmount: quote.amountWei,
     operation: operation ?? pending?.operation ?? operationName(task),
+    requestFetch: await fetchWithMandate(fetch),
   });
 }
 
@@ -399,6 +448,22 @@ async function reportSettlement(apiUrl, token, channelId, purchase) {
     console.log('Settlement is still processing:', error.message ?? error);
     return { claimId, payoutTx: null, receiptUrl: null };
   }
+}
+
+function displayPlan(plan) {
+  if (plan?.source === 'bedrock' || plan?.source === 'fallback') return plan;
+  if (plan?.reason) {
+    return { source: 'bedrock', resourceId: plan.resourceId ?? null, reason: plan.reason, fallback: false };
+  }
+  if (readBedrockSettings().configured) {
+    return { source: 'bedrock', resourceId: null, reason: 'Amazon Bedrock chose this step.', fallback: false };
+  }
+  return {
+    source: 'fallback',
+    resourceId: null,
+    reason: 'Fallback (Bedrock not configured).',
+    fallback: true,
+  };
 }
 
 function ledgerOperation(purchaseId) {
@@ -433,6 +498,8 @@ export async function payExactQuote({
   purchaseId = '',
   plan = null,
   recordPayment = recordAgentPayment,
+  reservationId = '',
+  onPhase = async () => {},
 } = {}) {
   const hard = checkApprovalHardRules({ merchant, amount, spent, at }, rules);
   if (hard.decision !== 'allow') {
@@ -452,7 +519,7 @@ export async function payExactQuote({
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const session = await openSession(apiUrl, rules, url);
   const channelId = String(session.channel.channel_id).toLowerCase();
-  const quote = await requestQuote(url, channelId);
+  const quote = await requestQuote(url, channelId, await fetchWithMandate(fetch));
   if (new URL(quote.resourceUrl).href !== url) {
     throw new Error('Merchant quote is for a different resource than the one approved.');
   }
@@ -464,6 +531,7 @@ export async function payExactQuote({
   }
   let purchase;
   try {
+    await onPhase('broadcasting');
     purchase = await payWithX402({
       session,
       quote,
@@ -493,8 +561,10 @@ export async function payExactQuote({
     approver,
     plan,
     note,
+    reservationId,
   });
   try {
+    await onPhase('settling');
     const settled = await reportSettlement(apiUrl, session.token, session.channel.channel_id, purchase);
     saved = await recordPayment({
       task,
@@ -511,6 +581,7 @@ export async function payExactQuote({
       approver,
       plan,
       note,
+      reservationId,
     });
   } catch (error) {
     error.payment = saved;
@@ -526,19 +597,83 @@ export async function payExactQuote({
  */
 export async function runOnce({
   task = taskText(),
-  resourceUrl = process.env.RESOURCE_URL,
+  resourceUrl,
   requestQuote: readQuote = requestQuote,
   rules = loadRules(),
   spent,
   session = null,
+  chooseResource = chooseLiveResource,
 } = {}) {
   if (!task) {
     throw new Error('Pass a task. Example: npm run agent -- "Buy the morning market brief"');
   }
-  const url = canonicalResourceUrl(resourceUrl);
+  if ((await readFrozen()).frozen) {
+    const reason = 'The agent is frozen. Nothing was signed.';
+    console.log(reason);
+    await recordSkipped({ task, reason, merchantLabel: 'No purchase' });
+    return {
+      decision: 'skipped',
+      reason: 'agent frozen',
+      amount: null,
+      merchant: null,
+      txHash: null,
+      claimId: null,
+      receiptUrl: null,
+      explorerUrl: null,
+      plan: null,
+      line: `nothing signed — ${reason}`,
+    };
+  }
+  let presetPlan = null;
+  let selectedUrl = resourceUrl;
+  if (!selectedUrl) {
+    const picked = await chooseResource({ task, rules });
+    if (picked?.plan?.resourceId === 'outside') {
+      const note = 'The outside desk is on the denylist. Decline is the only action. Nothing was signed.';
+      const reason = `${picked.reason || ''} ${note}`.trim();
+      const line = `nothing signed — ${reason}`;
+      console.log(line);
+      const plan = displayPlan({ ...(picked.plan || {}), reason });
+      await recordSkipped({ task, reason: line, plan, merchantLabel: 'Unlisted Research API' });
+      return {
+        decision: 'skipped',
+        reason,
+        amount: null,
+        merchant: null,
+        txHash: null,
+        claimId: null,
+        receiptUrl: null,
+        explorerUrl: null,
+        plan,
+        line,
+      };
+    }
+    if (picked?.skipped || !picked?.url) {
+      const reason = picked?.reason || 'Nothing was selected. Nothing was signed.';
+      const line = `nothing signed — ${reason}`;
+      console.log(line);
+      const plan = displayPlan(picked?.plan?.reason ? picked.plan : null);
+      await recordSkipped({ task, reason: line, plan, merchantLabel: 'No purchase' });
+      return {
+        decision: 'skipped',
+        reason,
+        amount: null,
+        merchant: null,
+        txHash: null,
+        claimId: null,
+        receiptUrl: null,
+        explorerUrl: null,
+        plan,
+        line,
+      };
+    }
+    selectedUrl = picked.url;
+    presetPlan = picked.plan ?? null;
+  }
+  const url = canonicalResourceUrl(selectedUrl);
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = retryingFetch(previousFetch.bind(globalThis));
+  globalThis.fetch = await fetchWithMandate(retryingFetch(previousFetch.bind(globalThis)));
   try {
     console.log('Task:', task);
     const active = session ?? await openSession(apiUrl, rules, url);
@@ -547,7 +682,54 @@ export async function runOnce({
     if (new URL(quote.resourceUrl).href !== url) {
       throw new Error('Merchant quote is for a different resource than the one requested.');
     }
-    const spentNow = spent ?? await spentRlusd();
+    let chain = null;
+    if (spent === undefined) {
+      try {
+        chain = await requireSpendChannel();
+      } catch (error) {
+        const reason = 'The payment channel could not be read. Nothing was signed.';
+        console.log(reason);
+        const plan = displayPlan(presetPlan);
+        await recordSkipped({ task, reason, plan, merchantLabel: 'No purchase' });
+        return {
+          decision: 'skipped',
+          reason,
+          amount: null,
+          merchant: null,
+          txHash: null,
+          claimId: null,
+          receiptUrl: null,
+          explorerUrl: null,
+          plan,
+          line: `nothing signed — ${reason}`,
+        };
+      }
+      const blocked = paymentBlockedByChain({ budget: formatRlusd(rules.budget), chain });
+      if (blocked) {
+        console.log(blocked);
+        const plan = displayPlan(presetPlan);
+        await recordSkipped({ task, reason: blocked, plan, merchantLabel: 'No purchase' });
+        return {
+          decision: 'skipped',
+          reason: blocked,
+          amount: quote.amount,
+          merchant: quote.merchant,
+          txHash: null,
+          claimId: null,
+          receiptUrl: null,
+          explorerUrl: null,
+          plan,
+          line: `nothing signed — ${blocked}`,
+        };
+      }
+    }
+    const reserved = spent === undefined ? await reserveSpend(quote.amount) : { ok: true, id: '', spent };
+    if (reserved.ok === false) {
+      console.log(reserved.reason === 'agent frozen'
+        ? 'The agent is frozen. Nothing was signed.'
+        : 'Over budget once in-flight payments are counted. Nothing was signed.');
+    }
+    const spentNow = higherSpent(reserved.spent ?? spent ?? await spentRlusd(), chain?.redeemed);
     const recentPayments = (await listPayments())
       .filter((item) => !item.sample)
       .slice(0, 5)
@@ -557,17 +739,23 @@ export async function runOnce({
         status: item.status,
         task: item.task,
       }));
-    return finishQuote({
-      task,
-      resourceUrl: url,
-      quote,
-      channelId,
-      rules,
-      spent: spentNow,
-      recentPayments,
-      pay: (args) => payWithX402({ session: active, ...args }),
-      report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
-    });
+    try {
+      return await finishQuote({
+        task,
+        resourceUrl: url,
+        quote,
+        channelId,
+        rules,
+        spent: spentNow,
+        reservationId: reserved.id,
+        recentPayments,
+        plan: presetPlan ? async () => presetPlan : planPurchase,
+        pay: (args) => payWithX402({ session: active, ...args }),
+        report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
+      });
+    } finally {
+      await releaseReservation(reserved.id);
+    }
   } finally {
     globalThis.fetch = previousFetch;
   }

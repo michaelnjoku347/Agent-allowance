@@ -17,7 +17,7 @@ test('tested starter config connects the team merchant to local rules', () => {
   assert.equal(configured.env.MERCHANT_ID, settings.merchantId);
   assert.equal(configured.env.MERCHANT_PAYOUT_ADDRESS, payout);
   assert.equal(configured.env.MERCHANT_SUBMITTER_KEY, key);
-  assert.equal(configured.env.CHANNEL_CAP, '5');
+  assert.equal(configured.env.CHANNEL_CAP, '20');
   assert.deepEqual(configured.rules.allowedMerchants, [payout]);
   assert.notDeepEqual(rules.allowedMerchants, [payout]);
 });
