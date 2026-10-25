@@ -210,3 +210,43 @@ test('repeated redemption recording updates settlement without double-counting t
   assert.equal(await spentRlusd(), '1');
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('sample rows stay out of /api/pending once real data exists, even without agentConnected', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const { listPayments, listPending, readStore } = await import('./store.js');
+  resetStore();
+  const seeded = await readStore();
+  assert.ok((await listPending()).some((row) => row.id === 'pend_sample_research'), 'samples show on a fresh store');
+  writeFileSync(process.env.ALLOWANCE_STORE, JSON.stringify({
+    ...seeded,
+    agentConnected: false,
+    pending: [
+      ...seeded.pending,
+      {
+        id: 'pend_real',
+        sample: false,
+        status: 'pending',
+        task: 'Buy the satellite pack',
+        merchant: '0xa11cea11cea11cea11cea11cea11cea11cea11ce',
+        merchantLabel: 'Field Weather Co',
+        amount: '8',
+        reason: 'over per-purchase cap',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  }));
+  const pending = await listPending();
+  assert.deepEqual(pending.map((row) => row.id), ['pend_real']);
+  assert.ok((await listPayments()).every((row) => !row.sample));
+  const server = await listen(createApp({ channelState: async () => null }));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const rows = await (await fetch(`${url}/api/pending`)).json();
+    assert.equal(rows.some((row) => row.id === 'pend_sample_research'), false);
+    const status = await (await fetch(`${url}/api/status`)).json();
+    assert.equal(status.agentConnected, true, 'the dashboard stops treating it as a demo');
+  } finally {
+    await close(server);
+    resetStore();
+  }
+});

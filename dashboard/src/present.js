@@ -101,6 +101,33 @@ export function flowForItem(item) {
   return { steps: steps(['off', 'off', 'off', 'off', 'off']), caption: 'The path lights up when a purchase is decided.' };
 }
 
+const AGENT_STAGES = {
+  agent: { states: ['on', 'wait', 'off', 'off', 'off'], caption: 'The agent has a quote. The rules are next.' },
+  rules: { states: ['on', 'wait', 'off', 'off', 'off'], caption: 'Checking the rules.' },
+  xrpl: { states: ['on', 'on', 'off', 'wait', 'off'], caption: 'Inside the rules. Paying on XRPL.' },
+};
+
+const LEDGER_STAGES = {
+  signed: { states: ['on', 'on', 'on', 'wait', 'off'], caption: 'Signed on the Ledger. Sending to XRPL.' },
+  broadcasting: { states: ['on', 'on', 'on', 'wait', 'off'], caption: 'Signed on the Ledger. Broadcasting on XRPL.' },
+  settling: { states: ['on', 'on', 'on', 'on', 'wait'], caption: 'On XRPL. Settling with the merchant.' },
+};
+
+/**
+ * The payment path for a purchase still in flight, from GET /api/events.
+ * Null when nothing is in flight, so the latest activity row shows instead.
+ */
+export function flowForStage(stage) {
+  if (!stage || typeof stage !== 'object') return null;
+  const table = stage.source === 'ledger' ? LEDGER_STAGES : stage.source === 'agent' ? AGENT_STAGES : null;
+  const row = table?.[stage.source === 'ledger' ? stage.phase : stage.stage];
+  if (!row) return null;
+  const amount = stage.amount ? `${stage.amount} RLUSD` : '';
+  const who = stage.merchantLabel ? ` to ${stage.merchantLabel}` : '';
+  const lead = amount ? `${amount}${who}. ` : '';
+  return { steps: steps(row.states), caption: `${lead}${row.caption}`, live: true };
+}
+
 export function flowForHeist(report) {
   if (!report || report.paid || report.signed) return null;
   return {
@@ -147,4 +174,31 @@ export function txFeed(items, explorer = EXPLORER) {
     });
   }
   return rows.slice(0, 4);
+}
+
+/**
+ * What the payment path shows on top of the latest activity row.
+ *   demo      a Heist or Rogue result: its flow, with the alert on
+ *   alert     a demo beat with no flow of its own
+ *   stage     a live stage from GET /api/events; null clears a stage it set
+ *   activity  a new real decision arrived: clear everything, so the row shows
+ */
+export const PATH_IDLE = { flow: null, source: '', alert: false };
+
+export function pathReducer(state, action) {
+  switch (action?.type) {
+    case 'demo':
+      return action.flow ? { flow: action.flow, source: 'demo', alert: true } : { ...state, alert: true };
+    case 'alert':
+      return { ...state, alert: true };
+    case 'stage': {
+      const flow = flowForStage(action.stage);
+      if (flow) return { flow, source: 'stage', alert: false };
+      return state.source === 'stage' ? PATH_IDLE : state;
+    }
+    case 'activity':
+      return PATH_IDLE;
+    default:
+      return state;
+  }
 }

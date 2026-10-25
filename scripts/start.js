@@ -13,11 +13,14 @@ import {
   DASHBOARD_URL,
   browserOpen,
   dashboardInstall,
+  dashboardLaunch,
   envFileNotice,
+  lanAddresses,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
   optionalKeyNotices,
+  phoneRequested,
 } from './start-lib.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,7 +101,14 @@ async function main() {
     console.log(line);
   }
 
-  const childEnv = { ...process.env, ALLOWANCE_NOTICES_SHOWN: '1' };
+  const phone = phoneRequested(process.argv.slice(2), process.env);
+  const launchPlan = dashboardLaunch({ phone, addresses: phone ? lanAddresses() : [] });
+  const childEnv = {
+    ...process.env,
+    ALLOWANCE_NOTICES_SHOWN: '1',
+    DASHBOARD_HOST: launchPlan.host,
+    DASHBOARD_ORIGIN: launchPlan.origins.join(','),
+  };
   const children = [];
   let shuttingDown = false;
 
@@ -145,13 +155,20 @@ async function main() {
   }
 
   launch('The allowance server', process.execPath, ['server/index.js']);
-  launch('The dashboard', npmBin(), ['--prefix', 'dashboard', 'run', 'dev']);
+  launch('The dashboard', npmBin(), ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', launchPlan.host]);
 
   process.on('SIGINT', () => shutdown(0));
   process.on('SIGTERM', () => shutdown(0));
 
   const ready = await waitForHttp(DASHBOARD_URL);
   console.log(`Dashboard: ${DASHBOARD_URL}`);
+  if (phone) {
+    if (launchPlan.phone.length) {
+      for (const url of launchPlan.phone) console.log(`On your phone: ${url}`);
+    } else {
+      console.log('No LAN address found. Join Wi-Fi, then run npm run start:phone again.');
+    }
+  }
   if (ready) openDashboard(DASHBOARD_URL);
   else console.log('The dashboard is still starting. Open the URL above if the browser does not.');
 }

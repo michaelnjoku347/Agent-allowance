@@ -25,9 +25,11 @@ function resolveChrome() {
   return found;
 }
 
-async function up(url) {
+const DASHBOARD = 'http://127.0.0.1:5173/';
+
+async function up(url, ms = 800) {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(800) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(ms) });
     return response.status < 500;
   } catch {
     return false;
@@ -38,28 +40,52 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-test('phone pages do not scroll sideways at 320 and 390', async () => {
+// A cold Vite on a CI runner can take several seconds to pre-bundle before it
+// answers reliably, so wait against a deadline, not a fixed number of tries.
+async function waitUntilUp(url, deadlineMs) {
+  const end = Date.now() + deadlineMs;
+  while (Date.now() < end) {
+    if (await up(url, 5000)) return true;
+    await wait(250);
+  }
+  return false;
+}
+
+function stop(child) {
+  if (!child || child.exitCode !== null) return;
+  try {
+    // npm starts sh, node, and esbuild. Kill the whole group so nothing outlives the test.
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
+
+test('phone pages do not scroll sideways at 320 and 390', { timeout: 60_000 }, async () => {
   const chromeBin = resolveChrome();
   let vite = null;
-  if (!(await up('http://127.0.0.1:5173/'))) {
-    vite = spawn('npm', ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
-      cwd: new URL('../..', import.meta.url).pathname,
-      stdio: 'ignore',
-    });
-    for (let i = 0; i < 40 && !(await up('http://127.0.0.1:5173/')); i += 1) await wait(250);
-  }
-  assert.equal(await up('http://127.0.0.1:5173/'), true, 'dashboard dev server');
-
-  const chrome = spawn(chromeBin, [
-    '--headless=new',
-    '--no-sandbox',
-    '--disable-gpu',
-    '--remote-debugging-port=9225',
-    '--user-data-dir=/tmp/chrome-reflow',
-    'about:blank',
-  ], { stdio: 'ignore' });
-
+  let chrome = null;
   try {
+    if (!(await up(DASHBOARD))) {
+      vite = spawn('npm', ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
+        cwd: new URL('../..', import.meta.url).pathname,
+        stdio: 'ignore',
+        detached: true,
+      });
+    }
+    assert.equal(await waitUntilUp(DASHBOARD, 30_000), true, 'dashboard dev server');
+    // Warm the module graph so the first Chrome load is not the one paying for it.
+    assert.equal(await up(new URL('/src/main.jsx', DASHBOARD).href, 15_000), true, 'dashboard entry module');
+
+    chrome = spawn(chromeBin, [
+      '--headless=new',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--remote-debugging-port=9225',
+      '--user-data-dir=/tmp/chrome-reflow',
+      'about:blank',
+    ], { stdio: 'ignore' });
+
     let version;
     for (let i = 0; i < 40; i += 1) {
       await wait(200);
@@ -118,9 +144,9 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
             };
           `,
         });
-        await page('Page.navigate', { url: 'http://127.0.0.1:5173/' });
+        await page('Page.navigate', { url: DASHBOARD });
         let ready = false;
-        for (let i = 0; i < 40; i += 1) {
+        for (let i = 0; i < 100; i += 1) {
           await wait(200);
           const probe = await page('Runtime.evaluate', {
             expression: 'Boolean(document.querySelector(".hero") && document.querySelector(".pill.danger") && document.querySelector(".pill.warn"))',
@@ -150,6 +176,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
             const title = blocked?.querySelector('.row-title');
             const pill = blocked?.querySelector('.pill');
             const time = blocked?.querySelector('.row-time');
+            const task = blocked?.querySelector('.row-task');
+            const box = (el) => el.getBoundingClientRect();
             return {
               scrollWidth: root.scrollWidth,
               clientWidth: root.clientWidth,
@@ -160,7 +188,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
               lines,
               steps,
               pillBelowTitle: Boolean(title && pill && pill.getBoundingClientRect().top >= title.getBoundingClientRect().bottom - 2),
-              pillBesideTime: Boolean(time && pill && Math.abs(pill.getBoundingClientRect().top - time.getBoundingClientRect().top) < 12),
+              timeUnderPill: Boolean(time && pill && box(time).top >= box(pill).bottom - 2 && Math.abs(box(time).right - box(pill).right) <= 1),
+              taskUnderTitle: Boolean(task && title && Math.abs(box(task).left - box(title).left) <= 1),
             };
           })()`,
           returnByValue: true,
@@ -176,7 +205,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
           assert.ok(box.steps.every((step) => step.width >= 52), `${width} ${theme} steps ${box.steps.map((step) => step.width).join(',')}`);
         }
         assert.equal(box.pillBelowTitle, true, `${width} ${theme} status pill is on the second line`);
-        assert.equal(box.pillBesideTime, true, `${width} ${theme} status pill sits beside the time`);
+        assert.equal(box.timeUnderPill, true, `${width} ${theme} time sits right-aligned under the status pill`);
+        assert.equal(box.taskUnderTitle, true, `${width} ${theme} task lines up under the merchant name`);
         assert.ok(
           box.scrollWidth <= box.clientWidth,
           `${width} ${theme} scrollWidth ${box.scrollWidth} clientWidth ${box.clientWidth} innerWidth ${box.innerWidth}`,
@@ -186,7 +216,7 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
     }
     ws.close();
   } finally {
-    chrome.kill('SIGKILL');
-    if (vite) vite.kill('SIGKILL');
+    if (chrome) chrome.kill('SIGKILL');
+    stop(vite);
   }
 });

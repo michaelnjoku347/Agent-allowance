@@ -1,35 +1,65 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
+import BrandMark from './BrandMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
 import HeistDemo from './HeistDemo.jsx';
 import HowItWorks from './HowItWorks.jsx';
 import RogueDemo from './RogueDemo.jsx';
-import { flowForHeist, flowForItem, narrationFor, narrationForHeist, toneKind, txFeed } from './present.js';
+import { PATH_IDLE, flowForHeist, flowForItem, narrationFor, pathReducer, narrationForHeist, toneKind, txFeed } from './present.js';
 import { MoneyFlow, TxFeed } from './Stage.jsx';
 import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
 import {
   IconActivity,
+  EveMark,
   IconAlert,
   IconCheck,
   IconHome,
   IconLock,
   IconReceipt,
-  IconSettings,
+  IconBadgeCheck,
+  IconBot,
+  IconContrast,
+  IconGear,
+  IconHelp,
+  IconMore,
+  IconMoreVertical,
+  IconShieldCheck,
+  IconSliders,
+  IconStore,
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
+import { NAV, approvalCount, mobileTabs, moreItems, navSections, parseRoute, routeHash } from './routes.js';
 
-const TABS = [
-  ['home', 'Home', IconHome],
-  ['activity', 'Activity', IconActivity],
-];
+const Desk = lazy(() => import('./views.jsx'));
+
+const ICONS = {
+  home: IconHome,
+  activity: IconActivity,
+  approvals: IconBadgeCheck,
+  rules: IconSliders,
+  merchants: IconStore,
+  agents: IconBot,
+  security: IconShieldCheck,
+  settings: IconGear,
+  help: IconHelp,
+  more: IconMore,
+};
+
+function readFlag(key) {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const EXPLORER = 'https://explorer.testnet.xrplevm.org';
 
@@ -199,13 +229,15 @@ function receiptHref(url) {
 
 export default function App() {
   const [theme, setTheme] = useTheme();
-  const [tab, setTab] = useState('home');
+  const [route, setRoute] = useState(() => (typeof window === 'undefined' ? 'home' : parseRoute(window.location.hash)));
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [onboarded, setOnboarded] = useState(() => readFlag('allowance-onboarded'));
   const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
   const [setupOpen, setSetupOpen] = useState(false);
-  const [pathAlert, setPathAlert] = useState(false);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -224,7 +256,8 @@ export default function App() {
       current.heist === next.heist && current.rogue === next.rogue ? current : next
     ));
   }, []);
-  const [flowOverride, setFlowOverride] = useState(null);
+  const [path, dispatchPath] = useReducer(pathReducer, PATH_IDLE);
+  const streamOpen = useRef(false);
   const [flashId, setFlashId] = useState('');
   const [ringMood, setRingMood] = useState('');
   const seen = useRef(null);
@@ -246,15 +279,65 @@ export default function App() {
   }
 
   useEffect(() => {
+    function onHash() {
+      setRoute(parseRoute(window.location.hash));
+      setMoreOpen(false);
+    }
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  function go(id) {
+    const next = routeHash(id);
+    const current = window.location.hash;
+    if (current === next || (id === 'home' && (current === '' || current === '#'))) setRoute('home');
+    else window.location.hash = next;
+    setMoreOpen(false);
+  }
+
+  function pushToast(text) {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((list) => [...list.slice(-2), { id, text }]);
+    window.setTimeout(() => {
+      setToasts((list) => list.filter((item) => item.id !== id));
+    }, 4200);
+  }
+
+  function dismissOnboarding() {
+    setOnboarded(true);
+    try {
+      localStorage.setItem('allowance-onboarded', '1');
+    } catch {
+      /* The card stays dismissed for this visit. */
+    }
+  }
+
+  useEffect(() => {
     let stop = false;
+    // The event stream drives updates while it is open. The 3s poll is the fallback.
     const tick = () => {
-      if (!stop) load();
+      if (!stop && !streamOpen.current) load();
     };
-    tick();
+    load();
     const timer = window.setInterval(tick, 3000);
+    const close = subscribeEvents({
+      onOpen: () => {
+        streamOpen.current = true;
+      },
+      onDown: () => {
+        streamOpen.current = false;
+      },
+      onChange: () => {
+        if (!stop) load();
+      },
+      onStage: (stage) => {
+        if (!stop) dispatchPath({ type: 'stage', stage });
+      },
+    });
     return () => {
       stop = true;
       window.clearInterval(timer);
+      close();
     };
   }, []);
 
@@ -270,6 +353,8 @@ export default function App() {
     const added = view.activity.filter((item) => !seen.current.has(item.id));
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
+    // A real decision replaces whatever a demo or a live stage left on the payment path.
+    dispatchPath({ type: 'activity' });
     const newest = added[0];
     const spoken = narrationFor(newest);
     const status = pill(newest).label;
@@ -322,18 +407,16 @@ export default function App() {
   }
 
   const onRogueBeat = useCallback((card) => {
-    setPathAlert(true);
+    dispatchPath({ type: 'alert' });
     if (card?.phase === 'summary') setAnnounce(card.attempt || '3 attempts, 3 blocked, 0 RLUSD lost');
     else if (card?.ruleText) setAnnounce(`Blocked. ${card.ruleText}`);
   }, []);
 
   const onHeist = useCallback((report) => {
-    setPathAlert(true);
     setAnnounce(report?.scripted
       ? 'Scripted preview. Attack blocked. 0.00 RLUSD lost.'
       : 'Attack blocked. 0.00 RLUSD lost.');
-    const flow = flowForHeist(report);
-    if (flow) setFlowOverride(flow);
+    dispatchPath({ type: 'demo', flow: flowForHeist(report) });
     if (!voiceOn) return;
     const line = narrationForHeist(report);
     if (!line) return;
@@ -349,6 +432,7 @@ export default function App() {
     setActionError('');
     try {
       await declinePurchase(id);
+      pushToast('Declined. Nothing was paid.');
       await load();
     } catch (error) {
       setActionError(error.message || 'That did not save.');
@@ -361,7 +445,9 @@ export default function App() {
     setRunNote('');
     try {
       const body = await runAgent('Buy the morning market brief');
-      setRunNote(body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
+      const note = body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
+      setRunNote(note);
+      if (body.ok) pushToast('The agent started.');
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
     }
@@ -372,7 +458,9 @@ export default function App() {
     try {
       const nextFrozen = !snapshot?.frozen;
       await setAgentFrozen(nextFrozen);
-      setAnnounce(nextFrozen ? 'Agent frozen' : 'Agent can pay inside the allowance again.');
+      const line = nextFrozen ? 'Agent frozen. New signatures have stopped.' : 'Agent can pay inside the allowance again.';
+      setAnnounce(line);
+      pushToast(line);
       await load();
     } catch (error) {
       setRunNote(error.message || 'Could not change the freeze.');
@@ -428,11 +516,31 @@ export default function App() {
   const leftRatio = view.budgetNumber > 0 ? Math.max(0, view.leftNumber / view.budgetNumber) : 0;
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
-  const liveFlow = flowOverride || flowForItem(view.activity[0]);
+  const liveFlow = path.flow || flowForItem(view.activity[0]);
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   const loading = connection === 'loading' && !snapshot;
-  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
+  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : '', snapshot?.frozen ? 'is-frozen' : ''].filter(Boolean).join(' ');
+  const pendingCount = approvalCount(view.pending);
+  const routeItem = NAV.find((item) => item.id === route);
+  const pageLede = route === 'approvals'
+    ? (pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`)
+    : routeItem?.lede;
+  const setupLabel = onboarded ? 'Edit allowance' : 'Set up allowance';
+
+  function onTabKey(event) {
+    const ids = ACTIVITY_VIEWS.map(([id]) => id);
+    const at = ids.indexOf(filter);
+    const next = event.key === 'ArrowRight' ? ids[(at + 1) % ids.length]
+      : event.key === 'ArrowLeft' ? ids[(at - 1 + ids.length) % ids.length]
+        : event.key === 'Home' ? ids[0]
+          : event.key === 'End' ? ids[ids.length - 1]
+            : null;
+    if (!next) return;
+    event.preventDefault();
+    setFilter(next);
+    document.getElementById(`tab-${next}`)?.focus();
+  }
 
   return (
     <div className={appClass}>
@@ -440,23 +548,52 @@ export default function App() {
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
         <div className="sidenav-brand">
-          <BrandMark size={32} />
-          <h1>Agent Allowance</h1>
+          <BrandMark size={40} />
+          <p className="brand-name">Agent Allowance</p>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
-          {TABS.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              aria-current={tab === id ? 'page' : undefined}
-              onClick={() => setTab(id)}
-            >
-              <Icon />
-              <span>{label}</span>
-            </button>
+          {navSections().map((section) => (
+            <div key={section.label} className="sidenav-section">
+              <p className="sidenav-label">{section.label}</p>
+              {section.items.map((item) => {
+                const Icon = ICONS[item.id];
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={route === item.id ? 'page' : undefined}
+                    onClick={() => go(item.id)}
+                  >
+                    <Icon />
+                    <span>{item.label}</span>
+                    {item.id === 'approvals' && pendingCount > 0 ? (
+                      <span className="nav-count">{pendingCount}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
-        <p className="sidenav-foot">Spending account</p>
+        <nav className="sidenav-links" aria-label="Settings and help">
+          {NAV.filter((item) => item.id === 'settings' || item.id === 'help').map((item) => {
+            const Icon = ICONS[item.id];
+            return (
+              <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+                <Icon />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="sidenav-foot">
+          <p className="side-balance"><strong>{money(view.left)}</strong> of {money(view.budget)} RLUSD left</p>
+          <p className={snapshot?.frozen ? 'side-status is-frozen' : 'side-status'}>
+            <span className="side-dot" aria-hidden="true" />
+            {snapshot?.frozen ? 'Agent frozen. Nothing can be signed.' : 'Agent can pay inside the rules'}
+          </p>
+          <p className="meta">{snapshot?.simulatedLedger ? 'Exceptions use the demo signer' : 'Exceptions need your Ledger'}</p>
+        </div>
       </aside>
 
       <div className="frame">
@@ -464,10 +601,9 @@ export default function App() {
           <header className="top">
             <div className="brand-lockup">
               <div className="brand">
-                <BrandMark size={40} />
-                <h1>Agent Allowance</h1>
+                <BrandMark size={32} />
+                <p className="brand-name">Agent Allowance</p>
               </div>
-              <p className="hero-tagline">Spending power for AI, with a human key.</p>
             </div>
             <div className="top-tools">
               <button
@@ -476,12 +612,13 @@ export default function App() {
                 aria-pressed={Boolean(snapshot?.frozen)}
                 onClick={onFreeze}
                 disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                title={snapshot?.offlinePreview ? 'Freeze works when the allowance is online.' : undefined}
               >
                 <IconLock />
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
-              <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
-              {tab === 'home' && snapshot && !presenting ? (
+              <button type="button" className="chip setup-chip" onClick={() => setSetupOpen(true)}>{setupLabel}</button>
+              {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
                   onHeist={() => demoBridge.current.runHeist?.()}
@@ -498,17 +635,53 @@ export default function App() {
                 </button>
               ) : null}
               <ThemeControl theme={theme} setTheme={setTheme} />
+              {!presenting ? <EveLaunch /> : null}
+              {!presenting ? (
+                <AppMenu
+                  theme={theme}
+                  setTheme={setTheme}
+                  frozen={Boolean(snapshot?.frozen)}
+                  freezeDisabled={!snapshot || controlBusy === 'freeze' || Boolean(snapshot?.offlinePreview)}
+                  onFreeze={onFreeze}
+                  setupLabel={setupLabel}
+                  onSetup={() => setSetupOpen(true)}
+                  demo={route === 'home' && snapshot ? {
+                    onOverCap,
+                    onHeist: () => demoBridge.current.runHeist?.(),
+                    onRogue: () => demoBridge.current.runRogue?.(),
+                    onPresent: togglePresent,
+                  } : null}
+                />
+              ) : null}
             </div>
           </header>
           <main id="main" tabIndex={-1}>
             {loading ? <Skeletons /> : null}
-            {snapshot?.offlinePreview ? (
-              <div className="offline-banner" role="status">
-                <p>Sample preview. These rows are examples, not payments.</p>
-                <button type="button" className="btn" onClick={load}>Retry</button>
+            {route === 'home' ? (
+              <div className="page-head is-home">
+                <h1 className="sr-only">Home</h1>
+                <p className="hero-tagline">Spending power for AI, with a human key.</p>
+              </div>
+            ) : (
+              <div className="page-head">
+                <h1 id="page-title">{routeItem?.label}</h1>
+                {pageLede ? <p>{pageLede}</p> : null}
+              </div>
+            )}
+            {view.demo ? (
+              <div className="demo-badge" role="status">
+                <span className="demo-tag">Demo</span>
+                <span className="demo-text">
+                  {snapshot?.offlinePreview
+                    ? 'Offline. Example rows.'
+                    : 'Example rows until the agent pays.'}
+                </span>
+                {snapshot?.offlinePreview ? (
+                  <button type="button" className="retry-pill" onClick={load}>Try again</button>
+                ) : null}
               </div>
             ) : null}
-            {snapshot && tab === 'home' ? (
+            {snapshot && route === 'home' ? (
               <HeistDemo onDone={load} onResult={onHeist}>
                 {({ stage: heistStage, run: runHeist, busy: heistBusy }) => (
               <RogueDemo onBeat={onRogueBeat}>
@@ -524,7 +697,17 @@ export default function App() {
               />
               <div className="home-grid">
                 <div className="home-main">
-                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen</p> : null}
+                {!onboarded && !presenting ? (
+                  <section className="card setup-card" aria-labelledby="setup-title">
+                    <h2 id="setup-title">Set up this allowance</h2>
+                    <p>The budget, the cap, and the merchant list are already in place. Review them before the agent pays.</p>
+                    <div className="how-actions">
+                      <button type="button" className="btn primary" onClick={() => { dismissOnboarding(); go('rules'); }}>Review rules</button>
+                      <button type="button" className="btn" onClick={dismissOnboarding}>Not now</button>
+                    </div>
+                  </section>
+                ) : null}
+                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen. New signatures have stopped.</p> : null}
                 {connection === 'offline' && !snapshot.offlinePreview ? (
                   <div className="state-error" role="alert">
                     <p className="state-error-title">Could not refresh</p>
@@ -556,7 +739,7 @@ export default function App() {
                     <li>Expires {expiresOn(snapshot.rules.expiresAt) || 'No date'}</li>
                     <li>{merchantCount} merchants</li>
                   </ul>
-                  <MoneyFlow flow={liveFlow} embedded alert={pathAlert} />
+                  <MoneyFlow flow={liveFlow} embedded alert={path.alert} live={Boolean(path.flow?.live)} />
                   <div className="hero-actions">
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
@@ -641,23 +824,57 @@ export default function App() {
               </HeistDemo>
             ) : null}
 
-            {snapshot && tab === 'activity' ? (
-              <section className="card" aria-labelledby="activity-title">
-                <h2 id="activity-title">Activity</h2>
-                <div className="filters" role="tablist" aria-label="Activity views">
+            {snapshot && route === 'approvals' ? (
+              <section className="card needs-card" aria-labelledby="page-title">
+                {view.pending.length === 0 ? (
+                  <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
+                ) : (
+                  <ul className="needs">
+                    {view.pending.map((item) => (
+                      <li key={item.id} className={cannotApprove(item) ? 'need is-neutral' : 'need'}>
+                        <div className="need-top">
+                          <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
+                          <h3>{item.merchantLabel || 'Merchant'}</h3>
+                          <p className="amount">{money(item.amount)} RLUSD</p>
+                        </div>
+                        {cannotApprove(item) ? null : <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>}
+                        {cannotApprove(item) ? (
+                          <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
+                        ) : (
+                          <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
+                            Approve with Ledger
+                          </button>
+                        )}
+                        <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
+                          Decline
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {snapshot && route === 'activity' ? (
+              <section className="card" aria-labelledby="page-title">
+                <div className="filters" role="tablist" aria-label="Activity views" onKeyDown={onTabKey}>
                   {ACTIVITY_VIEWS.map(([id, label]) => (
                     <button
                       key={id}
+                      id={`tab-${id}`}
                       type="button"
                       role="tab"
                       className={filter === id ? 'chip is-on' : 'chip'}
                       aria-selected={filter === id}
+                      aria-controls="activity-panel"
+                      tabIndex={filter === id ? 0 : -1}
                       onClick={() => setFilter(id)}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
+                <div id="activity-panel" role="tabpanel" aria-labelledby={`tab-${filter}`} tabIndex={0} className="tab-panel">
                 {filter === 'audit' ? <AuditCard rows={snapshot.audit} onExport={exportAudit} /> : null}
                 {filter === 'chain' ? (feed.length ? <TxFeed rows={feed} /> : <p className="meta">Explorer links appear when a transaction hash is recorded.</p>) : null}
                 {filter === 'all' ? (
@@ -676,7 +893,31 @@ export default function App() {
                   )}
                 />
                 ) : null}
+                </div>
               </section>
+            ) : null}
+
+            {snapshot && route !== 'home' && route !== 'activity' && route !== 'approvals' ? (
+              <Suspense fallback={<section className="card skeleton" aria-busy="true" aria-label="Loading this page" />}>
+                <Desk
+                  route={route}
+                  snapshot={snapshot}
+                  view={view}
+                  theme={theme}
+                  voiceOn={voiceOn}
+                  onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  onVoice={() => {
+                    const next = !voiceOn;
+                    setVoiceOn(next);
+                    writeVoiceEnabled(next);
+                  }}
+                  onAsk={(text) => setEveSeed({ text, id: Date.now() })}
+                  onSetup={() => setSetupOpen(true)}
+                  onFreeze={onFreeze}
+                  busy={controlBusy === 'freeze'}
+                  disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                />
+              </Suspense>
             ) : null}
 
           </main>
@@ -684,19 +925,41 @@ export default function App() {
 
         <nav className="tabbar" aria-label="Mobile sections">
           <div className="tabbar-inner">
-            {TABS.map(([id, label, Icon]) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? 'page' : undefined}
-                onClick={() => setTab(id)}
-              >
-                <Icon />
-                <span>{label}</span>
-              </button>
-            ))}
+            {mobileTabs().map((item) => {
+              const Icon = ICONS[item.id];
+              const current = item.id === 'more' ? moreOpen || moreItems().some((entry) => entry.id === route) : route === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={current ? 'page' : undefined}
+                  aria-expanded={item.id === 'more' ? moreOpen : undefined}
+                  onClick={() => (item.id === 'more' ? setMoreOpen((open) => !open) : go(item.id))}
+                >
+                  <Icon />
+                  <span>{item.label}</span>
+                  {item.id === 'approvals' && pendingCount > 0 ? <span className="nav-count">{pendingCount}</span> : null}
+                </button>
+              );
+            })}
           </div>
         </nav>
+        {moreOpen ? (
+          <div className="more-sheet" role="dialog" aria-label="More">
+            {moreItems().map((item) => {
+              const Icon = ICONS[item.id];
+              return (
+                <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+                  <Icon />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="toasts" aria-live="polite">
+          {toasts.map((item) => <p key={item.id} className="toast" role="status">{item.text}</p>)}
+        </div>
       </div>
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
@@ -717,7 +980,7 @@ export default function App() {
         </Sheet>
       ) : null}
       {setupOpen ? (
-        <Sheet title="Set up allowance" onClose={() => setSetupOpen(false)}>
+        <Sheet title={setupLabel} onClose={() => setSetupOpen(false)}>
           <UseCaseCard
             selected={snapshot?.useCase?.id}
             busy={controlBusy}
@@ -774,7 +1037,7 @@ function ThemeControl({ theme, setTheme }) {
         aria-label="Display settings"
         onClick={() => setOpen((value) => !value)}
       >
-        <IconSettings />
+        <IconContrast />
       </button>
       {open ? (
         <fieldset className="theme-menu" id={menuId}>
@@ -795,15 +1058,6 @@ function ThemeControl({ theme, setTheme }) {
         </fieldset>
       ) : null}
     </div>
-  );
-}
-
-function BrandMark({ size }) {
-  return (
-    <>
-      <img className="logo-mark mark-for-light" src="/brand/mark-light.svg" width={size} height={size} alt="" />
-      <img className="logo-mark mark-for-dark" src="/brand/mark-dark.svg" width={size} height={size} alt="" />
-    </>
   );
 }
 
@@ -897,6 +1151,107 @@ function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBu
   );
 }
 
+/** Phone app bar button for Eve. The floating bubble is hidden on phones so it never covers content. */
+function EveLaunch() {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const onUnread = (event) => setUnread(Number(event.detail) || 0);
+    window.addEventListener('eve:unread', onUnread);
+    return () => window.removeEventListener('eve:unread', onUnread);
+  }, []);
+  return (
+    <button
+      type="button"
+      className="icon-btn eve-launch"
+      aria-label={unread ? `Ask Eve, ${unread} new ${unread === 1 ? 'reply' : 'replies'}` : 'Ask Eve'}
+      onClick={() => window.dispatchEvent(new Event('eve:open'))}
+    >
+      <EveMark size={26} />
+      {unread > 0 ? <span className="eve-badge" aria-hidden="true">{unread}</span> : null}
+    </button>
+  );
+}
+
+function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, theme, setTheme }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (!open) return undefined;
+    ref.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+    function onDoc(event) {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    }
+    document.addEventListener('pointerdown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  function pick(action) {
+    setOpen(false);
+    action();
+  }
+  return (
+    <div className="app-menu" ref={ref}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="icon-btn"
+        aria-label="Allowance actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <IconMoreVertical />
+      </button>
+      {open ? (
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions">
+          <button type="button" role="menuitem" onClick={() => pick(onFreeze)} disabled={freezeDisabled}>
+            <IconLock size={18} />
+            <span>{frozen ? 'Unfreeze the agent' : 'Freeze the agent'}</span>
+          </button>
+          {freezeDisabled ? <p className="menu-note">Freeze works when the allowance is online.</p> : null}
+          <button type="button" role="menuitem" onClick={() => pick(onSetup)}>
+            <IconSliders size={18} />
+            <span>{setupLabel}</span>
+          </button>
+          <p className="menu-label">Appearance</p>
+          {['light', 'dark', 'system'].map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              role="menuitemradio"
+              aria-checked={theme === choice}
+              onClick={() => setTheme(choice)}
+            >
+              <span className="menu-check" aria-hidden="true">{theme === choice ? <IconCheck size={16} /> : null}</span>
+              <span>{choice[0].toUpperCase() + choice.slice(1)}</span>
+            </button>
+          ))}
+          {demo ? (
+            <>
+              <p className="menu-label">Demo</p>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onOverCap)}>Try an over-cap purchase</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onHeist)}>Show a blocked prompt</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onRogue)}>Run the three blocks</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onPresent)}>Present</button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EmptyState({ icon, title, children, action }) {
   return (
     <div className="empty">
@@ -946,11 +1301,11 @@ function ReceiptCard({ item, explorer }) {
         </div>
         <div>
           <dt>AP4M channel</dt>
-          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+          <dd>{item.sample ? 'Example' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>AP4M claim</dt>
-          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+          <dd>{item.sample ? 'Example' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>
       </dl>
       {kitReceipt ? (
@@ -1017,7 +1372,7 @@ function Detail({ item, currency }) {
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      {item.sample ? <p>Sample preview</p> : null}
+      {item.sample ? <p>Example row</p> : null}
       {item.sample || item.status !== 'paid' ? (
         <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
       ) : (
@@ -1149,8 +1504,8 @@ function Skeletons() {
     <div className="loading-splash" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
-        <BrandMark size={40} />
-        <h1>Agent Allowance</h1>
+        <BrandMark size={64} />
+        <p className="brand-name">Agent Allowance</p>
       </div>
       <div className="stack loading-skeleton">
       <div className="card hero-skeleton" aria-hidden="true">

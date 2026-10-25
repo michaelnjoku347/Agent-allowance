@@ -3,7 +3,49 @@
  * Node 22.13 matches the engines field. A missing optional key is a notice.
  */
 
+import { networkInterfaces } from 'node:os';
+
 export const DASHBOARD_URL = 'http://127.0.0.1:5173';
+export const DASHBOARD_PORT = 5173;
+
+const PRIVATE_IP = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/;
+
+/** Opt-in only. The default stays on this computer. */
+export function phoneRequested(argv = [], env = {}) {
+  if (argv.includes('--phone') || argv.includes('--host')) return true;
+  return String(env.DASHBOARD_HOST ?? '').trim() === '0.0.0.0';
+}
+
+export function lanAddresses(interfaces = networkInterfaces()) {
+  const found = [];
+  for (const rows of Object.values(interfaces ?? {})) {
+    for (const row of rows ?? []) {
+      const family = row?.family;
+      const v4 = family === 4 || family === 'IPv4';
+      if (!row || row.internal || !v4 || !PRIVATE_IP.test(row.address)) continue;
+      if (!found.includes(row.address)) found.push(row.address);
+    }
+  }
+  return found;
+}
+
+export function phoneUrls(addresses, port = DASHBOARD_PORT) {
+  return (addresses ?? []).map((host) => `http://${host}:${port}`);
+}
+
+export function dashboardLaunch({ phone = false, addresses = [], port = DASHBOARD_PORT } = {}) {
+  const local = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+  if (!phone) {
+    return { host: '127.0.0.1', urls: [local[0]], origins: local, phone: [] };
+  }
+  const phoneList = phoneUrls(addresses, port);
+  return {
+    host: '0.0.0.0',
+    urls: [local[0], ...phoneList],
+    origins: [...local, ...phoneList],
+    phone: phoneList,
+  };
+}
 
 export function nodeVersionProblem(version) {
   const [major, minor] = String(version ?? '').split('.').map((part) => Number.parseInt(part, 10));

@@ -48,12 +48,87 @@ export function IconMic({ size = 22 }) {
   );
 }
 
-export function IconSettings() {
+export function IconSliders({ size = 22 }) {
   return (
-    <Stroke>
+    <Stroke size={size}>
       <path {...pen} d="M4.5 8h10M18.5 8H20M4.5 16H8M12 16h8" />
       <circle {...pen} cx="16.5" cy="8" r="2" />
       <circle {...pen} cx="10" cy="16" r="2" />
+    </Stroke>
+  );
+}
+
+export function IconBadgeCheck() {
+  return (
+    <Stroke>
+      <path {...pen} d="M12 3.5l2.1 1.5 2.6-.1.8 2.5 2.1 1.5-.8 2.5.8 2.5-2.1 1.5-.8 2.5-2.6-.1L12 20.5l-2.1-1.5-2.6.1-.8-2.5-2.1-1.5.8-2.5-.8-2.5 2.1-1.5.8-2.5 2.6.1z" />
+      <path {...pen} d="M9 12.2l2.1 2.1 4-4.2" />
+    </Stroke>
+  );
+}
+
+export function IconStore() {
+  return (
+    <Stroke>
+      <path {...pen} d="M4.5 9.5 6 4.5h12l1.5 5" />
+      <path {...pen} d="M4.5 9.5a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0" />
+      <path {...pen} d="M5.5 12v7.5h13V12M10 19.5v-4.5h4v4.5" />
+    </Stroke>
+  );
+}
+
+export function IconBot() {
+  return (
+    <Stroke>
+      <rect {...pen} x="4.5" y="8" width="15" height="11" rx="3" />
+      <path {...pen} d="M12 8V4.5M2.5 12.5v2.5M21.5 12.5v2.5M10 15.5h4" />
+      <path {...pen} d="M9.25 12h.01M14.75 12h.01" />
+    </Stroke>
+  );
+}
+
+export function IconShieldCheck() {
+  return (
+    <Stroke>
+      <path {...pen} d="M12 3.5 19 6v5.5c0 4.4-2.9 7.6-7 9-4.1-1.4-7-4.6-7-9V6l7-2.5z" />
+      <path {...pen} d="M9 12l2.1 2.1 4-4.1" />
+    </Stroke>
+  );
+}
+
+export function IconGear() {
+  return (
+    <Stroke>
+      <circle {...pen} cx="12" cy="12" r="2.75" />
+      <path {...pen} d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.55 1.55M7.55 16.45 6 18M18 18l-1.55-1.55M7.55 7.55 6 6" />
+      <circle {...pen} cx="12" cy="12" r="6.3" />
+    </Stroke>
+  );
+}
+
+export function IconHelp() {
+  return (
+    <Stroke>
+      <circle {...pen} cx="12" cy="12" r="8.5" />
+      <path {...pen} d="M9.6 9.5a2.5 2.5 0 0 1 4.85.85c0 1.65-2.45 2.15-2.45 3.65" />
+      <path {...pen} d="M12 17h.01" />
+    </Stroke>
+  );
+}
+
+export function IconMore() {
+  return (
+    <Stroke>
+      <path {...pen} d="M6 12h.01M12 12h.01M18 12h.01" strokeWidth="2.5" />
+    </Stroke>
+  );
+}
+
+export function IconContrast({ size = 22 }) {
+  return (
+    <Stroke size={size}>
+      <circle {...pen} cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
     </Stroke>
   );
 }
@@ -115,6 +190,14 @@ export function IconAlert({ size = 18 }) {
     <Stroke size={size}>
       <path {...pen} d="M12 4.5 20.5 19H3.5L12 4.5z" />
       <path {...pen} d="M12 10v4.2M12 16.8h.01" />
+    </Stroke>
+  );
+}
+
+export function IconMoreVertical() {
+  return (
+    <Stroke>
+      <path {...pen} d="M12 6h.01M12 12h.01M12 18h.01" strokeWidth="2.5" />
     </Stroke>
   );
 }

@@ -4,11 +4,15 @@ import {
   DASHBOARD_URL,
   browserOpen,
   dashboardInstall,
+  dashboardLaunch,
   envFileNotice,
+  lanAddresses,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
   optionalKeyNotices,
+  phoneRequested,
+  phoneUrls,
 } from './start-lib.js';
 
 test('Node 22.13 and newer pass, and older Node gets a friendly message', () => {
@@ -46,6 +50,38 @@ test('install steps run only when a node_modules folder is missing', () => {
     label: 'Installing dashboard dependencies…',
     args: ['install', '--prefix', 'dashboard'],
   });
+});
+
+test('phone mode is opt-in and prints only private LAN addresses', () => {
+  assert.equal(phoneRequested([], {}), false);
+  assert.equal(phoneRequested(['--phone'], {}), true);
+  assert.equal(phoneRequested(['--host'], {}), true);
+  assert.equal(phoneRequested([], { DASHBOARD_HOST: '0.0.0.0' }), true);
+  assert.equal(phoneRequested([], { DASHBOARD_HOST: '127.0.0.1' }), false);
+
+  const addresses = lanAddresses({
+    lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
+    en0: [
+      { address: '192.168.1.42', family: 'IPv4', internal: false },
+      { address: '8.8.8.8', family: 'IPv4', internal: false },
+      { address: 'fe80::1', family: 'IPv6', internal: false },
+    ],
+    docker: [{ address: '172.17.0.1', family: 'IPv4', internal: false }],
+  });
+  assert.deepEqual(addresses, ['192.168.1.42', '172.17.0.1']);
+  assert.deepEqual(phoneUrls(addresses), ['http://192.168.1.42:5173', 'http://172.17.0.1:5173']);
+
+  const local = dashboardLaunch({ phone: false, addresses });
+  assert.equal(local.host, '127.0.0.1');
+  assert.deepEqual(local.urls, [DASHBOARD_URL]);
+  assert.deepEqual(local.phone, []);
+
+  const shared = dashboardLaunch({ phone: true, addresses });
+  assert.equal(shared.host, '0.0.0.0');
+  assert.deepEqual(shared.phone, ['http://192.168.1.42:5173', 'http://172.17.0.1:5173']);
+  assert.ok(shared.origins.includes(DASHBOARD_URL));
+  assert.ok(shared.origins.includes('http://192.168.1.42:5173'));
+  assert.deepEqual(dashboardLaunch({ phone: true, addresses: [] }).phone, []);
 });
 
 test('the launcher opens the dashboard URL on each desktop', () => {

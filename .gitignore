@@ -167,3 +167,6 @@ agent/receipts/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Large per-size logo studies written by scripts/build-brand.py
+docs/logo-study/

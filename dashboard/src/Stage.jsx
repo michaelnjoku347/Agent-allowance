@@ -7,10 +7,10 @@ const STATE_WORD = {
   stop: 'Stopped here',
 };
 
-export function MoneyFlow({ flow, embedded = false, alert = false }) {
+export function MoneyFlow({ flow, embedded = false, alert = false, live = false }) {
   const steps = flow?.steps ?? [];
   const track = (
-    <ol className={alert ? 'flow-track is-alert' : 'flow-track'} tabIndex={0} aria-label="Payment path">
+    <ol className={['flow-track', alert ? 'is-alert' : '', live ? 'is-live' : ''].filter(Boolean).join(' ')} tabIndex={0} aria-label="Payment path">
       {steps.map((step, index) => {
         const previous = steps[index - 1];
         const lineOn = previous?.state === 'on';
@@ -33,7 +33,7 @@ export function MoneyFlow({ flow, embedded = false, alert = false }) {
       <div className="flow flow-embedded">
         <p className="eyebrow">Payment path</p>
         {track}
-        {flow?.caption ? <p className="flow-caption">{flow.caption}</p> : null}
+        {flow?.caption ? <p className="flow-caption" aria-live={live ? 'polite' : undefined}>{flow.caption}</p> : null}
       </div>
     );
   }
@@ -41,7 +41,7 @@ export function MoneyFlow({ flow, embedded = false, alert = false }) {
     <section className="card flow" aria-labelledby="flow-title">
       <h2 id="flow-title" className="eyebrow">Payment path</h2>
       {track}
-      {flow?.caption ? <p className="flow-caption">{flow.caption}</p> : null}
+      {flow?.caption ? <p className="flow-caption" aria-live={live ? 'polite' : undefined}>{flow.caption}</p> : null}
     </section>
   );
 }
