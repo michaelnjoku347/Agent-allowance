@@ -19,8 +19,8 @@ export function LogoMark({ tone = 'pine', size = 36 }) {
   return (
     <svg className="logo-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="7" fill={pine ? '#1B4D3E' : '#F7F4EC'} />
-      <path d="M 23.06 13.58 A 8.05 8.05 0 1 1 17.27 8.73" fill="none" stroke={pine ? '#F7F4EC' : '#1B4D3E'} strokeWidth="4.5" strokeLinecap="round" />
-      <circle cx="17.27" cy="8.73" r="3.25" fill={pine ? '#C6F36B' : '#143D31'} />
+      <path d="M 22.96 7.67 A 10.40 10.40 0 1 1 14.19 5.16 L 14.99 9.69 A 5.80 5.80 0 1 0 19.88 11.09 Z" fill={pine ? '#F7F4EC' : '#1B4D3E'} />
+      <circle cx="17.88" cy="7.52" r="2.5" fill={pine ? '#C6F36B' : '#1A1814'} />
     </svg>
   );
 }

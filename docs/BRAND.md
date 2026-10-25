@@ -6,16 +6,20 @@ The mark is an open ring. The gap is the limit you set. The lime dot rides the o
 
 ## Iterations
 
-1. A closed ring with a stem and a gold dot in the middle. At 16px it read as an exclamation point. That is an alarm, and it fights the product: the allowance is a limit you set, not a warning.
-2. A thin almost-complete ring with a small dot floating in the gap. The ring looked like a spinner, and the dot disappeared at 16px.
-3. A thick open ring, with the dot seated on the upper end of the stroke. The stroke and the dot both survive at 16px. This is the mark.
+Each pass was judged at 16px, then at full size, against four things: the mark has to stay legible at 16px, it has to be its own symbol, it has to sit in the pine palette, and it must not look like a stock icon.
+
+1. A closed ring, a stem, and a gold dot in the middle. At 16px it read as an exclamation point. That is an alarm. The product is a limit you set, not a warning. Rejected.
+2. A thin, almost complete ring with a small dot floating in the gap. The ring looked like a spinner, and the dot disappeared at 16px. The two parts did not belong to one shape. Rejected.
+3. A thick stroked ring with round caps and the lime dot seated on the upper end. At full size the idea was right. At 16px the right side of the ring broke into scattered pixels, the bottom turned into a cream slab, and the lime fused into the cream. It read as a blob, and the round caps made it a loading icon. Rejected.
+4. The ring became a filled band with flat radial cuts, thicker, and the gap opened to about a quarter of the circle so the dot could sit clear of the stroke. At 16px the band held together and the lime no longer melted into the cream. The opening was so wide that the mark read as a letter C with a badge on it, and the bottom of the band was heavier than the sides. Rejected.
+5. The gap narrowed to 52 degrees. The dot sits on the midline of the band, inside the opening, with pine between it and the cream. The ring is recentered so the sides and the bottom carry the same weight. The cuts stay flat, so the opening looks made, not like a round-cap spinner. The lime is only on the pine tile, where it contrasts. On the cream tile the dot is ink, because lime on cream does not. This is the mark.
 
 ## Palette
 
 | Role | Hex | Use |
 | --- | --- | --- |
 | Pine | `#1B4D3E` | Primary. App icon, hero, mark tile |
-| Pine ink | `#143D31` | The dot on a cream tile, selected text |
+| Pine ink | `#143D31` | Selected text |
 | Cream | `#F7F4EC` | Type on pine, the ring on the pine tile |
 | Page | `#ECE8DE` | Page background |
 | Ink | `#1A1814` | Text on cream |
@@ -34,7 +38,7 @@ Inter 400, 500, 600, and 700 for the interface. Outfit 600 and 700 for the wordm
 | File | Use |
 | --- | --- |
 | `dashboard/public/brand/mark.svg` | Pine tile, cream ring, lime dot. Header, loading, favicon source |
-| `dashboard/public/brand/mark-light.svg` | Cream tile, pine ring, pine dot. Light surfaces |
+| `dashboard/public/brand/mark-light.svg` | Cream tile, pine ring, ink dot. Light surfaces |
 | `dashboard/public/brand/mark-dark.svg` | Cream ring and lime dot, no tile. Dark surfaces |
 | `dashboard/public/brand/lockup-horizontal.svg` | Mark and the name on one line, for light pages |
 | `dashboard/public/brand/lockup-horizontal-dark.svg` | Same lockup, cream name, for dark pages |
@@ -46,7 +50,7 @@ Inter 400, 500, 600, and 700 for the interface. Outfit 600 and 700 for the wordm
 | `dashboard/public/brand/apple-touch-icon.png` | 180px PNG |
 | `dashboard/public/brand/app-icon-512.png` | 512px PNG |
 
-The wordmark is Outfit, drawn as paths, so it does not depend on a font being installed.
+The wordmark is Outfit, drawn as paths, so it does not depend on a font being installed. On the pine tile the dot is `#C6F36B`. On the cream tile the dot is ink `#1A1814`, because the lime accent does not hold on cream.
 
 Clear space on every side is the diameter of the lime dot. Do not close the ring, put a word inside it, or add a second accent. Do not set the mark smaller than 16px. Do not recolor the lime dot to red or amber.
 
