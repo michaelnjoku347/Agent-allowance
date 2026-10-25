@@ -1,5 +1,13 @@
 # Agent Allowance
 
+## Run it
+
+1. Clone this repo.
+2. Copy `.env.example` to `.env`.
+3. From the repo root, run `npm start`. On Windows, double-click `start.bat`. On Mac or Linux, `./start.sh` does the same thing. The dashboard opens at [http://127.0.0.1:5173](http://127.0.0.1:5173).
+
+`npm start` checks for Node.js 22, installs dependencies when they are missing, and starts the allowance server and the dashboard together. The terminal prints that dashboard URL. Blank AWS and Jev keys are optional: the app keeps running and prints a one-line notice. A funded payment still needs the keys in `.env`, and `npm run merchant` in a second terminal. That path is in Quickstart below.
+
 Would you give an AI your credit card?
 
 Agent Allowance is a spending account for an AI agent. You fund **20 RLUSD**. The agent may pay a merchant on its own only when the quote is on your allowlist, at or under a **5 RLUSD** cap, before the allowance expires, and still inside the budget. Anything else is not paid. It is saved for a person.
@@ -83,6 +91,8 @@ XRPL EVM Testnet is the chain: chain ID `1449000`, RPC `https://rpc.testnet.xrpl
 
 ## Quickstart
 
+`npm start` from [Run it](#run-it) covers the server and the dashboard. The steps below are the same setup, plus the merchant process a paid demo needs.
+
 Node.js 22.13 or newer.
 
 ```bash
@@ -117,9 +127,9 @@ Until the agent records a decision, the API serves sample rows and the dashboard
 ## Judge quickstart
 
 1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). Fund the team budget in the [participant portal](https://hackathon.ap4m.build/participant).
-2. From the repo root, with `.env` filled in, start `npm run server`, `npm run merchant`, and `npm run dashboard`.
+2. From the repo root, with `.env` filled in, run `npm start`. In a second terminal, run `npm run merchant`.
 3. Run `npm run demo`. The 1 RLUSD brief pays. The 8 RLUSD history quote waits. The unlisted desk is decline-only.
-4. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+4. The dashboard is at [http://127.0.0.1:5173](http://127.0.0.1:5173). `npm start` opens it.
 5. Under **Needs you**, approve the **8 RLUSD** row on a Ledger.
 6. Click the explorer link on that paid row.
 

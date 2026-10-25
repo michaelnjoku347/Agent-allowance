@@ -25,6 +25,8 @@ import { allowanceProposal, answerEve, confirmationSummary, createConfirmations,
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { declinePending, listPayments, listPending, readPendingRecord, readStore, spentRlusd, summarize } from './store.js';
+import { readBedrockSettings } from './bedrock.js';
+import { optionalKeyNotices } from '../scripts/start-lib.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -338,6 +340,14 @@ if (isMain) {
       : 'Serving sample payments until the agent runs.';
     console.log(`Agent Allowance API at http://127.0.0.1:${port}`);
     console.log(mode);
+    if (process.env.ALLOWANCE_NOTICES_SHOWN !== '1') {
+      for (const line of optionalKeyNotices({
+        jevKey: process.env.JEV_API_KEY,
+        bedrockConfigured: readBedrockSettings().configured,
+      })) {
+        console.log(line);
+      }
+    }
   });
   server.on('error', (error) => {
     console.error(error.message ?? error);
