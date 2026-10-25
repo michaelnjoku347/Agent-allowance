@@ -94,6 +94,14 @@ export async function requestApprovalChallenge(id) {
   return body;
 }
 
+/** Backup demo only. The server rejects this unless ALLOWANCE_DEV_SIGNER=1. */
+export async function simulateLedgerApproval(id) {
+  const response = await fetch(`/api/demo/simulated-ledger/${encodeURIComponent(id)}`, { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
+  return body;
+}
+
 export async function submitLedgerApproval(id, payload) {
   const response = await fetch(`/api/approve/${encodeURIComponent(id)}`, {
     method: 'POST',

@@ -1,56 +1,75 @@
 # Agent Allowance
 
-A spending account for an AI agent. The agent can buy market data on its own when the purchase fits the allowance. If the quote is outside the rules, it does not pay — it saves the purchase for a person to approve.
+Would you give an AI your credit card?
 
-Built for the Mastercard × XRPL hackathon on **XRPL EVM Testnet** (chain ID `1449000`), settling **RLUSD** through an AP4M x402 voucher.
+Agent Allowance is a spending account for an AI agent. You fund **20 RLUSD**. The agent may pay a merchant on its own only when the quote is on your allowlist, at or under a **5 RLUSD** cap, before the allowance expires, and still inside the budget. Anything else is not paid. It is saved for a person.
 
+Built for the Mastercard × XRPL Hackathon, Agentic Finance track. Payments are **AP4M x402** vouchers settling **RLUSD** on **XRPL EVM Testnet** (chain ID `1449000`).
+
+![Agent Allowance on a desktop browser, with 19 RLUSD left, one paid brief, and two quotes waiting](docs/dashboard-desktop.png)
+
+![The same dashboard at phone width](docs/dashboard-mobile.png)
+
+The screenshots are the local dashboard after the three demo decisions: 1 RLUSD paid inside the rules, 8 RLUSD waiting on the cap, and an unlisted merchant waiting for a person. A funded live run fills in the testnet transaction and the AP4M receipt. The [90-second backup video](docs/demo-backup.mp4) uses a **simulated Ledger signature**, labeled on screen, for the approval step.
+
+Pitch and click-path: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+## Problem
+
+An agent that can pay for data is useful. An agent holding a card is not. The useful version needs a budget, a merchant list, a per-purchase cap, and an expiry, all checked before any signature. A person should be able to allow one exception without handing the agent the keys.
+
+## How it works
+
+1. **Rules, first.** `agent/rules.json` holds the allowance: 20 RLUSD budget, 5 RLUSD per purchase, an expiry, and an allowlist. `checkRules` reads the merchant's HTTP 402 quote and stops at the first failure: expired, merchant not allowed, over the cap, or over the budget. Nothing is signed on a failure.
+2. **Jev, second.** Jev reviews a quote only after the rules allow it. A high risk score, a low "needed" score, or a review flag saves the quote. If Jev is down, the rules still decide and the row says so. Jev cannot spend past a rule.
+3. **AP4M x402, when the quote is inside the allowance.** The agent reuses an open Channel, signs one voucher with `buyResource`, and the merchant redeems it on XRPL EVM Testnet. The dashboard keeps the transaction hash, claim id, receipt URL, and explorer link. The Channel stays open for the next payment. Voucher amounts are the running total on that Channel.
+4. **Amazon Bedrock writes; it does not spend.** When Bedrock is configured, the agent asks it for a purchase plan (what the quoted resource is for, and why it fits). Eve, the dashboard assistant, asks Bedrock first. The plan is stored on the row. The rules and Jev still decide.
+5. **Ledger, for one exception.** An out-of-rule quote waits under **Needs you**. Approving it asks a Ledger Ethereum app, over Chrome WebHID, to sign an EIP-712 `ApprovePurchase` message: purchase id, merchant, amount, and expiry. The server rebuilds that message, checks the signature recovers to `APPROVER_ADDRESS`, and checks it matches that quote and has not expired or been used. Only then does the same x402 path pay that quote once. The signature can pass the allowlist and the cap. It cannot pass an expired allowance or a budget that is already spent. Eve cannot approve a purchase.
+
+```mermaid
+flowchart LR
+  person[Person]
+  dash[Dashboard]
+  api[Allowance API]
+  eve[Eve]
+  bedrock[Amazon Bedrock]
+  agent[Agent]
+  rules[Allowance rules]
+  jev[Jev]
+  merchant[x402 merchant]
+  ap4m[AP4M on XRPL EVM Testnet]
+  ledger[Ledger]
+
+  person --> dash
+  dash --> api
+  dash --> eve
+  eve --> bedrock
+  api --> agent
+  agent --> bedrock
+  agent --> rules
+  rules -->|quote is inside the allowance| jev
+  jev -->|allow| merchant
+  rules -->|quote is outside the allowance| dash
+  merchant --> ap4m
+  dash -->|out-of-rule approval| ledger
+  ledger -->|EIP-712 ApprovePurchase| api
+  api -->|pay that quote once| merchant
 ```
-agent/        rules and the x402 payer
-merchant/     sells market data at GET /resource
-server/       local API and the JSON ledger
-dashboard/    budget, rules, payments, and approvals
-demo/         three purchases: one paid, two blocked
-```
 
-## Run
+## How each sponsor is used
 
-Use four terminals, from the repo root, after the setup below.
+| Sponsor | What it does in this project |
+| --- | --- |
+| Agentic Finance track | The agent spends inside a funded allowance. Rules run before any signature, so the agent never holds a card. |
+| Mastercard AP4M | x402 `PAYMENT-REQUIRED` quotes, an RLUSD Channel, one voucher per allowed purchase, redemption, settlement, and a receipt URL from the hackathon service. |
+| Ledger | A person approves one out-of-rule quote on a Ledger Ethereum app. The device signs EIP-712 `ApprovePurchase` over WebHID. `shared/erc7730-approve-purchase.json` is the clear-signing descriptor. The server checks the signer, the quote, the expiry, and replay. |
+| AWS | Amazon Bedrock (Converse API) writes Eve's open-ended replies and the agent's purchase plan. Bedrock does not approve, deny, or sign a payment. With no AWS credentials, Eve uses a built-in parser and the agent decides from the rules and Jev. |
 
-```bash
-npm run server
-```
+XRPL EVM Testnet is the chain: chain ID `1449000`, RPC `https://rpc.testnet.xrplevm.org`, gas in test XRP from the [faucet](https://faucet.testevm.ripple.com). RLUSD has 18 decimals. This project refuses to run if the AP4M service reports another chain.
 
-Allowance API at [http://127.0.0.1:8787](http://127.0.0.1:8787). Until the agent records a real decision, the ledger is sample data. The first real payment or blocked quote replaces those rows.
+## Quickstart
 
-```bash
-npm run merchant
-```
-
-Sells market data at [http://127.0.0.1:4308/resource](http://127.0.0.1:4308/resource) for 1 RLUSD. A request with no voucher gets HTTP 402 and the payment requirements. A signed voucher is redeemed on XRPL EVM Testnet and the response is the market data. Payout is `MERCHANT_PAYOUT_ADDRESS`.
-
-```bash
-npm run dashboard
-```
-
-Dashboard at [http://127.0.0.1:5173](http://127.0.0.1:5173). It polls the API every 3 seconds and shows only real rows. Until the agent records a purchase, Home says what to do next. Paid rows link to the [XRPL EVM Testnet explorer](https://explorer.testnet.xrplevm.org). Open a row for the rule checks, Jev's decision, the claim, the receipt, and the explorer link. Eve is the third tab, and the mic button opens her from anywhere.
-
-```bash
-npm run demo
-```
-
-Runs three purchases, in order, and prints one line each:
-
-1. **1 RLUSD** from the allowed merchant (`GET /resource`) → paid. The line includes the tx hash, claim id, receipt URL, and explorer link.
-2. **8 RLUSD** from that same merchant → `blocked over per-purchase cap — saved for approval`. Nothing is signed.
-3. **1 RLUSD** from a merchant that is not on the allowlist → `blocked merchant not allowed — saved for approval`. Nothing is signed.
-
-The blocked quotes are saved under **Needs you**. Approving one asks for a Ledger signature, then pays that quote once. See [Ledger approval](#ledger-approval).
-
-## Setup
-
-- Node.js 22.13 or newer
-- A team onboarded at [hackathon.ap4m.build/participant](https://hackathon.ap4m.build/participant): Agent wallet and Merchant added, budget funded
-- Test XRP for gas from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com), on both the agent wallet and the merchant submitter
+Node.js 22.13 or newer.
 
 ```bash
 npm install
@@ -58,185 +77,87 @@ npm install --prefix dashboard
 cp .env.example .env
 ```
 
-Fill in `.env` (it is gitignored — do not commit it):
+Fill `.env` on your machine. It is gitignored. Do not commit it, and do not paste keys into the dashboard. The service only ever receives signatures.
+
+Team onboarding (agent wallet, merchant, funded budget) is done in the [participant portal](https://hackathon.ap4m.build/participant), not in this repo.
+
+Four terminals, from the repo root:
+
+```bash
+npm run server      # http://127.0.0.1:8787
+npm run merchant    # http://127.0.0.1:4308/resource
+npm run dashboard   # http://127.0.0.1:5173
+npm run demo        # one paid purchase, two saved quotes
+```
+
+`npm run demo` expects `MERCHANT_PAYOUT_ADDRESS` to be listed in the rules the agent loads. The committed sample allowlist is in `agent/rules.json`. To point the rules at your own payout without editing that file:
+
+```bash
+npm run setup:payments -- --from /path/to/payment-starter --use-agent-as-submitter
+```
+
+That writes gitignored `.env` values and `agent/rules.local.json`. It does not move funds.
+
+Until the agent records a decision, the API serves sample rows and the dashboard shows an empty board with the full 20 RLUSD still unspent. Sample rows are a preview. They are not spent, and they cannot be approved.
+
+### Environment
 
 | Variable | What it is |
 | --- | --- |
 | `AGENT_PRIVATE_KEY` | Agent wallet. Signs vouchers. Never commit it. |
 | `AP4M_API_URL` | `https://hackathon.ap4m.build` |
-| `TEAM_NAME` | Your registered team name |
-| `CHANNEL_ID` | Optional. Leave blank to reuse an open Channel, or to open one. |
-| `MERCHANT_PAYOUT_ADDRESS` | Where the merchant is paid. Also add this address to `allowedMerchants` in `agent/rules.json`. |
+| `TEAM_NAME` | Team name, as registered. |
+| `CHANNEL_ID` | Optional. Blank reuses an open Channel, or opens one. |
+| `MERCHANT_PAYOUT_ADDRESS` | Where RLUSD is paid. Also allowlist this address. |
 | `RESOURCE_URL` | `http://127.0.0.1:4308/resource` |
-| `MERCHANT_ID` | Your Merchant id from the participant portal |
-| `MERCHANT_SUBMITTER_KEY` | Wallet that submits redemptions. Needs test XRP. Never commit it. |
-| `JEV_API_KEY` | Optional. From thejevai.com, account settings, API Keys. Blank means the rules decide alone. |
+| `MERCHANT_ID` | Merchant id from the participant portal. |
+| `MERCHANT_SUBMITTER_KEY` | Submits redemptions. Needs test XRP. Never commit it. |
+| `APPROVER_ADDRESS` | Public Ethereum address of the Ledger account that may approve one quote. Not a key. |
+| `JEV_API_KEY` | Optional. Blank means the rules decide alone. |
 | `JEV_API_URL` | Optional. `https://thejevai.com`, or a self-hosted Kev URL. |
 | `JEV_MODEL` | Optional. Defaults to `typesafe/jev-1.13`. |
-| `LLM_API_KEY` | Optional. Eve's fallback model. Stays on the server. |
-| `LLM_BASE_URL` | Optional. OpenAI-compatible base URL, such as `https://api.openai.com/v1`. |
-| `LLM_MODEL` | Optional. Model name for that endpoint. |
-| `APPROVER_ADDRESS` | Ledger Ethereum address that may approve an out-of-rule purchase. Public address only. |
-| `AWS_REGION` | Optional. Bedrock region. `AWS_DEFAULT_REGION` is used when this is blank. |
-| `BEDROCK_MODEL_ID` | Optional. Bedrock model id, such as `us.amazon.nova-micro-v1:0`. |
-| `AWS_BEARER_TOKEN_BEDROCK` | Optional. Bedrock API key. Never commit it. |
-| `AWS_ACCESS_KEY_ID` | Optional. Standard AWS key, used when the bearer token is blank. Never commit it. |
-| `AWS_SECRET_ACCESS_KEY` | Optional. Pairs with `AWS_ACCESS_KEY_ID`. Never commit it. |
+| `AWS_REGION` | Optional Bedrock region. `AWS_DEFAULT_REGION` is used when this is blank. |
+| `BEDROCK_MODEL_ID` | Optional. For example `us.amazon.nova-micro-v1:0`. |
+| `AWS_BEARER_TOKEN_BEDROCK` | Optional Bedrock API key. Never commit it. |
+| `AWS_ACCESS_KEY_ID` | Optional. Used when the bearer token is blank. Never commit it. |
+| `AWS_SECRET_ACCESS_KEY` | Optional. Pairs with the access key. Never commit it. |
+| `LLM_API_KEY` | Optional fallback for Eve. Stays on the server. |
+| `LLM_BASE_URL` | Optional OpenAI-compatible base URL. |
+| `LLM_MODEL` | Optional model name for that endpoint. |
+| `ALLOWANCE_DEV_SIGNER` | Leave unset. Set to `1` only for the labeled backup demo in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). |
 
-The merchant listens on `MERCHANT_PORT` (4308). `PORT` (8787) is only the allowance API.
+`PORT` (8787) is the allowance API. `MERCHANT_PORT` (4308) is the merchant. They are different processes.
 
-`MERCHANT_PAYOUT_ADDRESS` has to be in `agent/rules.json` or the 1 RLUSD sale is saved instead of paid, and the 8 RLUSD quote fails the allowlist instead of the cap. Use setup:payments to create the local merchant rules, or edit your configured ALLOWANCE_RULES file. Leave the committed sample rules unchanged.
-
-The AP4M helpers in `agent/` come from the hackathon service. This project is ESM, so `agent/agent.js` loads the CommonJS helper with `createRequire`. Refresh the helpers if the kit changes:
+## Tests and build
 
 ```bash
-curl -fsSL -o agent/ap4m-hackathon-sdk.cjs https://hackathon.ap4m.build/sdk/ap4m-hackathon-sdk.cjs
-curl -fsSL -o agent/ap4m-x402.mjs https://hackathon.ap4m.build/sdk/ap4m-x402.mjs
-npm install ethers@6.17.0 https://hackathon.ap4m.build/sdk/ap4m-sdk.tgz
+npm test
+npm --prefix dashboard run build
 ```
 
-## Combine the tested payments with the team app
-
-The standalone payment reference was merged in PR #5 and subsequently removed by the team to avoid duplicate implementations. The integrated app uses the same AP4M service and merchant, and writes decisions and receipts into the dashboard API's local ledger.
-
-After installing the root and dashboard dependencies, reuse the settings from the working payment-starter folder. This setup only writes local, gitignored configuration; it does not transfer funds:
-
-```powershell
-npm.cmd run setup:payments -- --from "C:\Users\amanp\Documents\Codex\2026-10-24\i-am-doing-xrp-hackothon-with-5\outputs\payment-starter" --use-agent-as-submitter
-```
-
-The explicit submitter flag preserves the existing local demo arrangement: the agent/funding wallet submits the merchant redemption and pays its gas; RLUSD still goes to the separate merchant wallet. A separate MERCHANT_SUBMITTER_KEY in the local settings takes precedence. The setup does not register a different agent or change AP4M's budget.
-
-Setup writes the registered merchant ID and payout into .env and creates agent/rules.local.json with that payout allowed. The agent and API both use ALLOWANCE_RULES to load that local file. The committed sample rules stay available for tests and preview data. Existing custom rules are not overwritten.
-
-Stop the standalone merchant on port 4308 before starting the integrated merchant. Then use four terminals, all from the repository root:
-
-```powershell
-npm.cmd run server
-npm.cmd run merchant
-npm.cmd run dashboard
-npm.cmd run demo
-```
-
-The first three commands are long-running services; run one per terminal. The fourth performs one real 1 RLUSD purchase and saves two blocked quotes. Open http://127.0.0.1:5173 to watch the dashboard. A receipt distinguishes a recorded payout from redemption whose settlement is still processing.
-
-The local dashboard budget counts integrated purchases recorded in its ledger, not every historical payment from the AP4M funding account. Earlier standalone transactions remain in the original local payment starter and PR #5 history; they are not silently added as newly purchased data.
-
-### Recovery and contract-cap proof
-
-If an x402 payment response is lost before purchase completion, the integrated payer reuses the retained channel, operation and price. It refuses a different wallet/resource/channel while that purchase is unresolved. Each redemption is recorded by transaction hash, so saving settlement evidence again cannot double-count local spend. Changing the task after a completed purchase starts a new purchase.
-
-The 8 RLUSD demo quote demonstrates a local rule block. To separately test the on-chain channel cap:
-
-```powershell
-npm.cmd run test:channel-cap -- --open --close
-```
-
-This opens a 5 RLUSD test channel (uses test XRP gas), simulates an in-cap voucher and a 6 RLUSD cumulative voucher against the same block, and requires the second to return contract revert data. Neither payment is broadcast. It checks that redeemed state and merchant balance stay unchanged, writes a JSON result under agent/receipts/, and requests channel closure. A network failure, a closed channel, or a failed in-cap control does not count as a passing result. This command is prepared and tested with mocks; the team still needs to run it live on testnet.
-
-AWS deployment remains a separate team integration. Out-of-rule quotes are paid only after a Ledger signature, described below.
-
-## How a purchase is decided
-
-When Bedrock is configured, the agent asks it for a purchase plan before anything is signed: what the quoted resource is for, and why it fits the task. The plan is saved on the row. `checkRules` and Jev still decide whether it is paid.
-
-1. The agent reuses an open Channel, or opens one, then `GET`s `RESOURCE_URL` with the Channel id. It does not send a payment signature yet.
-2. The merchant answers **402** with the price and payout.
-3. `checkRules` looks at that quote. The first failure wins:
-   - **expired** — the allowance date has passed
-   - **merchant not allowed** — the payout is not in `agent/rules.json`
-   - **over per-purchase cap** — the price is above 5 RLUSD
-   - **over budget** — paying would take the running total above 20 RLUSD
-4. **allow** — Jev reviews the quote. If Jev is unavailable, the rules still pay and the record says "Jev unavailable — rules only". If Jev's review score is 0.5 or higher, the purchase looks unnecessary (needed under 0.4), or the risk is 4/5 or 5/5, the quote is saved as **Jev flagged for review** and nothing is paid. Otherwise `buyResource` signs one x402 voucher and the merchant returns the market data. The agent reports the redemption, settles, and saves the tx hash, claim id, receipt URL, and explorer link. The Channel stays open for the next purchase.
-5. **needs_approval** — the quote is written to the local ledger and nothing is paid. The rules always win: Jev cannot allow a quote the rules blocked. A person can approve that one quote on a Ledger. The signature can pass the merchant allowlist and the per-purchase cap. It cannot pass an expired allowance or a budget that is already spent.
-
-## Ledger approval
-
-An out-of-rule quote stays unpaid until a person confirms it on a Ledger. The dashboard connects with the [Ledger Device Management Kit](https://developers.ledger.com/docs/device-interaction/getting-started) and the Ethereum signer over Chrome **WebHID**. The device signs an EIP-712 `ApprovePurchase` message: purchase id, merchant, amount, and expiry. The server rebuilds that message, checks the signature recovers to `APPROVER_ADDRESS`, and checks it matches the pending quote and has not expired or been used. Only then does the existing AP4M x402 path pay that exact quote once.
-
-[Ledger Agent Intent](https://developers.ledger.com/docs/ai-tools/agent-intent) was not used. It is a hosted queue for real Ethereum and Solana sends and swaps. It does not sign this approval, and it does not settle RLUSD on XRPL EVM Testnet.
-
-The Ethereum app receives the typed fields (not a hash). `shared/erc7730-approve-purchase.json` is the ERC-7730 descriptor for those fields. This app does not call Ledger's registry, so the device shows the raw field names and values. On some firmware the Ethereum app also asks you to allow blind signing before it will display a message that is not in the registry. Allow that only when the four values match the sheet.
-
-Jev still cannot approve a quote the rules blocked. Eve cannot sign one either.
-
-### Demo on a real device
-
-1. Use Chrome, Edge, or Brave. Safari and Firefox have no WebHID.
-2. Install the Ethereum app on a Ledger Nano X, Nano S Plus, Nano Gen5, Stax, or Flex. Unlock the device and plug it in.
-3. In the Ethereum app, find the account at `44'/60'/0'/0/0`. Put that public address in `.env` as `APPROVER_ADDRESS`. You can instead set `approverAddress` in the rules file; the environment variable wins. Restart the API after either change.
-4. Fund the agent wallet with test XRP. From the repo root, in four terminals: `npm run server`, `npm run merchant`, `npm run dashboard`, then `npm run demo`.
-5. Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The 8 RLUSD quote and the unlisted merchant are under **Needs you**.
-6. Choose **Approve with Ledger**. The dark panel is what the device will show: `purchaseId`, `merchant`, `amount`, and `expiry`.
-7. Choose **Connect Ledger**, pick the device, and open the Ethereum app if the device asks. Confirm on the device only if those four values match the panel.
-8. The agent pays that quote once through x402. Submitting the same signature again is rejected. The other blocked quote is still unpaid until it gets its own confirmation.
-
-The dashboard has no stand-in for the device. Automated tests sign with `server/dev-signer.js`, which is labeled for tests, is not an API, and is not loaded by the dashboard.
-
-A single purchase that is inside the rules:
-
-```bash
-npm run agent -- "Buy the morning market brief"
-```
-
-A dropped connection (`fetch failed`) is retried up to 3 times. An HTTP error is not retried, so a payment is not sent twice.
+The tests cover the rules, a 402 read with no payment signature, a 1 RLUSD record, an 8 RLUSD block, an unlisted-merchant block, a Ledger signature that pays once, replay and mismatched-signer rejection, Jev not overriding a blocked rule, Eve confirming a cap change and not approving a purchase, a mocked Bedrock plan that cannot pay a held quote, and the backup demo signer staying off unless `ALLOWANCE_DEV_SIGNER=1`.
 
 ## API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/status` | Budget, spent, remaining, rules |
-| GET | `/api/payments` | Tx hash, merchant, amount, status |
-| GET | `/api/pending` | Purchases waiting for approval, including the Jev record |
+| GET | `/api/payments` | Payments, with hash, merchant, amount, and status |
+| GET | `/api/pending` | Quotes waiting for a person |
 | POST | `/api/approve/:id/challenge` | EIP-712 payload for the Ledger |
-| POST | `/api/approve/:id` | Verify a Ledger signature and pay that quote once |
+| POST | `/api/approve/:id` | Check a Ledger signature and pay that quote once |
 | POST | `/api/decline/:id` | Record a decline. Nothing is signed or paid |
-| POST | `/api/eve` | Ask Eve. A change comes back as a confirmation, not an edit |
+| POST | `/api/eve` | Ask Eve. A change comes back as a confirmation |
 | POST | `/api/eve/confirm` | Apply a confirmation token Eve just issued |
 | POST | `/api/run-agent` | Start one purchase against `RESOURCE_URL` |
 
-The ledger file is `server/data/store.json`. It is created on first run and is not committed. Merchant state (`merchant/state/`) and agent purchase state (`agent/state/`) are not committed either.
-
-## Tests
-
-```bash
-npm test
-```
-
-That checks the rules, that a 402 is read without a payment signature, that 1 RLUSD can be recorded, that 8 RLUSD and an unlisted merchant are saved without paying, that a Ledger signature pays once and a replay, a mismatched amount or merchant, or the wrong signer does not, that Jev cannot override a blocked rule, that Eve confirms a cap change and cannot approve a purchase, and that a mocked Bedrock plan cannot pay a quote the rules or Jev held back.
-
-## Jev and Eve
-
-Jev looks at a purchase only after the rules allow it. Set `JEV_API_KEY` from [thejevai.com](https://thejevai.com) (account settings, then API Keys). `JEV_API_URL` defaults to `https://thejevai.com`. Point it at a self-hosted Kev server if you run one; the API is the same. With no key, a timeout, or an error, the agent pays on the rules and records "Jev unavailable — rules only". The dashboard card shows Needed, Risk (1–5), and Human review, plus whether the source was Jev, Kev, or the rules.
-
-Eve is the assistant in the dashboard. She can say what was spent today and why the last quote was blocked. Declining, or changing the cap or budget, returns a confirmation card. Nothing changes until you press Confirm, or say "yes" or "confirm" while that card is on screen. She cannot approve a purchase. That happens on the Ledger. Voice input uses the browser speech API in Chrome, Edge, and Safari. Firefox has no speech recognition, so Eve hides the mic and asks you to type. When Bedrock is configured, Eve asks Bedrock first. `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` are an optional fallback and stay on the server. Without Bedrock or those settings, Eve uses a built-in parser.
-
-## AWS Bedrock
-
-Eve's replies and the agent's purchase plan run on Amazon Bedrock when it is configured. Bedrock writes the words. The allowance rules still block a quote outside the cap, the budget, the merchant list, or the expiry, and Jev still reviews risk after the rules allow a quote. A Ledger signature is the only way past the merchant list or the per-purchase cap, and it still stops at the budget and the expiry. With the variables below blank, Eve uses the built-in parser (or `LLM_*` when that key is set) and the agent decides from the rules and Jev alone.
-
-1. In the Bedrock console, turn on model access for the model you want, in the same region as `AWS_REGION`.
-2. Add the variables to `.env`. That file is gitignored. Use either a Bedrock API key or standard AWS keys.
-
-```bash
-AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=us.amazon.nova-micro-v1:0
-AWS_BEARER_TOKEN_BEDROCK=
-```
-
-`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional `AWS_SESSION_TOKEN` work in place of the bearer token. `AWS_DEFAULT_REGION` counts when `AWS_REGION` is blank, so the Python planner's region variable still applies. When both a bearer token and access keys are set, the bearer token is used.
-
-3. Restart `npm run server` and the agent. Ask Eve a question that is not one of her short commands, such as "Does a weather brief fit this allowance?". The dashboard shows **Powered by Amazon Bedrock** under a reply only when Bedrock produced it. The same line appears on an activity row's purchase plan.
-
-The Python files in `ai_agent/` stay as the reference planner. `python ai_agent/bedrock_check.py` still checks the OpenAI-compatible Bedrock endpoint with `AWS_BEARER_TOKEN_BEDROCK` and `AWS_DEFAULT_REGION`. The live app calls the Converse API from Node (`server/bedrock.js`, `agent/planner.js`). `BEDROCK_MODEL_ID` is a Bedrock model id. It is a different string from the Python demo's `mistral.devstral-2-123b`.
+The ledger file is `server/data/store.json`. It is created on first run and is not committed.
 
 ## Safety
 
-- The agent key, the merchant submitter key, `JEV_API_KEY`, and `LLM_API_KEY` stay in `.env`. They are not committed and they are not sent to the browser.
-- `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` stay in `.env` as well. Bedrock receives the task and the allowance context, not the wallet key.
-- The key is only used to sign. It is not sent to the AP4M service.
-- This project targets XRPL EVM Testnet only. The agent stops if the service reports another chain id.
-- Do not send RLUSD or XRP straight to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
-If another merchant already uses port 4308, choose a free MERCHANT_PORT and update RESOURCE_URL to the same port. Set MERCHANT_STATE_DIRECTORY to a separate local folder such as merchant/state-4309 when changing the merchant resource URL; keep the original state for recovery. Restart the API after local environment changes.
-
-If WebShield blocks the testnet RPC with URL:Blacklist, the live payment has not succeeded. Have the hackathon staff or security administrator review that classification before retrying. Keep the dashboard marked Sample until real decisions are recorded.
+- Private keys and API keys stay in `.env`. They are not committed, not logged, and not sent to the browser.
+- The agent key is used to sign. It is not sent to the AP4M service.
+- Do not send RLUSD or XRP to the vault or ledger contracts. Channels and vouchers go through the AP4M kit.
+- Operator, PSP, payout, release, and admin keys belong to the service. This repo does not configure them.
+- Testnet only. The agent stops if the service reports another chain id.
+- `ALLOWANCE_DEV_SIGNER` is off by default. The dashboard does not contain the dev signer. With the flag on, the approval button is labeled **simulated Ledger signature** and no voucher is broadcast.

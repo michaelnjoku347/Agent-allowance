@@ -237,6 +237,11 @@ export default function App() {
             <ThemeControl theme={theme} setTheme={setTheme} />
           </header>
           <p className="lede">Each purchase is checked against your rules before it is paid.</p>
+          {snapshot?.simulatedLedger ? (
+            <p className="sim-banner sim-banner-page" role="status">
+              Backup demo only. simulated Ledger signature. This is not a Ledger device and it does not broadcast a voucher.
+            </p>
+          ) : null}
 
           <main id="main" tabIndex={-1}>
             {connection === 'loading' && !snapshot ? <Skeletons /> : null}
@@ -446,7 +451,7 @@ export default function App() {
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
       {approval ? (
         <Sheet title="Approve with Ledger" onClose={() => setApproval(null)}>
-          <LedgerApproval item={approval} onPaid={load} />
+          <LedgerApproval item={approval} onPaid={load} simulated={Boolean(snapshot?.simulatedLedger)} />
         </Sheet>
       ) : null}
       {detail ? (
@@ -640,7 +645,10 @@ function ActivityList({ items, onOpen, empty, explorer }) {
               </span>
               <span className="amount">{money(item.amount)} RLUSD</span>
             </button>
-            {item.status === 'paid' ? <ReceiptCard item={item} explorer={explorer} /> : null}
+            {item.status === 'paid' && (item.txHash || item.payoutTx || item.receiptUrl) ? (
+              <ReceiptCard item={item} explorer={explorer} />
+            ) : null}
+            {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
           </li>
         );
       })}
@@ -666,6 +674,7 @@ function Detail({ item, currency }) {
       <p className="detail-name">{name}</p>
       <p className="meta"><code>{item.merchant}</code></p>
       <p className="meta">{when(item.createdAt)}</p>
+      {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
       {item.plan?.source === 'bedrock' && item.plan.reason ? (
         <div className="plan">
