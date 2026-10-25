@@ -2728,32 +2728,6 @@ body.has-overlay .toasts {
   100% { opacity: 1; }
 }
 
-.hero-watermark {
-  position: absolute;
-  left: -120px;
-  bottom: -150px;
-  width: 340px;
-  height: 340px;
-  pointer-events: none;
-  fill: none;
-  stroke: color-mix(in srgb, var(--on-pine) 5%, transparent);
-  stroke-width: 14;
-  animation: watermark-turn 90s linear infinite;
-}
-
-.hero-watermark path {
-  stroke: color-mix(in srgb, var(--accent) 16%, transparent);
-  stroke-linecap: round;
-}
-
-.board-hero > :not(.hero-watermark) {
-  position: relative;
-}
-
-@keyframes watermark-turn {
-  to { transform: rotate(360deg); }
-}
-
 /* Disabled controls: quiet and solid, never dashed. */
 .btn:disabled,
 .chip:disabled {
@@ -2803,7 +2777,6 @@ body.has-overlay .toasts {
 @media (prefers-reduced-motion: reduce) {
   .gauge .ring-value,
   .gauge circle.ring-dot,
-  .hero-watermark,
   .toast {
     animation: none;
   }

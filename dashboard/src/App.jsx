@@ -879,11 +879,6 @@ export default function App() {
                   </section>
                 ) : null}
                 <section className="card hero board-hero" aria-labelledby="allowance-title">
-                  <svg className="hero-watermark" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
-                    <circle cx="100" cy="100" r="92" />
-                    <circle cx="100" cy="100" r="70" />
-                    <path d="M100 8 A92 92 0 0 1 187 70" />
-                  </svg>
                   <div className="hero-main">
                     <div className="hero-copy">
                       <h2 id="allowance-title" className="eyebrow">{snapshot.profile?.agentName ? `${snapshot.profile.agentName} · left to spend` : 'Left to spend'}</h2>

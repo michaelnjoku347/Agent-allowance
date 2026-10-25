@@ -2,6 +2,10 @@
 
 Scripted path for a funded XRPL EVM Testnet run. Do not invent transaction hashes. If this environment has no funded wallet, leave the TODO lines below.
 
+## No setup: the hosted demo
+
+If the team has deployed it ([docs/DEPLOY.md](DEPLOY.md)), open the link. You get a private sandbox with the sample rows, so nothing you click reaches another judge. Click **Run agent** three times to watch a 0.01 RLUSD brief paid inside the rules, a 0.08 RLUSD quote held for approval, and an unlisted desk blocked. Approve the held quote with the **simulated Ledger signature** (labeled on every screen; nothing is broadcast), try **Freeze**, ask Eve anything, and use **Reset my demo** to start over.
+
 ## Quickstart
 
 1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). Fund the team budget in the [participant portal](https://hackathon.ap4m.build/participant).

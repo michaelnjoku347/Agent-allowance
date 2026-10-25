@@ -74,16 +74,16 @@ The payment path lights Agent, stops at Rules, and leaves Ledger, XRPL, and the 
 
 ## 2:40 — Ledger approves 0.08 RLUSD, Eve refuses the raise (Trust and technical)
 
-> Second purchase. Same merchant. Eight RLUSD of history. The cap is five, so the agent does not sign. A person can, on a Ledger. The agent still cannot raise its own cap.
+> Second purchase. Same merchant. Eight cents of history. The cap is five cents, so the agent does not sign. A person can, on a Ledger. The agent still cannot raise its own cap.
 
-1. Under **Needs you**, find the **8.00 RLUSD** card. The reason reads **This is over the per-purchase cap.** The merchant is on the allowlist, so Ledger can approve this one quote.
-2. Hand the Ledger to the judge if they want to press it. Click **Approve with Ledger**.
+1. Under **Needs you**, find the **0.08 RLUSD** card. The chip reads **Over cap by 0.03**. The merchant is on the allowlist, so a Ledger can approve this one quote.
+2. Hand the Ledger to the judge if they want to press it. Click **Review and approve**. The **Why this needs you** panel names the rule, the price, the cap, how far over it is, and exactly what the Ledger signs.
 3. Read the dark panel out loud. It shows the amount as `0.08 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor. Confirm only when the panel matches this quote.
-4. Click **Connect Ledger**. Wait until the sheet says the quote was approved and paid once. Click **Close**.
+4. Click **Approve 0.08 RLUSD** and confirm on the device. Wait until the sheet says the quote was approved and paid once. Click **Close**.
 5. Click the explorer link on that paid row.
-6. Open Eve and type `Set my cap to 8`. She refuses. A Ledger `SetAllowance` signature is required. The allowance file does not change.
+6. Open Eve and type `Set my cap to 0.08`. She says she cannot change the allowance and opens the Rules editor with 0.08 drafted, marked **Ledger signs**. The allowance file does not change until you save and sign.
 
-> One signature, one redemption, and it cannot be replayed. Eve can explain a block. She cannot raise the cap.
+> One signature, one redemption, and it cannot be replayed. Eve can explain anything and open the right screen. She cannot raise the cap.
 
 Do not freeze before this step. A frozen agent will not take the Ledger payment.
 
@@ -93,7 +93,7 @@ The unlisted 0.01 RLUSD card, if it is on screen, has **Decline only**. There is
 
 > If I want it to stop, it stops. Freeze stops signing, and it asks the payment service to close the channel. After that, the agent cannot sign another voucher on that channel.
 
-1. Click **Freeze agent**. Read the banner. If a wallet and an open channel were configured, it says the payment channel is closed. If they were not, it says signing has stopped and it does not claim the channel closed. Either way, **Run agent** will not start a payment.
+1. Click **Freeze**. Read the banner. If a wallet and an open channel were configured, it says the payment channel is closed. If they were not, it says signing has stopped and it does not claim the channel closed. Either way, **Run agent** will not start a payment.
 2. Do not unfreeze during the five minutes unless you still need the Ledger step. Unfreeze does not reopen a closed channel.
 3. Point at [docs/PATH_TO_PRODUCTION.md](PATH_TO_PRODUCTION.md). The laptop path is `npm start`. The container path is `npm run ship` after Docker is installed. Do not start that build during the five minutes. The production plan is KMS or Secrets Manager for the agent key, DynamoDB for the ledger, Bedrock by IAM role, and RLUSD mainnet only after the payment service publishes that chain id.
 
@@ -115,7 +115,7 @@ Then either:
 - Show it live, only as a labeled fallback:
   1. Stop the API. Start it again with `ALLOWANCE_DEV_SIGNER=1 npm run server`. Leave the merchant and the dashboard running. Refresh the page.
   2. A banner at the top says **simulated Ledger signature**.
-  3. Click **Approve with Ledger** on the 0.08 RLUSD card. The sheet repeats **simulated Ledger signature**. There is no **Connect Ledger** button. The unlisted card has no approve button.
+  3. Click **Review and approve** on the 0.08 RLUSD card. The sheet repeats **simulated Ledger signature**. The unlisted card has no approve button.
   4. Click **simulated Ledger signature**. The new paid row carries the same label.
   5. Say again that this key is throwaway and nothing was broadcast. Stop the API and start it without the flag before any real Ledger attempt.
 
@@ -127,8 +127,8 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 | --- | --- |
 | The paid **morning market brief** row, then the explorer link, then **Close** | Technical execution. Do this before the blocked prompt. |
 | **Show a blocked prompt**, then read the card | Trust. Injected text, the planner's choice, the rule, 0.00 RLUSD moved. |
-| **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | The judge can press the Ledger. Do this before Freeze. |
-| Eve: `Set my cap to 8` | She refuses. A Ledger SetAllowance signature is required. |
+| **Review and approve** on the **0.08 RLUSD** card, then **Approve 0.08 RLUSD**, then the explorer link | The judge can press the Ledger. Do this before Freeze. |
+| Eve: `Set my cap to 0.08` | She cannot change it; she opens the editor with the draft, marked Ledger signs. |
 | **Freeze agent** | After the Ledger step. Read whether the channel actually closed. |
 | **This allowance** presets | Optional. One sentence. Do not rewrite the rules, and do not click them unless you have time. |
 | **Export JSON** | Optional. The audit trail is under the blocked-prompt card if a judge asks. |
