@@ -12,15 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg?v=6" />
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png?v=6" />
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png?v=6" />
-    <script>
-      try {
-        var theme = localStorage.getItem('allowance-theme') || 'light';
-        document.documentElement.dataset.theme = theme;
-        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', dark ? '#121411' : '#1B4D3E');
-      } catch (e) {}
-    </script>
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

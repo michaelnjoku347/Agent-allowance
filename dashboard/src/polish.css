@@ -2815,3 +2815,46 @@ body.has-overlay .toasts {
   outline-offset: -2px;
   border-radius: var(--r-2);
 }
+
+/* Hosted public demo */
+.public-demo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 10px 16px;
+  border-radius: var(--r-3);
+  background: var(--pine-soft);
+  color: var(--ink);
+}
+
+.public-demo p {
+  margin: 0;
+  font-size: var(--fs-2);
+}
+
+.public-demo .demo-tag {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--pine);
+  color: var(--on-pine);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .public-demo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .public-demo .demo-tag {
+    justify-self: start;
+  }
+  .public-demo .btn {
+    justify-self: start;
+    padding-inline: 0;
+  }
+}

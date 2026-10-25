@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchHealth, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { declinePurchase, fetchHealth, fetchSnapshot, resetDemo, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
 import { backoffDelay, describeConnection, failureKind } from './connection.js';
 import { freezeControl, freezeNotice, freezeResult } from './freeze.js';
 import { handleMenuKey } from './menuKeys.js';
@@ -547,9 +547,10 @@ export default function App() {
     setRunNote('');
     try {
       const body = await runAgent('Buy the morning market brief');
-      const note = body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
+      const note = body.simulated ? body.line : body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
       setRunNote(note);
-      if (body.ok) pushToast('The agent started.');
+      if (body.ok) pushToast(body.simulated ? body.line : 'The agent started.');
+      if (body.simulated) load();
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
     }
@@ -818,7 +819,31 @@ export default function App() {
             {frozenNotice ? (
               <FreezeBanner notice={frozenNotice} onUnfreeze={() => onFreeze(false)} disabled={freezeDisabled} />
             ) : null}
-            {view.demo ? (
+            {snapshot?.publicDemo ? (
+              <div className="public-demo" role="note">
+                <span className="demo-tag">Public demo</span>
+                <p>
+                  This is your own sandbox. Approvals and raises use a <strong>simulated Ledger signature</strong>, and Run agent records simulated payments. Nothing is broadcast.
+                </p>
+                <button
+                  type="button"
+                  className="btn text"
+                  onClick={async () => {
+                    try {
+                      await resetDemo();
+                      seen.current = null;
+                      pushToast('Your demo was reset to the sample rows.');
+                      load();
+                    } catch (error) {
+                      pushToast(error.message || 'Could not reset the demo.');
+                    }
+                  }}
+                >
+                  Reset my demo
+                </button>
+              </div>
+            ) : null}
+            {view.demo && !snapshot?.publicDemo ? (
               <div className="demo-badge" role="status">
                 <span className="demo-tag">Demo</span>
                 <span className="demo-text">

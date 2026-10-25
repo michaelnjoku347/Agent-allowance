@@ -240,6 +240,16 @@ export async function setApprover(address) {
   return postJson('/api/approver', { address }, 'Could not save the approver.');
 }
 
+/** Backup and hosted demos only: raise with the simulated signer. The server refuses otherwise. */
+export async function simulatedAllowance(proposal) {
+  return postJson('/api/demo/simulated-allowance', proposal, 'Could not raise the allowance.');
+}
+
+/** Hosted demo: start this visitor's sandbox over from the sample rows. */
+export async function resetDemo() {
+  return postJson('/api/demo/reset', undefined, 'Could not reset the demo.');
+}
+
 /** What an allowance change would do, and whether the Ledger must sign it. Writes nothing. */
 export async function previewAllowance(patch) {
   return postJson('/api/allowance/preview', patch, 'Could not check that change.');

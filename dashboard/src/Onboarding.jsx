@@ -1,5 +1,5 @@
 import { useEffect, useId, useReducer, useRef, useState } from 'react';
-import { lowerAllowance, requestAllowanceChallenge, saveProfile, setApprover, submitAllowance } from './api.js';
+import { lowerAllowance, requestAllowanceChallenge, saveProfile, setApprover, simulatedAllowance, submitAllowance } from './api.js';
 import { ledgerProposal, merchantInputError, validateDraft } from './allowanceEdit.js';
 import BrandMark from './BrandMark.jsx';
 import { money } from './format.js';
@@ -67,7 +67,8 @@ export default function Onboarding({ snapshot, onClose, onSaved, onNotice, start
   const rules = snapshot?.rules ?? {};
   const labels = Object.fromEntries((rules.allowedMerchants ?? []).filter((item) => item?.label).map((item) => [item.address.toLowerCase(), item.label]));
   const approverSet = Boolean(rules.approverAddress);
-  const ledgerReady = webHidSupported();
+  const simulated = Boolean(snapshot?.simulatedLedger);
+  const ledgerReady = simulated || webHidSupported();
   const offline = Boolean(snapshot?.offlinePreview);
 
   // Keep focus inside, move it to each new heading, and let Escape skip.
@@ -220,6 +221,10 @@ export default function Onboarding({ snapshot, onClose, onSaved, onNotice, start
         if (!finalPlan.raises) {
           await lowerAllowance(finalPlan.patch);
           done.push('Lowered the limits. Nothing needed a signature.');
+        } else if (simulated) {
+          setBusy('sign');
+          await simulatedAllowance(ledgerProposal(rules, target));
+          done.push('A simulated Ledger signature approved the raise. It is not a Ledger device.');
         } else {
           setBusy('sign');
           prepareLedger();
@@ -430,9 +435,9 @@ export default function Onboarding({ snapshot, onClose, onSaved, onNotice, start
                     <div className="approver-set">
                       <span className="why-icon is-soft" aria-hidden="true"><IconLock size={16} /></span>
                       <div>
-                        <p className="approver-title">Your approver is set</p>
+                        <p className="approver-title">{simulated ? 'A simulated approver stands in for your Ledger' : 'Your approver is set'}</p>
                         <p className="meta"><code>{rules.approverAddress}</code></p>
-                        <p className="meta">To change it, edit APPROVER_ADDRESS on the server. The dashboard cannot replace it.</p>
+                        <p className="meta">{simulated ? 'This demo signs approvals and raises with a labeled simulated signature. Nothing is broadcast.' : 'To change it, edit APPROVER_ADDRESS on the server. The dashboard cannot replace it.'}</p>
                       </div>
                     </div>
                   ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { lowerAllowance, requestAllowanceChallenge, submitAllowance } from './api.js';
+import { lowerAllowance, requestAllowanceChallenge, simulatedAllowance, submitAllowance } from './api.js';
 import { diffAllowance, draftFrom, ledgerProposal, merchantInputError, validateDraft } from './allowanceEdit.js';
 import { IconLock, IconUnlock } from './icons.jsx';
 import { prepareLedger, signOnLedger } from './ledger.js';
@@ -44,7 +44,9 @@ export default function AllowanceEditor({ snapshot, onSaved, onNotice, seed = nu
   const diff = diffAllowance(rules, draft, labels);
   const invalid = Object.keys(errors).length > 0;
   const offline = Boolean(snapshot?.offlinePreview);
-  const ledgerReady = webHidSupported();
+  // The backup and hosted demos sign raises with a labeled simulated signer instead of a device.
+  const simulated = Boolean(snapshot?.simulatedLedger);
+  const ledgerReady = simulated || webHidSupported();
   const busy = phase !== '';
 
   function set(field, value) {
@@ -93,6 +95,12 @@ export default function AllowanceEditor({ snapshot, onSaved, onNotice, seed = nu
         const line = body.note || 'Allowance lowered. Nothing was signed or paid.';
         setDone(line);
         onNotice?.(line);
+      } else if (simulated) {
+        setPhase('signing');
+        const body = await simulatedAllowance(ledgerProposal(rules, draft));
+        const line = body.note || 'Allowance raised with a simulated Ledger signature. Nothing was paid.';
+        setDone(line);
+        onNotice?.(line);
       } else {
         if (!ledgerReady) {
           setError('Raising a limit needs your Ledger, connected over USB in Chrome or Edge on a computer.');
@@ -119,12 +127,12 @@ export default function AllowanceEditor({ snapshot, onSaved, onNotice, seed = nu
 
   const show = (field) => touched[field] && errors[field];
   const saveLabel = phase === 'signing'
-    ? 'Confirm on your Ledger…'
+    ? (simulated ? 'Signing with the simulated Ledger…' : 'Confirm on your Ledger…')
     : phase === 'preparing'
       ? 'Preparing the Ledger…'
       : phase === 'saving'
         ? 'Saving…'
-        : diff.raises ? 'Sign with Ledger and save' : 'Save changes';
+        : diff.raises ? (simulated ? 'Sign with the simulated Ledger and save' : 'Sign with Ledger and save') : 'Save changes';
 
   return (
     <form className={compact ? 'editor is-compact' : 'editor'} onSubmit={save} noValidate aria-describedby={ids.diff}>
@@ -255,6 +263,7 @@ export default function AllowanceEditor({ snapshot, onSaved, onNotice, seed = nu
           </p>
         ) : null}
         {offline ? <p className="field-error">The allowance server is offline. Changes cannot be saved.</p> : null}
+        {diff.raises && simulated ? <p className="sim-label">Demo: a simulated Ledger signature stands in for your device. It is not a Ledger.</p> : null}
         {diff.raises && !ledgerReady && !offline ? (
           <p className="field-hint">Raising needs a Ledger connected over USB in Chrome or Edge.</p>
         ) : null}

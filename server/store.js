@@ -16,11 +16,12 @@ import network from '../shared/network.json' with { type: 'json' };
 import { canonicalAddress, declineReason, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
 import { plainReason } from '../shared/words.js';
 import { presentUseCase, useCaseById } from '../shared/use-cases.js';
+import { currentSandbox } from '../shared/sandbox-context.js';
 
 const defaultStorePath = join(dirname(fileURLToPath(import.meta.url)), 'data', 'store.json');
 
 function storePath() {
-  return process.env.ALLOWANCE_STORE || defaultStorePath;
+  return currentSandbox()?.storePath || process.env.ALLOWANCE_STORE || defaultStorePath;
 }
 
 /** The store file, for the live event stream that watches it. */

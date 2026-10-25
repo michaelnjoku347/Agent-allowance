@@ -26,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { describeAllowanceChange, formatRlusd, loadRules, presentRules, setApproverAddress, toUnits, updateAllowance } from '../agent/rules.js';
+import { createSandboxes, paymentsMode, publicDemoEnabled, simulatedAllowanceRaise, simulatedRun } from './public-demo.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
 import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext, safeUi } from './eve.js';
@@ -55,8 +56,20 @@ import {
 } from './guardrails.js';
 import { merchantOrigin } from '../shared/catalog.js';
 
+/**
+ * Public hostnames a hosted deploy answers on: PUBLIC_HOSTNAME (comma list),
+ * Render's RENDER_EXTERNAL_HOSTNAME, or Fly's <app>.fly.dev. Empty locally.
+ */
+export function publicHosts(env = process.env) {
+  const hosts = String(env.PUBLIC_HOSTNAME ?? '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+  if (env.RENDER_EXTERNAL_HOSTNAME) hosts.push(String(env.RENDER_EXTERNAL_HOSTNAME).trim().toLowerCase());
+  if (env.FLY_APP_NAME) hosts.push(`${String(env.FLY_APP_NAME).trim().toLowerCase()}.fly.dev`);
+  return [...new Set(hosts.filter((host) => /^[a-z0-9.-]{1,253}$/.test(host)))];
+}
+
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  for (const host of publicHosts(env)) origins.push(`https://${host}`);
   const port = String(env.PORT || '8787').replace(/[^\d]/g, '') || '8787';
   for (const host of ['127.0.0.1', 'localhost']) {
     const origin = `http://${host}:${port}`;
@@ -74,8 +87,11 @@ export function fromDashboard(req, env = process.env) {
 }
 
 /** DNS rebinding sends a foreign Host with a localhost Origin. Only these hosts are answered. */
-export function allowedHost(host) {
-  return /^(localhost|127\.0\.0\.1)(:\d{1,5})?$/i.test(String(host ?? '').trim());
+export function allowedHost(host, env = process.env) {
+  const text = String(host ?? '').trim().toLowerCase();
+  if (/^(localhost|127\.0\.0\.1)(:\d{1,5})?$/.test(text)) return true;
+  const name = text.replace(/:\d{1,5}$/, '');
+  return publicHosts(env).includes(name);
 }
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -119,22 +135,29 @@ export function createApp(options = {}) {
   const readLimiter = createRateLimiter({ bucket: 'read', max: limits.reads, now: options.clock });
   const writeLimiter = createRateLimiter({ bucket: 'write', max: limits.writes, now: options.clock });
   const eveLimiter = createRateLimiter({ bucket: 'eve', max: limits.eve, now: options.clock });
+  const env0 = options.env ?? process.env;
+  const publicDemo = publicDemoEnabled(env0);
   app.disable('x-powered-by');
-  app.set('trust proxy', false);
+  // Behind a hosting proxy the client address arrives in X-Forwarded-For; rate limits need it.
+  app.set('trust proxy', publicDemo || env0.TRUST_PROXY === '1' ? 1 : false);
   app.use(securityHeaders({ dashboard: process.env.SERVE_DASHBOARD === '1' }));
   app.use('/api', (req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? readLimiter : writeLimiter)(req, res, next));
   app.use('/api', requireJsonBody);
   app.use(express.json({ limit: '16kb', strict: true }));
   app.use(bodyErrors);
   app.use('/api', (req, res, next) => {
-    if (!allowedHost(req.headers.host)) {
-      return res.status(403).json({ error: 'This API only answers on localhost.' });
+    if (!allowedHost(req.headers.host, env0)) {
+      return res.status(403).json({ error: 'This API only answers on localhost or its configured public hostname.' });
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !fromDashboard(req)) {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !fromDashboard(req, env0)) {
       return res.status(403).json({ error: 'Open the dashboard to change the allowance.' });
     }
     next();
   });
+
+  // Hosted demo: every visitor works in a private copy of the rules and the store.
+  const sandboxes = options.sandboxes ?? (publicDemo ? createSandboxes() : null);
+  if (sandboxes) app.use('/api', sandboxes.middleware);
 
   app.get('/api/health', async (req, res) => {
     let rules = 'ok';
@@ -200,6 +223,8 @@ export function createApp(options = {}) {
         chainUnavailable,
         simulatedLedger: devSignerEnabled(),
         bedrockConfigured: readBedrockSettings().configured,
+        publicDemo,
+        paymentsMode: paymentsMode(env0),
       });
     } catch (error) {
       next(error);
@@ -215,6 +240,26 @@ export function createApp(options = {}) {
   });
 
   const storeEvents = options.storeEvents ?? createStoreEvents();
+  // One watcher per sandbox that has an open stream, dropped when its last tab closes.
+  const sandboxEvents = new Map();
+  function eventsFor(req) {
+    if (!req.sandbox) return { events: storeEvents, release: () => {} };
+    const id = req.sandbox.id;
+    let row = sandboxEvents.get(id);
+    if (!row) {
+      const storePath = req.sandbox.storePath;
+      row = { events: createStoreEvents({ path: () => storePath }), count: 0 };
+      sandboxEvents.set(id, row);
+    }
+    row.count += 1;
+    return {
+      events: row.events,
+      release: () => {
+        row.count -= 1;
+        if (row.count <= 0) sandboxEvents.delete(id);
+      },
+    };
+  }
 
   app.get('/api/events', (req, res) => {
     res.writeHead(200, {
@@ -227,7 +272,12 @@ export function createApp(options = {}) {
     const send = ({ type, data }) => {
       res.write(`event: ${type}\ndata: ${JSON.stringify(data ?? null)}\n\n`);
     };
-    const unsubscribe = storeEvents.subscribe(send);
+    const stream = eventsFor(req);
+    const unsubscribeEvents = stream.events.subscribe(send);
+    const unsubscribe = () => {
+      unsubscribeEvents();
+      stream.release();
+    };
     const heartbeat = setInterval(() => res.write(': ping\n\n'), options.heartbeatMs ?? 15_000);
     heartbeat.unref?.();
     let closed = false;
@@ -433,6 +483,26 @@ export function createApp(options = {}) {
     }
   });
 
+  // Backup and hosted demos: raise the allowance with the simulated signer, labeled as such.
+  app.post('/api/demo/simulated-allowance', async (req, res, next) => {
+    try {
+      if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
+      const parsed = parseAllowancePatch(req.body);
+      if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+      if (!rulesOrRefuse(res)) return;
+      sendLedger(res, await simulatedAllowanceRaise(parsed.patch, { env: ledgerOptions.env ?? process.env }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Hosted demo: start this visitor's sandbox over from the sample rows.
+  app.post('/api/demo/reset', (req, res) => {
+    if (!sandboxes || !req.sandbox) return res.status(404).json({ error: 'Not found' });
+    sandboxes.reset(req.sandbox.id);
+    res.json({ ok: true, note: 'Your demo was reset to the sample rows.' });
+  });
+
   app.post('/api/allowance/challenge', async (req, res, next) => {
     try {
       const parsed = parseAllowancePatch(req.body);
@@ -586,7 +656,7 @@ export function createApp(options = {}) {
         const state = await setFreeze(false);
         return res.json({ ok: true, signing: true, ...state });
       }
-      const state = await freezeAgent();
+      const state = await freezeAgent({ env: env0 });
       stopAgentProcess();
       res.json(state);
     } catch (error) {
@@ -606,7 +676,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/run-agent', async (req, res, next) => {
-    if (!fromDashboard(req)) {
+    if (!fromDashboard(req, env0)) {
       return res.status(403).json({ ok: false, error: 'Open the dashboard to run the agent.' });
     }
     try {
@@ -615,6 +685,15 @@ export function createApp(options = {}) {
       }
     } catch (error) {
       return next(error);
+    }
+    // Hosted demo: the real rules decide a simulated purchase. Nothing is signed or broadcast.
+    if (publicDemo && paymentsMode(env0) !== 'testnet') {
+      try {
+        if (!rulesOrRefuse(res)) return;
+        return res.json(await simulatedRun({}));
+      } catch (error) {
+        return next(error);
+      }
     }
     const parsed = optionalString(req.body?.task, 2000);
     if (parsed.error) return res.status(400).json({ ok: false, error: 'The task must be text.' });
@@ -639,7 +718,10 @@ export function createApp(options = {}) {
     }
     const child = spawn(process.execPath, ['agent/agent.js', task], {
       cwd: rootDir,
-      env: process.env,
+      // A hosted testnet demo points the agent at this visitor's sandbox files.
+      env: req.sandbox
+        ? { ...process.env, ALLOWANCE_STORE: req.sandbox.storePath, ALLOWANCE_RULES: req.sandbox.rulesPath }
+        : process.env,
       stdio: 'inherit',
     });
     agentChild = child;
@@ -679,13 +761,21 @@ export function createApp(options = {}) {
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = Number(process.env.PORT || 8787);
-  startChannelRefresh();
-  const server = createApp().listen(port, '127.0.0.1', async () => {
+  const publicDemo = publicDemoEnabled();
+  if (publicDemo) {
+    // The hosted demo signs only with the labeled, in-memory simulated signer.
+    process.env.ALLOWANCE_DEV_SIGNER = '1';
+    process.env.SERVE_DASHBOARD ||= '1';
+  }
+  if (!publicDemo || paymentsMode() === 'testnet') startChannelRefresh();
+  const host = process.env.HOST || (publicDemo ? '0.0.0.0' : '127.0.0.1');
+  const server = createApp().listen(port, host, async () => {
     const status = summarize(await readStore(), loadRules());
     const mode = status.agentConnected
       ? 'Serving live agent payments.'
       : 'Serving sample payments until the agent runs.';
-    console.log(`Agent Allowance API at http://127.0.0.1:${port}`);
+    console.log(`Agent Allowance API at http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}${host === '0.0.0.0' ? ' (listening on every interface)' : ''}`);
+    if (publicDemo) console.log(`Public demo: per-visitor sandboxes, simulated Ledger signatures, payments ${paymentsMode()}.`);
     console.log(mode);
     if (process.env.ALLOWANCE_NOTICES_SHOWN !== '1') {
       for (const line of optionalKeyNotices({

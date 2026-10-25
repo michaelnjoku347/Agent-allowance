@@ -9,12 +9,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentSandbox } from '../shared/sandbox-context.js';
 
 const SCALE = 10n ** 18n;
 const RULES_PATH = join(dirname(fileURLToPath(import.meta.url)), 'rules.json');
 
 /** Rules file. Tests point ALLOWANCE_RULES at a copy so the repo file stays put. */
 export function rulesFile() {
+  return currentSandbox()?.rulesPath || process.env.ALLOWANCE_RULES || RULES_PATH;
+}
+
+/** The rules file outside any sandbox: the one a hosted demo copies for each visitor. */
+export function baseRulesFile() {
   return process.env.ALLOWANCE_RULES || RULES_PATH;
 }
 
