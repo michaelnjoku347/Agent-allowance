@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { NAV, approvalCount, mobileTabs, moreItems, navSections, parseRoute, routeHash } from './routes.js';
+import { NAV, approvalCount, mobileTabs, moreItems, navSections, pageTitle, parseRoute, routeHash } from './routes.js';
 
 test('routes cover the fintech nav and ignore unknown hashes', () => {
   assert.deepEqual(NAV.map((item) => item.id), [
@@ -22,4 +22,13 @@ test('sections, phone tabs, and the approval count stay in order', () => {
   assert.deepEqual(moreItems().map((item) => item.id), ['rules', 'merchants', 'agents', 'settings', 'help']);
   assert.equal(approvalCount([{ status: 'pending' }, { status: 'paying' }, { status: 'paid' }]), 2);
   assert.equal(approvalCount(null), 0);
+});
+
+test('every page has its own tab title, page first', () => {
+  assert.equal(pageTitle('home'), 'Agent Allowance');
+  assert.equal(pageTitle('rules'), 'Rules · Agent Allowance');
+  assert.equal(pageTitle('approvals'), 'Approvals · Agent Allowance');
+  assert.equal(pageTitle('nope'), 'Agent Allowance');
+  const titles = NAV.map((item) => pageTitle(item.id));
+  assert.equal(new Set(titles).size, NAV.length, 'no two pages share a title');
 });

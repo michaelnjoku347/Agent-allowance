@@ -318,7 +318,7 @@ async function openBrowser(port) {
   };
 }
 
-test('the first-run intro is a keyboard dialog that respects reduced motion', { timeout: 150_000 }, async () => {
+test('the first-run intro is a keyboard dialog, pages name themselves, and nothing moves under reduced motion', { timeout: 150_000 }, async () => {
   const browser = await openBrowser(9226);
   try {
     const { send } = browser;
@@ -366,6 +366,20 @@ test('the first-run intro is a keyboard dialog that respects reduced motion', { 
     await key('Escape', 'Escape', 27);
     assert.equal(await evaluate('Boolean(document.querySelector(".onboard"))'), false, 'Escape closes the intro');
     assert.equal(await evaluate('localStorage.getItem("allowance-intro-done")'), 'skipped');
+
+    // Moving to a page names it in the tab and puts focus on its heading.
+    assert.equal(await evaluate('document.title'), 'Agent Allowance');
+    await evaluate('location.hash = "#/security"');
+    await wait(400);
+    assert.equal(await evaluate('document.title'), 'Security · Agent Allowance');
+    assert.equal(await evaluate('document.activeElement?.tagName + " " + document.activeElement?.textContent'), 'H1 Security');
+    const moving = await evaluate(`[...document.querySelectorAll('*')].filter((el) => {
+      const cs = getComputedStyle(el);
+      const animated = cs.animationName !== 'none' && cs.animationDuration.split(',').some((d) => parseFloat(d) > 0.001);
+      const sliding = cs.transitionProperty !== 'none' && cs.transitionDuration.split(',').some((d) => parseFloat(d) > 0.001);
+      return animated || sliding;
+    }).length`);
+    assert.equal(moving, 0, 'nothing moves under reduced motion');
     await send('Target.closeTarget', { targetId: created.targetId });
   } finally {
     await browser.close();

@@ -47,7 +47,7 @@ import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
-import { NAV, approvalCount, mobileTabs, moreItems, navSections, parseRoute, routeHash } from './routes.js';
+import { NAV, approvalCount, mobileTabs, moreItems, navSections, pageTitle, parseRoute, routeHash } from './routes.js';
 
 const Desk = lazy(() => import('./views.jsx'));
 
@@ -280,8 +280,12 @@ export default function App() {
     return load();
   }
 
+  // null: no decision yet (back and forward count as the person's own move).
+  const focusAfterRoute = useRef(null);
+
   useEffect(() => {
     function onHash() {
+      if (focusAfterRoute.current === null) focusAfterRoute.current = true;
       setRoute(parseRoute(window.location.hash));
       setMoreOpen(false);
     }
@@ -289,11 +293,30 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  function go(id) {
+  // A new page gets its own title, and the person's own navigation moves focus to its
+  // heading so a screen reader says where they are. Eve's steps leave focus in the chat.
+  useEffect(() => {
+    document.title = pageTitle(route);
+    const move = focusAfterRoute.current;
+    focusAfterRoute.current = null;
+    if (!move) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = document.querySelector('#main h1');
+      (heading || document.getElementById('main'))?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [route]);
+
+  function go(id, { focus = true } = {}) {
     const next = routeHash(id);
     const current = window.location.hash;
-    if (current === next || (id === 'home' && (current === '' || current === '#'))) setRoute('home');
-    else window.location.hash = next;
+    if (current === next || (id === 'home' && (current === '' || current === '#'))) {
+      focusAfterRoute.current = null;
+      setRoute('home');
+    } else {
+      focusAfterRoute.current = focus;
+      window.location.hash = next;
+    }
     setMoreOpen(false);
   }
 
@@ -404,11 +427,11 @@ export default function App() {
     function onEveUi(event) {
       const ui = event.detail || {};
       const rows = viewRef.current.activity;
-      if (ui.type === 'navigate') go(ui.route);
+      if (ui.type === 'navigate') go(ui.route, { focus: false });
       if (ui.type === 'filter') {
         setHistoryFilters(normalizeFilters(ui.filters));
         setFilter('all');
-        go('activity');
+        go('activity', { focus: false });
       }
       if (ui.type === 'export') {
         const shownRows = filterHistory(rows, ui.filters);
@@ -418,19 +441,20 @@ export default function App() {
       if (ui.type === 'highlight') {
         setHistoryFilters(EMPTY_FILTERS);
         setFilter('all');
-        go('activity');
+        go('activity', { focus: false });
         setFlashId(ui.id);
         window.setTimeout(() => {
-          document.querySelector(`[data-row-id="${CSS.escape(String(ui.id))}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+          document.querySelector(`[data-row-id="${CSS.escape(String(ui.id))}"]`)?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
         }, 80);
       }
       if (ui.type === 'edit') {
         setEditorSeed({ ...(ui.seed || {}) });
-        go('rules');
+        go('rules', { focus: false });
       }
       if (ui.type === 'review') {
         const item = viewRef.current.pending.find((row) => row.id === ui.id);
-        go('approvals');
+        go('approvals', { focus: false });
         if (item) setApproval(item);
       }
     }
@@ -806,12 +830,12 @@ export default function App() {
             {loading ? <Skeletons /> : null}
             {route === 'home' ? (
               <div className="page-head is-home">
-                <h1 className="sr-only">Home</h1>
+                <h1 className="sr-only" tabIndex={-1}>Home</h1>
                 <p className="hero-tagline">Spending power for AI, with a human key.</p>
               </div>
             ) : (
               <div className="page-head">
-                <h1 id="page-title">{routeItem?.label}</h1>
+                <h1 id="page-title" tabIndex={-1}>{routeItem?.label}</h1>
                 {pageLede ? <p>{pageLede}</p> : null}
               </div>
             )}

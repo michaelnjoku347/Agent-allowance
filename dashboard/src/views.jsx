@@ -157,7 +157,7 @@ export function MerchantsView({ snapshot, view, onGo }) {
         {allowed.length === 0 ? (
           <EmptyState icon={<IconLock />} title="No merchants yet">Add a merchant from the allowance editor. Until then, every quote waits.</EmptyState>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Allowed merchants">
             <table className="data-table">
               <thead>
                 <tr>
@@ -311,7 +311,7 @@ export function SecurityView({ snapshot, onFreeze, busy, disabled, onExportAudit
         {audit.length === 0 ? (
           <EmptyState icon={<IconCheck />} title="No decisions yet">Approvals, blocks, and freezes are kept here with the rule, the reason, and the signer.</EmptyState>
         ) : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit log">
             <table className="data-table">
               <thead>
                 <tr>

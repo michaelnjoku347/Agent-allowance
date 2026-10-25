@@ -450,12 +450,15 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
       setError(err.message || 'That confirmation did not go through.');
     } finally {
       setBusy(false);
+      // The card is gone, so focus would fall to the page. Keep it in the chat.
+      window.requestAnimationFrame(() => panelRef.current?.querySelector('#eve-message')?.focus());
     }
   }
 
   function cancel() {
     setConfirmation(null);
     setMessages((current) => [...current, { role: 'eve', text: 'Cancelled. Nothing changed.' }]);
+    window.requestAnimationFrame(() => panelRef.current?.querySelector('#eve-message')?.focus());
   }
 
   useEffect(() => {
@@ -514,8 +517,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Ask Eve"
           autoComplete="off"
-          disabled={busy}
+          aria-describedby={busy ? 'eve-busy' : undefined}
         />
+        {busy ? <span id="eve-busy" className="sr-only">Eve is answering. Send is off until she does.</span> : null}
         <button type="submit" className="btn primary" disabled={busy || !draft.trim()}>Send</button>
         {supported ? (
           <button

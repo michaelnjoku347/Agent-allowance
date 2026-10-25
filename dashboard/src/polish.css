@@ -2853,3 +2853,20 @@ body.has-overlay .toasts {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Page headings take focus after navigation; they are not controls, so no ring. */
+.page-head h1:focus {
+  outline: none;
+}
+
+/* A last net under every motion rule above: nothing moves for people who asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
