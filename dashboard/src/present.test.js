@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  PATH_IDLE,
   flowForHeist,
+  flowForStage,
+  pathReducer,
   flowForItem,
   flowForRogue,
   narrationFor,
@@ -106,4 +109,44 @@ test('the explorer feed keeps only real transaction hashes', () => {
   assert.equal(toneKind({ sample: true, status: 'paid' }), null);
   assert.equal(toneFor('approve').frequency, 660);
   assert.equal(toneFor('nope'), null);
+});
+
+test('a live stage steps through the payment path', () => {
+  const states = (flow) => flow.steps.map((step) => step.state).join(',');
+  assert.equal(flowForStage(null), null);
+  assert.equal(flowForStage({ source: 'agent', stage: 'unknown' }), null);
+  assert.equal(states(flowForStage({ source: 'agent', stage: 'rules' })), 'on,wait,off,off,off');
+  const paying = flowForStage({ source: 'agent', stage: 'xrpl', amount: '1', merchantLabel: 'Market Desk' });
+  assert.equal(states(paying), 'on,on,off,wait,off');
+  assert.match(paying.caption, /^1 RLUSD to Market Desk\. Inside the rules/);
+  assert.equal(paying.live, true);
+  assert.equal(states(flowForStage({ source: 'ledger', phase: 'signed' })), 'on,on,on,wait,off');
+  assert.equal(states(flowForStage({ source: 'ledger', phase: 'broadcasting' })), 'on,on,on,wait,off');
+  assert.equal(states(flowForStage({ source: 'ledger', phase: 'settling' })), 'on,on,on,on,wait');
+});
+
+test('a new activity row clears what a demo left on the payment path', () => {
+  const heist = flowForHeist({ ruleText: 'Not on the merchant list.', lost: '0' });
+  let path = pathReducer(PATH_IDLE, { type: 'demo', flow: heist });
+  assert.equal(path.flow, heist);
+  assert.equal(path.alert, true);
+  path = pathReducer(path, { type: 'alert' });
+  assert.equal(path.alert, true);
+  // A stage that ends does not wipe a demo it did not set.
+  assert.equal(pathReducer(path, { type: 'stage', stage: null }), path);
+  path = pathReducer(path, { type: 'activity' });
+  assert.deepEqual(path, PATH_IDLE);
+
+  const rogue = pathReducer(PATH_IDLE, { type: 'alert' });
+  assert.deepEqual(pathReducer(rogue, { type: 'activity' }), PATH_IDLE);
+});
+
+test('a live stage replaces the path and clears itself when the purchase lands', () => {
+  let path = pathReducer(PATH_IDLE, { type: 'stage', stage: { source: 'agent', stage: 'rules' } });
+  assert.equal(path.source, 'stage');
+  assert.equal(path.alert, false);
+  path = pathReducer(path, { type: 'stage', stage: { source: 'agent', stage: 'xrpl' } });
+  assert.equal(path.flow.steps[3].state, 'wait');
+  assert.deepEqual(pathReducer(path, { type: 'stage', stage: null }), PATH_IDLE);
+  assert.deepEqual(pathReducer(path, { type: 'activity' }), PATH_IDLE);
 });

@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
 import BrandMark from './BrandMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
@@ -9,11 +9,12 @@ import { EveDock } from './EvePanel.jsx';
 import HeistDemo from './HeistDemo.jsx';
 import HowItWorks from './HowItWorks.jsx';
 import RogueDemo from './RogueDemo.jsx';
-import { flowForHeist, flowForItem, narrationFor, narrationForHeist, toneKind, txFeed } from './present.js';
+import { PATH_IDLE, flowForHeist, flowForItem, narrationFor, pathReducer, narrationForHeist, toneKind, txFeed } from './present.js';
 import { MoneyFlow, TxFeed } from './Stage.jsx';
 import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
 import {
   IconActivity,
+  EveMark,
   IconAlert,
   IconCheck,
   IconHome,
@@ -25,6 +26,7 @@ import {
   IconGear,
   IconHelp,
   IconMore,
+  IconMoreVertical,
   IconShieldCheck,
   IconSliders,
   IconStore,
@@ -236,7 +238,6 @@ export default function App() {
   const [connection, setConnection] = useState('loading');
   const [filter, setFilter] = useState('all');
   const [setupOpen, setSetupOpen] = useState(false);
-  const [pathAlert, setPathAlert] = useState(false);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -255,7 +256,8 @@ export default function App() {
       current.heist === next.heist && current.rogue === next.rogue ? current : next
     ));
   }, []);
-  const [flowOverride, setFlowOverride] = useState(null);
+  const [path, dispatchPath] = useReducer(pathReducer, PATH_IDLE);
+  const streamOpen = useRef(false);
   const [flashId, setFlashId] = useState('');
   const [ringMood, setRingMood] = useState('');
   const seen = useRef(null);
@@ -312,14 +314,30 @@ export default function App() {
 
   useEffect(() => {
     let stop = false;
+    // The event stream drives updates while it is open. The 3s poll is the fallback.
     const tick = () => {
-      if (!stop) load();
+      if (!stop && !streamOpen.current) load();
     };
-    tick();
+    load();
     const timer = window.setInterval(tick, 3000);
+    const close = subscribeEvents({
+      onOpen: () => {
+        streamOpen.current = true;
+      },
+      onDown: () => {
+        streamOpen.current = false;
+      },
+      onChange: () => {
+        if (!stop) load();
+      },
+      onStage: (stage) => {
+        if (!stop) dispatchPath({ type: 'stage', stage });
+      },
+    });
     return () => {
       stop = true;
       window.clearInterval(timer);
+      close();
     };
   }, []);
 
@@ -335,6 +353,8 @@ export default function App() {
     const added = view.activity.filter((item) => !seen.current.has(item.id));
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
+    // A real decision replaces whatever a demo or a live stage left on the payment path.
+    dispatchPath({ type: 'activity' });
     const newest = added[0];
     const spoken = narrationFor(newest);
     const status = pill(newest).label;
@@ -387,18 +407,16 @@ export default function App() {
   }
 
   const onRogueBeat = useCallback((card) => {
-    setPathAlert(true);
+    dispatchPath({ type: 'alert' });
     if (card?.phase === 'summary') setAnnounce(card.attempt || '3 attempts, 3 blocked, 0 RLUSD lost');
     else if (card?.ruleText) setAnnounce(`Blocked. ${card.ruleText}`);
   }, []);
 
   const onHeist = useCallback((report) => {
-    setPathAlert(true);
     setAnnounce(report?.scripted
       ? 'Scripted preview. Attack blocked. 0.00 RLUSD lost.'
       : 'Attack blocked. 0.00 RLUSD lost.');
-    const flow = flowForHeist(report);
-    if (flow) setFlowOverride(flow);
+    dispatchPath({ type: 'demo', flow: flowForHeist(report) });
     if (!voiceOn) return;
     const line = narrationForHeist(report);
     if (!line) return;
@@ -498,7 +516,7 @@ export default function App() {
   const leftRatio = view.budgetNumber > 0 ? Math.max(0, view.leftNumber / view.budgetNumber) : 0;
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
-  const liveFlow = flowOverride || flowForItem(view.activity[0]);
+  const liveFlow = path.flow || flowForItem(view.activity[0]);
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   const loading = connection === 'loading' && !snapshot;
@@ -617,8 +635,11 @@ export default function App() {
                 </button>
               ) : null}
               <ThemeControl theme={theme} setTheme={setTheme} />
+              {!presenting ? <EveLaunch /> : null}
               {!presenting ? (
                 <AppMenu
+                  theme={theme}
+                  setTheme={setTheme}
                   frozen={Boolean(snapshot?.frozen)}
                   freezeDisabled={!snapshot || controlBusy === 'freeze' || Boolean(snapshot?.offlinePreview)}
                   onFreeze={onFreeze}
@@ -652,7 +673,7 @@ export default function App() {
                 <span className="demo-tag">Demo</span>
                 <span className="demo-text">
                   {snapshot?.offlinePreview
-                    ? 'Example rows while offline.'
+                    ? 'Offline. Example rows.'
                     : 'Example rows until the agent pays.'}
                 </span>
                 {snapshot?.offlinePreview ? (
@@ -718,7 +739,7 @@ export default function App() {
                     <li>Expires {expiresOn(snapshot.rules.expiresAt) || 'No date'}</li>
                     <li>{merchantCount} merchants</li>
                   </ul>
-                  <MoneyFlow flow={liveFlow} embedded alert={pathAlert} />
+                  <MoneyFlow flow={liveFlow} embedded alert={path.alert} live={Boolean(path.flow?.live)} />
                   <div className="hero-actions">
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
@@ -1130,7 +1151,28 @@ function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBu
   );
 }
 
-function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo }) {
+/** Phone app bar button for Eve. The floating bubble is hidden on phones so it never covers content. */
+function EveLaunch() {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const onUnread = (event) => setUnread(Number(event.detail) || 0);
+    window.addEventListener('eve:unread', onUnread);
+    return () => window.removeEventListener('eve:unread', onUnread);
+  }, []);
+  return (
+    <button
+      type="button"
+      className="icon-btn eve-launch"
+      aria-label={unread ? `Ask Eve, ${unread} new ${unread === 1 ? 'reply' : 'replies'}` : 'Ask Eve'}
+      onClick={() => window.dispatchEvent(new Event('eve:open'))}
+    >
+      <EveMark size={26} />
+      {unread > 0 ? <span className="eve-badge" aria-hidden="true">{unread}</span> : null}
+    </button>
+  );
+}
+
+function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, theme, setTheme }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const buttonRef = useRef(null);
@@ -1169,7 +1211,7 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo }
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((value) => !value)}
       >
-        <IconMore />
+        <IconMoreVertical />
       </button>
       {open ? (
         <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions">
@@ -1182,6 +1224,19 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo }
             <IconSliders size={18} />
             <span>{setupLabel}</span>
           </button>
+          <p className="menu-label">Appearance</p>
+          {['light', 'dark', 'system'].map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              role="menuitemradio"
+              aria-checked={theme === choice}
+              onClick={() => setTheme(choice)}
+            >
+              <span className="menu-check" aria-hidden="true">{theme === choice ? <IconCheck size={16} /> : null}</span>
+              <span>{choice[0].toUpperCase() + choice.slice(1)}</span>
+            </button>
+          ))}
           {demo ? (
             <>
               <p className="menu-label">Demo</p>

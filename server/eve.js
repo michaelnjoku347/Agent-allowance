@@ -8,7 +8,7 @@ import { describeAllowanceChange, loadRules, presentRules, updateAllowance } fro
 import { explainJev, plainReason, jevSourceLabel } from '../shared/words.js';
 import { converse, parseModelJson, readBedrockSettings } from './bedrock.js';
 import { freezeAgent } from './freeze-channel.js';
-import { declinePending, readStore } from './store.js';
+import { declinePending, hasRealData, readStore } from './store.js';
 
 const CONFIRM_MS = 120_000;
 
@@ -52,7 +52,7 @@ export async function loadEveContext() {
   const store = await readStore();
   const rules = presentRules(loadRules());
   // The dashboard lists sample rows until a real agent decision replaces them.
-  const showSamples = !store.agentConnected;
+  const showSamples = !hasRealData(store);
   const payments = (store.payments ?? []).filter((item) => showSamples || !item.sample);
   const pending = (store.pending ?? []).filter((item) => (
     (showSamples || !item.sample) && (item.status === 'pending' || item.status === 'paying')
@@ -120,7 +120,50 @@ function remainingReply(context) {
 const OFF_TOPIC = "That's outside what I can do. I handle your allowance.";
 
 /** Rule-based intents. Used when no LLM key is set, and when the LLM fails. */
+// A joining word starts a new question only when a question word or a command follows it,
+// so a merchant called "Smith and Co" stays one part.
+const NEXT_QUESTION = String.raw`(?:what|what's|how|why|which|who|when|where|is|are|was|were|do|does|did|can|could|will|should|show|tell|list|give|freeze|pause|stop|halt|decline|reject|approve|set|lower|raise)\b`;
+const JOIN = new RegExp(String.raw`\s*(?:,\s*(?:and also|and then|and|also|plus|then)?|\s\b(?:and also|and then|and|also|plus|then))\s+(?=${NEXT_QUESTION})`, 'i');
+
+/** Split "How much have I spent and what is pending?" into its questions. */
+export function splitQuestions(message) {
+  const text = String(message ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const parts = [];
+  for (const sentence of text.split(/[?;]+/)) {
+    for (const piece of sentence.split(JOIN)) {
+      const part = piece.trim().replace(/^[,.\s]+|[,.\s]+$/g, '');
+      if (part) parts.push(part);
+    }
+  }
+  return parts;
+}
+
+/**
+ * Answer every part of a multi-part question. Parts the rules cannot answer
+ * are left out; if fewer than two parts get an answer, the whole message is
+ * answered as one question. At most one action is proposed, and freeze wins.
+ */
 export function ruleAnswer(message, context) {
+  const parts = splitQuestions(message);
+  if (parts.length < 2 || /\bignore (all |any )?(previous|prior|above) instructions\b/i.test(String(message ?? ''))) {
+    return ruleAnswerOne(message, context);
+  }
+  const answers = [];
+  for (const part of parts) {
+    const answer = ruleAnswerOne(part, context);
+    if (answer.reply === OFF_TOPIC) continue;
+    if (answers.some((seen) => seen.reply === answer.reply)) continue;
+    answers.push(answer);
+  }
+  if (answers.length < 2) return ruleAnswerOne(message, context);
+  const action = answers.find((answer) => answer.action?.type === 'freeze')?.action
+    ?? answers.find((answer) => answer.action)?.action;
+  const reply = answers.map((answer) => answer.reply).join('\n\n');
+  return action ? { reply, action, parts: answers.length } : { reply, parts: answers.length };
+}
+
+function ruleAnswerOne(message, context) {
   const text = String(message ?? '').replace(/\s+/g, ' ').trim();
   const lower = text.toLowerCase();
   if (!text) {
@@ -422,6 +465,9 @@ export async function answerEve(message, context, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const local = ruleAnswer(message, context);
   if (local.action?.type === 'freeze') return { ...local, source: 'rules' };
+  // A model tends to answer only the first half of a two-part question. When the
+  // rules can answer every part from the allowance itself, they answer it.
+  if (local.parts > 1) return { ...local, source: 'rules' };
   if (readBedrockSettings(env).configured) {
     try {
       return await answerWithBedrock(message, context, env, options.bedrockClient);

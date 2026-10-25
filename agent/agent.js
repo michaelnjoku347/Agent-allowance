@@ -33,7 +33,7 @@ import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
 import { spendRateDecision } from './spend-rate.js';
 import { readBedrockSettings } from '../server/bedrock.js';
-import { listPayments, readFrozen, readMandate, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
+import { listPayments, readFrozen, readMandate, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, setLiveStage, spentRlusd } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -167,8 +167,17 @@ export async function finishQuote({
   review = askJev,
   plan = planPurchase,
   reservationId = '',
+  onStage = async () => {},
 }) {
   const label = merchantLabel(rules, quote.merchant);
+  // The live payment path is a display. A failed write never stops a purchase.
+  const stage = async (name) => {
+    try {
+      await onStage(name, { task, amount: quote.amount, merchantLabel: label });
+    } catch {
+      /* The activity row still lands when the decision is recorded. */
+    }
+  };
   const merchant = canonicalAddress(quote.merchant);
   if ((await readFrozen()).frozen) {
     return hold({
@@ -188,6 +197,7 @@ export async function finishQuote({
     purchasePlan = null;
   }
   if (purchasePlan?.reason) console.log(`Plan: ${purchasePlan.reason}`);
+  await stage('rules');
   const decision = checkRules({
     merchant,
     amount: quote.amount,
@@ -269,6 +279,7 @@ export async function finishQuote({
   let purchase;
   try {
     console.log('Within the allowance. Paying over x402…');
+    await stage('xrpl');
     purchase = await pay({ quote, resourceUrl, task, channelId });
   } catch (error) {
     if (error?.code === 'OVER_CHANNEL_CAP') {
@@ -682,6 +693,7 @@ export async function runOnce({
     if (new URL(quote.resourceUrl).href !== url) {
       throw new Error('Merchant quote is for a different resource than the one requested.');
     }
+    await setLiveStage({ stage: 'agent', task, amount: quote.amount, merchantLabel: merchantLabel(rules, quote.merchant) }).catch(() => {});
     let chain = null;
     if (spent === undefined) {
       try {
@@ -752,9 +764,11 @@ export async function runOnce({
         plan: presetPlan ? async () => presetPlan : planPurchase,
         pay: (args) => payWithX402({ session: active, ...args }),
         report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
+        onStage: (name, detail) => setLiveStage({ stage: name, ...detail }),
       });
     } finally {
       await releaseReservation(reserved.id);
+      await setLiveStage(null).catch(() => {});
     }
   } finally {
     globalThis.fetch = previousFetch;

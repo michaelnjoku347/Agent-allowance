@@ -193,3 +193,11 @@ export function IconAlert({ size = 18 }) {
     </Stroke>
   );
 }
+
+export function IconMoreVertical() {
+  return (
+    <Stroke>
+      <path {...pen} d="M12 6h.01M12 12h.01M12 18h.01" strokeWidth="2.5" />
+    </Stroke>
+  );
+}

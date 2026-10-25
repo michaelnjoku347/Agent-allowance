@@ -246,3 +246,28 @@ export async function confirmEve(token) {
   if (!response.ok) throw new Error(body.error || 'That confirmation did not go through.');
   return body;
 }
+
+/**
+ * Live store changes and payment stages from GET /api/events. Returns a
+ * function that closes the stream. onOpen and onDown tell the caller when to
+ * lean on the stream and when to fall back to polling.
+ */
+export function subscribeEvents({ onChange, onStage, onOpen, onDown } = {}) {
+  if (typeof EventSource !== 'function') {
+    onDown?.();
+    return () => {};
+  }
+  const source = new EventSource('/api/events');
+  const parse = (event) => {
+    try {
+      return JSON.parse(event.data);
+    } catch {
+      return null;
+    }
+  };
+  source.addEventListener('open', () => onOpen?.());
+  source.addEventListener('error', () => onDown?.());
+  source.addEventListener('change', (event) => onChange?.(parse(event)));
+  source.addEventListener('stage', (event) => onStage?.(parse(event)));
+  return () => source.close();
+}

@@ -67,26 +67,6 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
   const [status, setStatus] = useState({ listening: false, speaking: false });
   const [announcement, setAnnouncement] = useState('');
   modeRef.current = mode;
-  const [tucked, setTucked] = useState(false);
-
-  // On a phone the Eve bubble slides aside while the page scrolls, and comes back when it settles.
-  useEffect(() => {
-    if (mode !== 'min' || typeof window.matchMedia !== 'function') return undefined;
-    const phone = window.matchMedia('(max-width: 720px)');
-    let timer = 0;
-    function onScroll() {
-      if (!phone.matches) return;
-      setTucked(true);
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => setTucked(false), 700);
-    }
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.clearTimeout(timer);
-      setTucked(false);
-    };
-  }, [mode]);
 
   useEffect(() => {
     try {
@@ -112,7 +92,12 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
 
   function minimize() {
     setMode('min');
-    requestAnimationFrame(() => pillRef.current?.focus());
+    requestAnimationFrame(() => {
+      // On a phone the pill is hidden and Eve lives in the app bar, so focus goes back there.
+      const pill = pillRef.current;
+      if (pill && pill.offsetParent !== null) pill.focus();
+      else document.querySelector('.eve-launch')?.focus();
+    });
   }
 
   function expand() {
@@ -124,6 +109,20 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
       panelRef.current?.querySelector('#eve-message')?.focus();
     });
   }
+
+  const expandRef = useRef(expand);
+  expandRef.current = expand;
+
+  // The phone app bar opens Eve with an event, and shows her unread count.
+  useEffect(() => {
+    const open = () => expandRef.current();
+    window.addEventListener('eve:open', open);
+    return () => window.removeEventListener('eve:open', open);
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('eve:unread', { detail: unread }));
+  }, [unread]);
 
   function expandFull() {
     setMode('open');
@@ -207,7 +206,7 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
         : 'Expand Eve';
 
   return (
-    <div className={`eve-dock is-${mode}${tucked ? ' is-tucked' : ''}`}>
+    <div className={`eve-dock is-${mode}`}>
       <section
         className={`eve-window is-${mode}`}
         id={panelId}

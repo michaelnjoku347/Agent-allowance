@@ -4,6 +4,7 @@
  *   GET  /api/status          budget, spent, remaining, rules
  *   GET  /api/payments        tx hash, merchant, amount, status
  *   GET  /api/pending         purchases the agent refused to pay
+ *   GET  /api/events          Server-Sent Events: store changes and the live payment stage
  *   POST /api/approve/:id/challenge   EIP-712 payload for the Ledger
  *   POST /api/approve/:id             verify the device signature and pay once
  *   POST /api/run-agent       start agent/agent.js for the live demo
@@ -33,6 +34,7 @@ import { optionalKeyNotices } from '../scripts/start-lib.js';
 import { freezeAgent } from './freeze-channel.js';
 import { runHeist } from './heist.js';
 import { runRogueDemo } from './rogue-demo.js';
+import { createStoreEvents } from './events.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -128,6 +130,33 @@ export function createApp(options = {}) {
     } catch (error) {
       next(error);
     }
+  });
+
+  const storeEvents = options.storeEvents ?? createStoreEvents();
+
+  app.get('/api/events', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 3000\n\n');
+    const send = ({ type, data }) => {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(data ?? null)}\n\n`);
+    };
+    const unsubscribe = storeEvents.subscribe(send);
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), options.heartbeatMs ?? 15_000);
+    heartbeat.unref?.();
+    let closed = false;
+    const end = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    req.on('close', end);
+    res.on('close', end);
   });
 
   app.get('/api/pending', async (req, res, next) => {

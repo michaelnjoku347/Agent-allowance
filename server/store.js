@@ -23,6 +23,11 @@ function storePath() {
   return process.env.ALLOWANCE_STORE || defaultStorePath;
 }
 
+/** The store file, for the live event stream that watches it. */
+export function storeFile() {
+  return storePath();
+}
+
 /** Drop the ledger file so the next write starts clean. Used by the backup demo. */
 export function discardStoreFile() {
   try {
@@ -259,8 +264,19 @@ function presentPending(item) {
   };
 }
 
+/**
+ * Real data replaces the samples. A decision the agent recorded sets
+ * agentConnected, but a real row can also arrive another way (a decline, a
+ * Ledger approval, an imported store), so any non-sample row counts too.
+ */
+export function hasRealData(store) {
+  if (store.agentConnected) return true;
+  const real = (rows) => (rows ?? []).some((item) => item && !item.sample);
+  return real(store.payments) || real(store.pending);
+}
+
 function liveRows(store, rows) {
-  if (!store.agentConnected) return rows;
+  if (!hasRealData(store)) return rows;
   return rows.filter((item) => !item.sample);
 }
 
@@ -276,7 +292,7 @@ export function summarize(store, rules = loadRules()) {
     remaining: formatRlusd(remaining),
     spentRatio,
     currency: 'RLUSD',
-    agentConnected: Boolean(store.agentConnected),
+    agentConnected: hasRealData(store),
     frozen: Boolean(store.frozen),
     frozenAt: store.frozenAt ?? null,
     channelClosed: Boolean(store.channelClosed),
@@ -699,6 +715,30 @@ export async function setPaymentPhase(id, phase) {
     if (!item) return { missing: true };
     item.paymentPhase = phase;
     return { phase };
+  });
+}
+
+const LIVE_STAGES = new Set(['agent', 'rules', 'xrpl']);
+
+/**
+ * Where the agent's current purchase is, for the live payment path. The agent
+ * runs in its own process, so this goes through the store file. Pass null to
+ * clear it. It never decides anything; the activity row that follows does.
+ */
+export async function setLiveStage(input) {
+  return updateStore((store) => {
+    if (!input || !LIVE_STAGES.has(input.stage)) {
+      delete store.live;
+      return { live: null };
+    }
+    store.live = {
+      stage: input.stage,
+      task: typeof input.task === 'string' ? input.task.slice(0, 200) : null,
+      amount: input.amount ?? null,
+      merchantLabel: input.merchantLabel ?? null,
+      at: new Date(input.nowMs ?? Date.now()).toISOString(),
+    };
+    return { live: store.live };
   });
 }
 

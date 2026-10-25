@@ -13,7 +13,7 @@ delete process.env.JEV_API_KEY;
 
 const { createApp } = await import('./index.js');
 const { recordAgentPayment, recordPending, listPending } = await import('./store.js');
-const { answerEve, loadEveContext, ruleAnswer } = await import('./eve.js');
+const { answerEve, loadEveContext, ruleAnswer, splitQuestions } = await import('./eve.js');
 const { updateAllowance } = await import('../agent/rules.js');
 
 for (const name of [
@@ -294,4 +294,42 @@ describe('Eve', { concurrency: false }, () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+test('a two-part question gets both answers', async () => {
+  assert.deepEqual(splitQuestions('How much have I spent and what is pending?'), ['How much have I spent', 'what is pending']);
+  assert.deepEqual(splitQuestions('What did I spend today? Why was the last one blocked?'), ['What did I spend today', 'Why was the last one blocked']);
+  // "and" inside a name is not a second question.
+  assert.deepEqual(splitQuestions('Decline Smith and Co'), ['Decline Smith and Co']);
+
+  const both = ruleAnswer('How much have I spent and what is pending?', context);
+  assert.equal(both.parts, 2);
+  assert.match(both.reply, /spent 1\.00 RLUSD/);
+  assert.match(both.reply, /Waiting for you:/);
+  assert.match(both.reply, /8 RLUSD to Field Weather Co/);
+
+  const three = ruleAnswer('What is Jev, how much can I still spend, and why was the last one blocked?', context);
+  assert.equal(three.parts, 3);
+  assert.match(three.reply, /Jev/);
+  assert.match(three.reply, /left to spend/);
+  assert.match(three.reply, /per-purchase cap/);
+
+  // Freeze wins as the one action, and the other part is still answered.
+  const freeze = ruleAnswer('How much is left to spend, and freeze the agent', context);
+  assert.equal(freeze.action?.type, 'freeze');
+  assert.match(freeze.reply, /left to spend/);
+
+  // A model answers one half, so a multi-part question stays with the rules.
+  let modelCalled = false;
+  const answered = await answerEve('How much have I spent and what is pending?', context, {
+    env: { AWS_REGION: 'us-east-1', BEDROCK_MODEL_ID: 'model', AWS_BEARER_TOKEN_BEDROCK: 'token' },
+    bedrockClient: { send: async () => { modelCalled = true; throw new Error('not called'); } },
+  });
+  assert.equal(modelCalled, false);
+  assert.equal(answered.source, 'rules');
+  assert.match(answered.reply, /spent/);
+  assert.match(answered.reply, /Waiting for you:/);
+
+  // One question still answers once.
+  assert.equal(ruleAnswer('What is pending?', context).parts, undefined);
 });
