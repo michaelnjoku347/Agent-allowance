@@ -100,10 +100,13 @@ dotenv.config({ path: join(rootDir, '.env') });
 let agentChild = null;
 const confirmations = createConfirmations();
 
-function stopAgentProcess() {
-  if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
-    agentChild.kill('SIGTERM');
-  }
+function agentRunning() {
+  return Boolean(agentChild && agentChild.exitCode === null && !agentChild.killed);
+}
+
+/** Stop the agent run that belongs to this scope: a demo visitor's freeze never stops another visitor's run. */
+function stopAgentProcess(scope = null) {
+  if (agentRunning() && agentChild.scope === scope) agentChild.kill('SIGTERM');
 }
 
 /** Rules that cannot be read mean nothing may be reported as safe to spend. */
@@ -559,7 +562,7 @@ export function createApp(options = {}) {
       };
       // Freeze and decline are proposals. Nothing runs until the person confirms.
       if (result.action?.type === 'freeze' || result.action?.type === 'decline') {
-        const token = confirmations.issue(result.action);
+        const token = confirmations.issue(result.action, req.sandbox?.id ?? '');
         payload.confirmation = {
           token,
           summary: confirmationSummary(result.action, context),
@@ -575,12 +578,12 @@ export function createApp(options = {}) {
   app.post('/api/eve/confirm', async (req, res, next) => {
     try {
       const token = typeof req.body?.token === 'string' ? req.body.token.slice(0, LIMITS.tokenChars) : '';
-      const action = confirmations.take(token);
+      const action = confirmations.take(token, req.sandbox?.id ?? '');
       if (!action) {
         return res.status(400).json({ error: 'That confirmation expired. Ask Eve again.' });
       }
       const result = await executeConfirmed(action);
-      if (result.frozen) stopAgentProcess();
+      if (result.frozen) stopAgentProcess(req.sandbox?.id ?? null);
       if (result.error === 'missing') {
         return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
       }
@@ -657,7 +660,7 @@ export function createApp(options = {}) {
         return res.json({ ok: true, signing: true, ...state });
       }
       const state = await freezeAgent({ env: env0 });
-      stopAgentProcess();
+      stopAgentProcess(req.sandbox?.id ?? null);
       res.json(state);
     } catch (error) {
       next(error);
@@ -713,8 +716,12 @@ export function createApp(options = {}) {
         error: 'Add AGENT_PRIVATE_KEY, TEAM_NAME, and RESOURCE_URL to .env to pay a merchant.',
       });
     }
-    if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
-      return res.status(409).json({ ok: false, error: 'The agent is already running.' });
+    if (agentRunning()) {
+      const theirs = agentChild.scope !== (req.sandbox?.id ?? null);
+      return res.status(409).json({
+        ok: false,
+        error: theirs ? 'Another visitor’s agent run is in progress. Try again in a minute.' : 'The agent is already running.',
+      });
     }
     const child = spawn(process.execPath, ['agent/agent.js', task], {
       cwd: rootDir,
@@ -724,6 +731,7 @@ export function createApp(options = {}) {
         : process.env,
       stdio: 'inherit',
     });
+    child.scope = req.sandbox?.id ?? null;
     agentChild = child;
     child.on('exit', () => {
       if (agentChild === child) agentChild = null;
@@ -738,6 +746,7 @@ export function createApp(options = {}) {
   if (process.env.SERVE_DASHBOARD === '1') {
     const dist = join(rootDir, 'dashboard', 'dist');
     if (existsSync(join(dist, 'index.html'))) {
+      if (sandboxes) app.use(sandboxes.pageCookie);
       app.use(express.static(dist));
       app.use((req, res, next) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();

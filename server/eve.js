@@ -40,21 +40,37 @@ export { explainJev, plainReason, jevSourceLabel };
 
 const CONFIRMABLE = new Set(['freeze', 'decline']);
 
-export function createConfirmations(now = () => Date.now()) {
+/**
+ * Single-use tokens for proposals. Each token belongs to the scope that asked
+ * (a hosted demo visitor's sandbox; '' on a local install), so one visitor can
+ * never confirm another's proposal. Expired tokens are dropped, and at most
+ * `max` are kept, oldest first out, so unconfirmed proposals cannot pile up.
+ */
+export function createConfirmations(now = () => Date.now(), { max = 1000 } = {}) {
   const tokens = new Map();
+  function prune() {
+    const at = now();
+    for (const [key, row] of tokens) if (row.exp <= at) tokens.delete(key);
+    while (tokens.size >= max) tokens.delete(tokens.keys().next().value);
+  }
   return {
-    issue(action) {
+    issue(action, scope = '') {
       if (!action || !CONFIRMABLE.has(action.type)) throw new Error('Eve can only propose a freeze or a decline.');
+      prune();
       const token = randomBytes(16).toString('hex');
-      tokens.set(token, { action, exp: now() + CONFIRM_MS });
+      tokens.set(token, { action, scope: String(scope ?? ''), exp: now() + CONFIRM_MS });
       return token;
     },
-    take(token) {
-      const row = tokens.get(String(token ?? ''));
-      if (!row) return null;
-      tokens.delete(String(token));
+    take(token, scope = '') {
+      const key = String(token ?? '');
+      const row = tokens.get(key);
+      if (!row || row.scope !== String(scope ?? '')) return null;
+      tokens.delete(key);
       if (row.exp <= now()) return null;
       return row.action;
+    },
+    get size() {
+      return tokens.size;
     },
   };
 }

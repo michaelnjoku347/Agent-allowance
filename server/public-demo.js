@@ -76,23 +76,30 @@ export function createSandboxes({
   root = join(tmpdir(), 'agent-allowance-demo'),
   ttlMs = 6 * 60 * 60 * 1000,
   max = 500,
+  // New sandboxes per client address per window. High enough for a room of judges behind one NAT.
+  newPerClient = 120,
+  newWindowMs = 10 * 60 * 1000,
   baseRules = baseRulesFile(),
   approver = () => backupApproverWallet().address.toLowerCase(),
   now = () => Date.now(),
 } = {}) {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   let sweptAt = 0;
+  let createdSinceSweep = 0;
+  const created = new Map();
 
   function paths(id) {
     const dir = join(root, id);
     return { id, dir, storePath: join(dir, 'store.json'), rulesPath: join(dir, 'rules.json') };
   }
 
-  /** Drop sandboxes idle past the TTL, and the oldest beyond the cap. */
-  function sweep() {
+  /** Drop sandboxes idle past the TTL, and the oldest beyond the cap. At most once a minute unless forced. */
+  function sweep({ force = false } = {}) {
     const at = now();
-    if (at - sweptAt < 60_000) return;
+    if (!force && at - sweptAt < 60_000) return;
     sweptAt = at;
+    createdSinceSweep = 0;
+    for (const [client, row] of created) if (at >= row.reset) created.delete(client);
     let rows = [];
     try {
       rows = readdirSync(root).filter((name) => ID.test(name)).map((name) => {
@@ -129,23 +136,72 @@ export function createSandboxes({
     return ensure(id);
   }
 
+  /** true when this client may start another sandbox now. */
+  function allowNew(req) {
+    const at = now();
+    const client = req.ip || req.socket?.remoteAddress || 'local';
+    let row = created.get(client);
+    if (!row || at >= row.reset) {
+      row = { count: 0, reset: at + newWindowMs };
+      created.set(client, row);
+    }
+    if (row.count >= newPerClient) return false;
+    row.count += 1;
+    return true;
+  }
+
+  /**
+   * The visitor's sandbox id from the cookie, or a new one with Set-Cookie.
+   * null when this client has started too many sandboxes lately.
+   */
+  function assign(req, res) {
+    const existing = readCookie(req.headers.cookie, COOKIE);
+    if (ID.test(existing)) return existing;
+    if (!allowNew(req)) return null;
+    const id = randomBytes(16).toString('hex');
+    const parts = [`${COOKIE}=${id}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(ttlMs / 1000)}`];
+    if (secureRequest(req)) parts.push('Secure');
+    res.append('Set-Cookie', parts.join('; '));
+    // Many new sandboxes at once: sweep now instead of waiting for the minute.
+    createdSinceSweep += 1;
+    sweep({ force: createdSinceSweep >= Math.max(10, Math.floor(max / 5)) });
+    // The cookie is now on this request too, so a later middleware sees the same id.
+    req.headers.cookie = `${req.headers.cookie ? `${req.headers.cookie}; ` : ''}${COOKIE}=${id}`;
+    return id;
+  }
+
+  function tooMany(res) {
+    res.setHeader('Retry-After', String(Math.ceil(newWindowMs / 1000)));
+    return res.status(429).json({
+      error: 'rate_limited',
+      message: 'Too many new demo sessions from your network. Keep using the tab you have open, or wait a few minutes.',
+    });
+  }
+
   function middleware(req, res, next) {
     // Health checks come from the host every few seconds. They read the base files, not a sandbox.
     if (req.path === '/health') return next();
-    let id = readCookie(req.headers.cookie, COOKIE);
-    if (!ID.test(id)) {
-      id = randomBytes(16).toString('hex');
-      const parts = [`${COOKIE}=${id}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${Math.floor(ttlMs / 1000)}`];
-      if (secureRequest(req)) parts.push('Secure');
-      res.append('Set-Cookie', parts.join('; '));
-      sweep();
-    }
+    const id = assign(req, res);
+    if (!id) return tooMany(res);
     const box = ensure(id);
     req.sandbox = box;
     sandboxContext.run(box, next);
   }
 
-  return { middleware, ensure, reset, paths, sweep, root };
+  /**
+   * Give the page itself the cookie, so the dashboard's first API calls,
+   * which go out together, all land in one sandbox. The sandbox folder is
+   * made on the first API call.
+   */
+  function pageCookie(req, res, next) {
+    const page = (req.method === 'GET' || req.method === 'HEAD')
+      && !req.path.startsWith('/api')
+      && (req.path === '/' || req.path === '/index.html' || !/\.[a-z0-9]+$/i.test(req.path));
+    if (page) assign(req, res);
+    next();
+  }
+
+  return { middleware, pageCookie, ensure, reset, paths, sweep, root };
 }
 
 /** The three simulated purchases Run agent cycles through, in story order. */

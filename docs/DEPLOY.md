@@ -10,10 +10,11 @@ Set `PUBLIC_DEMO=1` and the server changes four things:
 
 | | Local (default) | Public demo |
 | --- | --- | --- |
-| Data | `server/data/store.json` and `agent/rules.json` | A private sandbox per visitor: a copy of the rules and a store seeded with the sample rows, chosen by an `HttpOnly` cookie. One judge's freeze, decline, or rule change never reaches another's screen. Idle sandboxes are removed after 6 hours, and at most 500 are kept. |
+| Data | `server/data/store.json` and `agent/rules.json` | A private sandbox per visitor: a copy of the rules and a store seeded with the sample rows, chosen by an `HttpOnly` cookie. One judge's freeze, decline, or rule change never reaches another's screen. The page itself carries the cookie, so one visit is one sandbox. Idle sandboxes are removed after 6 hours, at most 500 are kept, and one network can start at most 120 new ones every 10 minutes. |
 | Approvals and raises | A Ledger over WebHID | A **simulated Ledger signature** from a throwaway key held in memory. Every screen that uses it says so. The same EIP-712 challenge, signature check, and replay guard still run. |
 | Run agent | Starts `agent/agent.js` with your keys | Records a simulated purchase that walks the demo story: a 0.01 RLUSD brief paid inside the rules, a 0.08 RLUSD history quote held for approval, and an unlisted desk that is decline-only. The real rules decide each one. Nothing is signed or broadcast. |
-| Freeze | Stops signing and closes the payment channel | Stops signing in that visitor's sandbox. The shared channel is never closed by a visitor. |
+| Freeze | Stops signing and closes the payment channel | Stops signing in that visitor's sandbox. The shared channel is never closed, and another visitor's agent run is never stopped. |
+| Eve | Proposes a freeze or a decline; you confirm | The same, and a proposal can be confirmed only from the visitor's own sandbox. |
 
 **Reset my demo** in the banner starts a sandbox over from the sample rows.
 

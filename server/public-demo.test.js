@@ -100,6 +100,30 @@ describe('hosted public demo', { concurrency: false }, () => {
     }, sandboxes);
   });
 
+  test("one visitor cannot confirm another visitor's Eve proposal", async () => {
+    const sandboxes = createSandboxes({ root: join(dir, 'eve'), approver: () => `0x${'ab'.repeat(20)}` });
+    await serve(async (base) => {
+      const alice = client(base);
+      const bob = client(base);
+      await alice.request('/api/status');
+      await bob.request('/api/status');
+      const proposal = await alice.request('/api/eve', { method: 'POST', body: { message: 'freeze the agent' } });
+      const token = proposal.body.confirmation?.token;
+      assert.match(token, /^[a-f0-9]{32}$/);
+
+      const stolen = await bob.request('/api/eve/confirm', { method: 'POST', body: { token } });
+      assert.equal(stolen.status, 400);
+      assert.equal((await bob.request('/api/status')).body.frozen, false);
+      assert.equal((await alice.request('/api/status')).body.frozen, false, 'nothing ran');
+
+      const confirmed = await alice.request('/api/eve/confirm', { method: 'POST', body: { token } });
+      assert.equal(confirmed.status, 200);
+      assert.equal(confirmed.body.frozen, true);
+      assert.equal((await alice.request('/api/status')).body.frozen, true);
+      assert.equal((await bob.request('/api/status')).body.frozen, false);
+    }, sandboxes);
+  });
+
   test('Run agent walks the story with simulated payments, and reset starts over', async () => {
     const sandboxes = createSandboxes({ root: join(dir, 'story'), approver: () => `0x${'ab'.repeat(20)}` });
     await serve(async (base) => {
@@ -162,6 +186,65 @@ describe('hosted public demo', { concurrency: false }, () => {
       signIn: async () => { throw new Error('must not sign in'); },
     });
     assert.equal(result.attempted, false);
+  });
+
+  function fakeRes() {
+    const headers = [];
+    return {
+      headers,
+      statusCode: 0,
+      append(name, value) { headers.push([name, value]); },
+      setHeader(name, value) { headers.push([name, value]); },
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+  const fakeReq = (path, { cookie = '', ip = '203.0.113.7' } = {}) => ({
+    method: 'GET', path, ip, headers: cookie ? { cookie } : {}, get: () => '',
+  });
+
+  test('the page carries the cookie, so the first API calls, sent together, share one sandbox', () => {
+    const root = join(dir, 'page');
+    const sandboxes = createSandboxes({ root, approver: () => `0x${'ab'.repeat(20)}` });
+    const pageRes = fakeRes();
+    let passed = false;
+    sandboxes.pageCookie(fakeReq('/'), pageRes, () => { passed = true; });
+    assert.equal(passed, true);
+    const set = pageRes.headers.find(([name]) => name === 'Set-Cookie')?.[1] ?? '';
+    assert.match(set, /^aa_demo=[a-f0-9]{32}; Path=\/; HttpOnly; SameSite=Lax/);
+    const id = set.split(';')[0].split('=')[1];
+    assert.equal(existsSync(join(root, id)), false, 'the folder waits for the first API call');
+
+    const assetRes = fakeRes();
+    sandboxes.pageCookie(fakeReq('/assets/index-abc123.js'), assetRes, () => {});
+    assert.deepEqual(assetRes.headers, [], 'assets get no cookie');
+    const routeRes = fakeRes();
+    sandboxes.pageCookie(fakeReq('/rules', { cookie: `aa_demo=${id}` }), routeRes, () => {});
+    assert.deepEqual(routeRes.headers, [], 'a visitor with a cookie keeps it');
+
+    for (const path of ['/status', '/payments', '/pending', '/events']) {
+      const req = fakeReq(path, { cookie: `aa_demo=${id}` });
+      const res = fakeRes();
+      sandboxes.middleware(req, res, () => {});
+      assert.equal(req.sandbox.id, id, path);
+      assert.deepEqual(res.headers, [], `${path} sets no new cookie`);
+    }
+    assert.equal(existsSync(join(root, id, 'rules.json')), true);
+  });
+
+  test('one network can start only so many new sandboxes at a time', () => {
+    const sandboxes = createSandboxes({ root: join(dir, 'limit'), newPerClient: 2, approver: () => `0x${'ab'.repeat(20)}` });
+    const outcomes = [];
+    for (let i = 0; i < 3; i += 1) {
+      const res = fakeRes();
+      sandboxes.middleware(fakeReq('/status'), res, () => outcomes.push('ok'));
+      if (res.statusCode) outcomes.push(res.statusCode);
+    }
+    assert.deepEqual(outcomes, ['ok', 'ok', 429]);
+    const other = fakeRes();
+    let passed = false;
+    sandboxes.middleware(fakeReq('/status', { ip: '198.51.100.9' }), other, () => { passed = true; });
+    assert.equal(passed, true, 'another network is not affected');
   });
 
   test('old sandboxes are swept', () => {
