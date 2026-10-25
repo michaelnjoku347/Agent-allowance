@@ -180,6 +180,8 @@ Every state-changing request must come from the dashboard origin, any request bo
 
 ## Security model
 
+The threat model, with where each defense lives, is in [docs/SECURITY.md](docs/SECURITY.md).
+
 - **Rules decide before anything is signed**, and an unreadable rules file fails closed: the API returns `rules_unavailable` and nothing is paid.
 - **Inputs are shape-checked** on every route: ids, amounts (at most 18 decimals), dates, addresses, and text lengths. Unknown allowance fields are refused rather than ignored.
 - **Raises need a signature.** Lowering a limit applies directly; raising the cap, the budget, or the end date, or adding a merchant, needs a `SetAllowance` signature from the approver. The dashboard can never replace the approver once one is set.

@@ -15,6 +15,7 @@ const {
   parseAllowancePatch,
   rateLimitSettings,
   redact,
+  securityHeaders,
   validId,
 } = await import('./guardrails.js');
 const { createApp } = await import('./index.js');
@@ -207,4 +208,25 @@ describe('API guardrails', { concurrency: false }, () => {
       writeFileSync(rulesCopy, good);
     }
   });
+});
+
+test('the served dashboard gets a strict policy, and the API is never cached', () => {
+  const run = (path, dashboard) => {
+    const headers = {};
+    securityHeaders({ dashboard })({ path }, { setHeader: (key, value) => { headers[key] = value; } }, () => {});
+    return headers;
+  };
+  const page = run('/', true);
+  const csp = page['Content-Security-Policy'];
+  for (const rule of ["default-src 'self'", "script-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "base-uri 'none'"]) {
+    assert.ok(csp.includes(rule), rule);
+  }
+  assert.equal(csp.includes("'unsafe-eval'"), false);
+  assert.equal(/script-src[^;]*unsafe-inline/.test(csp), false, 'no inline scripts');
+  assert.equal(page['X-Frame-Options'], 'DENY');
+  assert.match(page['Permissions-Policy'], /hid=\(self\)/);
+  const api = run('/api/status', true);
+  assert.equal(api['Cache-Control'], 'no-store');
+  assert.equal(api['Content-Security-Policy'], undefined);
+  assert.equal(run('/', false)['Content-Security-Policy'], undefined, 'no policy when the API does not serve the page');
 });
