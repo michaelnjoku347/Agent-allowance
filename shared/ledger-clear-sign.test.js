@@ -8,5 +8,6 @@ test('chain 1449000 cannot clear-sign without a Ledger registry certificate', ()
   assert.match(decision.reason, /1449000/);
   assert.match(decision.reason, /cannot clear-sign/);
   assert.equal(clearSignDescriptor().context.eip712.domain.chainId, 1449000);
+  assert.match(JSON.stringify(clearSignDescriptor().display.formats), /AgentMandate/);
   assert.equal(clearSignDescriptor().context.eip712.domain.name, 'Agent Allowance');
 });

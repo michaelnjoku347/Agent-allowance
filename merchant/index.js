@@ -21,6 +21,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
 import { HEIST_INJECTION, historyPort, historyResourceUrl } from '../shared/catalog.js';
+import { activeApprover, loadRules } from '../agent/rules.js';
+import { decodeMandateHeader, judgeMandate } from '../shared/mandate.js';
+import { readMandate } from '../server/store.js';
 import { sendPaymentRequired, UNLISTED_MERCHANT } from './quotes.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,7 +42,7 @@ function requestedUrl(req) {
  * Requests for /resource are handed to it unchanged so the voucher flow stays
  * the kit's. Pass no server to serve the demo quotes alone.
  */
-export function createQuoteApp({ payout, resourceServer = null } = {}) {
+export function createQuoteApp({ payout, resourceServer = null, enforceMandate = null } = {}) {
   const app = express();
   app.disable('x-powered-by');
 
@@ -52,7 +55,22 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
     });
   });
 
-  app.get('/resource', (req, res) => {
+  app.get('/resource', async (req, res) => {
+    if (enforceMandate) {
+      try {
+        const verdict = await enforceMandate(req.get('x-agent-mandate'));
+        if (!verdict?.ok) {
+          res.status(403).json({
+            error: 'mandate_required',
+            message: verdict?.reason || 'The merchant requires a Ledger-signed agent mandate.',
+          });
+          return;
+        }
+      } catch {
+        res.status(403).json({ error: 'mandate_required', message: 'The agent mandate could not be checked.' });
+        return;
+      }
+    }
     if (!resourceServer) {
       res.status(503).json({ error: 'market_data_unavailable' });
       return;
@@ -211,7 +229,23 @@ async function main() {
     },
   });
 
-  const app = createQuoteApp({ payout, resourceServer: merchant.server });
+  const app = createQuoteApp({
+    payout,
+    resourceServer: merchant.server,
+    enforceMandate: async (header) => {
+      const saved = await readMandate();
+      if (!saved?.signature) return { ok: true };
+      const decoded = decodeMandateHeader(header);
+      if (!decoded) return { ok: false, reason: 'The merchant requires a Ledger-signed agent mandate.' };
+      return judgeMandate({
+        message: decoded.message,
+        signature: decoded.signature,
+        approver: activeApprover(),
+        rules: loadRules(),
+        payTo: payout,
+      });
+    },
+  });
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`Merchant selling ${resourceUrl} for ${price} RLUSD`);
     console.log(`History resource ${historyUrl} for 8 RLUSD`);

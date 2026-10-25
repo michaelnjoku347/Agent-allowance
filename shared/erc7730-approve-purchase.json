@@ -27,6 +27,17 @@
           { "path": "expiry", "label": "Expires", "format": "raw" }
         ]
       },
+      "AgentMandate(string agent,string budget,string cap,string expiry,string merchants,string validUntil)": {
+        "intent": "Sign agent mandate",
+        "fields": [
+          { "path": "agent", "label": "Agent", "format": "raw" },
+          { "path": "budget", "label": "Budget", "format": "raw" },
+          { "path": "cap", "label": "Cap", "format": "raw" },
+          { "path": "expiry", "label": "Allowance expires", "format": "raw" },
+          { "path": "merchants", "label": "Merchants", "format": "raw" },
+          { "path": "validUntil", "label": "Signature expires", "format": "raw" }
+        ]
+      },
       "SetAllowance(string cap,string budget,string expiry,string merchants,string validUntil)": {
         "intent": "Set allowance",
         "fields": [

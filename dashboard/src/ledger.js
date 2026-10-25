@@ -75,6 +75,7 @@ export function prepareLedger() {
 const MESSAGE_SHAPES = {
   ApprovePurchase: 'purchaseId:string,merchant:string,amount:string,expiry:string',
   SetAllowance: 'cap:string,budget:string,expiry:string,merchants:string,validUntil:string',
+  AgentMandate: 'agent:string,budget:string,cap:string,expiry:string,merchants:string,validUntil:string',
 };
 
 function assertTypedData(typedData) {

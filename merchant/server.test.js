@@ -102,3 +102,27 @@ test('GET /resource is forwarded to the x402 merchant', async () => {
     await close(server);
   }
 });
+
+test('a resource without a valid agent mandate is 403 and is not forwarded', async () => {
+  let forwarded = false;
+  const resourceServer = createServer((req, res) => {
+    forwarded = true;
+    res.writeHead(402);
+    res.end();
+  });
+  const server = await listen(createQuoteApp({
+    payout,
+    resourceServer,
+    enforceMandate: async () => ({ ok: false, reason: 'The merchant requires a Ledger-signed agent mandate.' }),
+  }));
+  const { port } = server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/resource`);
+    assert.equal(response.status, 403);
+    const body = await response.json();
+    assert.equal(body.error, 'mandate_required');
+    assert.equal(forwarded, false);
+  } finally {
+    await close(server);
+  }
+});

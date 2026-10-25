@@ -281,6 +281,8 @@ export function summarize(store, rules = loadRules()) {
     frozenAt: store.frozenAt ?? null,
     channelClosed: Boolean(store.channelClosed),
     freezeDetail: typeof store.freezeDetail === 'string' ? store.freezeDetail : null,
+    mandate: presentMandate(store.mandate),
+    anchor: presentAnchor(store.anchor),
     useCase: presentUseCase(store.useCase),
     audit: presentAudit(store),
     rules: presentRules(rules),
@@ -389,6 +391,68 @@ export async function setFreeze(frozen) {
       paymentId: null,
     });
     return { frozen: store.frozen, frozenAt: store.frozenAt };
+  });
+}
+
+function presentMandate(mandate) {
+  if (!mandate?.signature || !mandate.message) return { signed: false };
+  return {
+    signed: true,
+    agent: mandate.message.agent ?? null,
+    budget: mandate.message.budget ?? null,
+    cap: mandate.message.cap ?? null,
+    expiry: mandate.message.expiry ?? null,
+    merchants: mandate.message.merchants ?? null,
+    validUntil: mandate.message.validUntil ?? null,
+    approver: mandate.approver ?? null,
+  };
+}
+
+function presentAnchor(anchor) {
+  if (!anchor || typeof anchor !== 'object') return null;
+  const txHash = /^0x[0-9a-fA-F]{64}$/.test(anchor.txHash ?? '') ? anchor.txHash : null;
+  return {
+    anchored: Boolean(anchor.anchored && txHash),
+    hash: typeof anchor.hash === 'string' ? anchor.hash : null,
+    txHash,
+    reason: typeof anchor.reason === 'string' ? anchor.reason : null,
+  };
+}
+
+export async function readMandate() {
+  const store = await readStore();
+  if (!store.mandate?.signature || !store.mandate.message) return null;
+  return store.mandate;
+}
+
+export async function saveMandate({ message, signature, approver, header }) {
+  return updateStore((store) => {
+    store.mandate = {
+      message,
+      signature,
+      approver,
+      header,
+      signedAt: new Date().toISOString(),
+    };
+    return presentMandate(store.mandate);
+  });
+}
+
+export async function readAnchor() {
+  const store = await readStore();
+  return presentAnchor(store.anchor);
+}
+
+export async function saveAnchor(anchor) {
+  return updateStore((store) => {
+    store.anchor = {
+      anchored: Boolean(anchor.anchored),
+      hash: anchor.hash ?? null,
+      txHash: anchor.txHash ?? null,
+      reason: anchor.reason ?? null,
+      at: new Date().toISOString(),
+    };
+    return presentAnchor(store.anchor);
   });
 }
 

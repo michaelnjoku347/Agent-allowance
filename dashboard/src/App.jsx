@@ -6,6 +6,7 @@ import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
 import HeistDemo from './HeistDemo.jsx';
+import HowItWorks from './HowItWorks.jsx';
 import { flowForHeist, flowForItem, narrationFor, narrationForHeist, toneKind, txFeed } from './present.js';
 import { MoneyFlow, TxFeed } from './Stage.jsx';
 import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
@@ -449,7 +450,7 @@ export default function App() {
               <ThemeControl theme={theme} setTheme={setTheme} />
             </div>
           </header>
-          <p className="lede">Each purchase is checked against your rules before it is paid.</p>
+          <p className="lede">Autonomous agents are economic actors. This allowance is programmable, and a Ledger is the hardware guard. The agent decides what to buy. It cannot decide what it is allowed to spend.</p>
           {snapshot?.simulatedLedger ? (
             <p className="sim-banner sim-banner-page" role="status">
               Backup demo only. simulated Ledger signature. This is not a Ledger device and it does not broadcast a voucher.
@@ -467,6 +468,7 @@ export default function App() {
             ) : null}
             {snapshot && tab === 'home' ? (
               <div className="stack">
+                <HowItWorks snapshot={snapshot} onChange={load} />
                 {snapshot.frozen ? (
                   <p className="freeze-banner" role="status">
                     {snapshot.channelClosed
@@ -883,6 +885,14 @@ function ReceiptCard({ item, explorer }) {
           <dt>Settlement</dt>
           <dd>{receipt ? <a href={receipt} target="_blank" rel="noreferrer noopener">Settlement receipt</a> : 'Not recorded'}</dd>
         </div>
+        <div>
+          <dt>AP4M channel</dt>
+          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>AP4M claim</dt>
+          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+        </div>
       </dl>
       {kitReceipt ? (
         <a className="explorer" href={receipt} target="_blank" rel="noreferrer noopener">Verify receipt</a>
@@ -990,16 +1000,16 @@ function Detail({ item, currency }) {
           <dd>{item.payoutTx ? <code>{item.payoutTx}</code> : 'Not recorded'}</dd>
         </div>
         <div>
-          <dt>Channel</dt>
-          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+          <dt>AP4M channel</dt>
+          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>Settlement</dt>
           <dd>{settlementLabel(item.settlementStatus)}</dd>
         </div>
         <div>
-          <dt>Claim ID</dt>
-          <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+          <dt>AP4M claim</dt>
+          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>Receipt</dt>

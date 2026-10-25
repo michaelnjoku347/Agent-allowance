@@ -33,7 +33,7 @@ import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
 import { spendRateDecision } from './spend-rate.js';
 import { readBedrockSettings } from '../server/bedrock.js';
-import { listPayments, readFrozen, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
+import { listPayments, readFrozen, readMandate, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -385,6 +385,16 @@ async function openSession(apiUrl, rules, resourceUrl) {
   return { config, provider, wallet, token, channel, context, pending };
 }
 
+async function fetchWithMandate(fetchImpl) {
+  const mandate = await readMandate();
+  if (!mandate?.header) return fetchImpl;
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers || {});
+    headers.set('X-Agent-Mandate', mandate.header);
+    return fetchImpl(url, { ...init, headers });
+  };
+}
+
 async function payWithX402({ session, quote, resourceUrl, task, operation = null }) {
   const ledgerAddress = session.config.contracts.paymentLedger;
   const state = await getChannelState(session.provider, ledgerAddress, session.channel.channel_id);
@@ -412,6 +422,7 @@ async function payWithX402({ session, quote, resourceUrl, task, operation = null
     channelId: session.channel.channel_id.toLowerCase(),
     maximumAmount: quote.amountWei,
     operation: operation ?? pending?.operation ?? operationName(task),
+    requestFetch: await fetchWithMandate(fetch),
   });
 }
 
@@ -508,7 +519,7 @@ export async function payExactQuote({
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const session = await openSession(apiUrl, rules, url);
   const channelId = String(session.channel.channel_id).toLowerCase();
-  const quote = await requestQuote(url, channelId);
+  const quote = await requestQuote(url, channelId, await fetchWithMandate(fetch));
   if (new URL(quote.resourceUrl).href !== url) {
     throw new Error('Merchant quote is for a different resource than the one approved.');
   }
@@ -662,7 +673,7 @@ export async function runOnce({
   const url = canonicalResourceUrl(selectedUrl);
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = retryingFetch(previousFetch.bind(globalThis));
+  globalThis.fetch = await fetchWithMandate(retryingFetch(previousFetch.bind(globalThis)));
   try {
     console.log('Task:', task);
     const active = session ?? await openSession(apiUrl, rules, url);

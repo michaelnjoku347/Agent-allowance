@@ -24,8 +24,10 @@ import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
 import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
+import { anchorDecision } from '../agent/anchor.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
-import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
+import { acceptMandate, createMandateChallenge } from './mandate.js';
+import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, saveAnchor, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
 import { freezeAgent } from './freeze-channel.js';
@@ -111,6 +113,7 @@ export function createApp(options = {}) {
         chainWarning: channelWarning({ localSpent, budget: summary.budget, chain }),
         chainUnavailable,
         simulatedLedger: devSignerEnabled(),
+        bedrockConfigured: readBedrockSettings().configured,
       });
     } catch (error) {
       next(error);
@@ -189,6 +192,37 @@ export function createApp(options = {}) {
     try {
       if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
       sendLedger(res, await simulateLedgerApproval(req.params.id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/mandate/challenge', async (req, res, next) => {
+    try {
+      const result = await createMandateChallenge({ env: ledgerOptions.env });
+      if (result.body) return res.status(result.status).json(result.body);
+      return res.status(result.status).json({ error: result.error, message: result.message });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/mandate', async (req, res, next) => {
+    try {
+      const result = await acceptMandate(req.body ?? {}, { env: ledgerOptions.env });
+      if (result.body) return res.status(result.status).json(result.body);
+      return res.status(result.status).json({ error: result.error, message: result.message });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/anchor', async (req, res, next) => {
+    try {
+      const audit = await listAudit();
+      const result = await anchorDecision({ row: audit[0], env: ledgerOptions.env ?? process.env });
+      const saved = await saveAnchor(result);
+      res.json({ ok: true, ...saved });
     } catch (error) {
       next(error);
     }

@@ -6,7 +6,7 @@ The line to land: **The AI decides what to buy, but it can never decide what it'
 
 | Time | Rubric | What the judge sees |
 | --- | --- | --- |
-| 0:00 | Demo and story (10%) | The hook, then the hero: remaining, held for review, lost |
+| 0:00 | Demo and story (10%) | The hook, How it works, then remaining, held for review, lost |
 | 0:40 | Technical execution (25%) | The live 1 RLUSD brief, with an explorer link |
 | 1:40 | Trust and control (25%) | The Heist: injected text, the planner's choice, the rule, 0.00 RLUSD moved |
 | 2:40 | Trust and technical | The judge approves 8 RLUSD on a Ledger. Eve refuses a cap raise |
@@ -42,8 +42,10 @@ The merchant name on the paid row follows your rules file. The committed sample 
 > Would you give an AI your credit card? We wouldn't. Agent Allowance is a spending account. You fund 20 RLUSD. The agent may buy from merchants you listed, up to 5 RLUSD a purchase, until the allowance expires. Past any of those rules, it does not pay.
 >
 > Remaining is what it can still spend. Held for review is a quote a person has not released. Lost stays at zero, because a blocked quote never moves RLUSD.
+>
+> How it works is the sponsor map. Ledger signs the exception and the agent mandate. Mastercard AP4M moves every voucher. AWS Bedrock chooses, or the card says Fallback. XRPL settles the RLUSD.
 
-Gesture at **Remaining**, **Held for review**, and **Lost** on the hero. The jobs under **This allowance** (travel, SaaS, supplies) are the same rules with a different name. Mention them in one sentence if a judge asks. Do not click through them unless you have spare seconds. Stay on **Research desk** for the live quotes.
+Gesture at **How it works**, then at **Remaining**, **Held for review**, and **Lost** on the hero. If a mandate is already signed, say the merchant now returns 403 without it. If it is not, say so. Do not call an unanchored hash a transaction. The jobs under **This allowance** (travel, SaaS, supplies) are the same rules with a different name. Mention them in one sentence if a judge asks. Do not click through them unless you have spare seconds. Stay on **Research desk** for the live quotes.
 
 ## 0:40 — Live 1 RLUSD purchase (Technical execution)
 

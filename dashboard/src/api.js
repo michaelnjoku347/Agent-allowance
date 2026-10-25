@@ -116,6 +116,31 @@ export async function submitAllowance(payload) {
   return body;
 }
 
+export async function requestMandateChallenge() {
+  const response = await fetch('/api/mandate/challenge', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare the agent mandate.');
+  return body;
+}
+
+export async function submitMandate(payload) {
+  const response = await fetch('/api/mandate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'The agent mandate was not accepted.');
+  return body;
+}
+
+export async function anchorDecisions() {
+  const response = await fetch('/api/anchor', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || body.error || 'The decision was not anchored.');
+  return body;
+}
+
 /** Kill switch. Frozen refuses new payments until the dashboard unfreezes it. */
 export async function setAgentFrozen(frozen) {
   const response = await fetch('/api/freeze', {

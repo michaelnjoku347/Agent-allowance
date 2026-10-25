@@ -16,7 +16,22 @@ Would you give an AI your credit card?
 
 Agent Allowance is a spending account for an AI agent. You fund **20 RLUSD**. The agent may pay a merchant on its own only when the quote is on your allowlist, at or under a **5 RLUSD** cap, before the allowance expires, and still inside the budget. Anything else is not paid. It is saved for a person.
 
-Built for the Mastercard × XRPL Hackathon, Agentic Finance track. Payments are **AP4M x402** vouchers settling **RLUSD** on **XRPL EVM Testnet** (chain ID `1449000`).
+Built for the Mastercard × XRPL Hackathon, **Agentic Finance** track. An autonomous agent is an economic actor. The allowance is programmable. A Ledger is the hardware guard. The agent decides what to buy. It cannot decide what it is allowed to spend.
+
+Payments are **AP4M x402** vouchers settling **RLUSD** on **XRPL EVM Testnet** (chain ID `1449000`).
+
+## Sponsor map
+
+Each sponsor is on the path. Take one out and that step stops.
+
+| Sponsor | The job only that sponsor does | Where |
+| --- | --- | --- |
+| Ledger | Signs one exception (`ApprovePurchase`), an allowance raise (`SetAllowance`), and the agent mandate (`AgentMandate`). The ERC-7730 file names those fields for clear signing. Chain 1449000 is not in Ledger’s registry, so the device may still ask for blind signing. The dark panel shows the same words. After a mandate is signed, the merchant returns 403 on `/resource` without it. | `shared/approval.js`, `shared/mandate.js`, `shared/erc7730-approve-purchase.json`, `dashboard/src/ledger.js` |
+| Mastercard AP4M | Every payment is an x402 voucher on a channel. The receipt shows the AP4M channel id and the AP4M claim id when the service returns them. A missing id stays “Not recorded”. | `agent/ap4m-x402.mjs`, `merchant/index.js`, `agent/agent.js` |
+| AWS | Amazon Bedrock chooses the resource and can answer Eve. It cannot sign or raise a limit. With no credentials the row is labeled Fallback. The hosted shape is App Runner: IAM role for Bedrock, Secrets Manager for the agent key. | `agent/planner.js`, `server/bedrock.js`, `apprunner.yaml` |
+| XRPL | RLUSD settles on XRPL EVM Testnet, chain `1449000`. **Anchor the latest decision** puts the audit hash in a transaction’s data. No wallet means the hash is shown and nothing is sent. | `shared/network.json`, `agent/anchor.js`, `agent/chain-spend.js` |
+
+The same four jobs are on the dashboard under **How it works**.
 
 ## Why XRPL
 
@@ -72,14 +87,7 @@ flowchart LR
   api -->|pay that quote once| merchant
 ```
 
-## How each sponsor is used
-
-| Sponsor | What it does in this project |
-| --- | --- |
-| Agentic Finance track | The agent spends inside a funded allowance. Rules run before any signature, so the agent never holds a card. |
-| Mastercard AP4M | x402 `PAYMENT-REQUIRED` quotes, an RLUSD Channel, one voucher per allowed purchase, redemption, settlement, and a receipt URL from the hackathon service. |
-| Ledger | A person approves one out-of-rule quote on a Ledger Ethereum app. The device signs EIP-712 `ApprovePurchase` over WebHID. The panel shows the readable strings. The device may ask for blind signing because `shared/erc7730-approve-purchase.json` is not registered for chain 1449000. The server checks the signer, the quote, the expiry, and replay. |
-| AWS | Amazon Bedrock (Converse API) chooses among the three live resources and writes Eve's open-ended replies. Null or an error signs nothing. Bedrock does not approve, deny, or sign a payment. With no AWS credentials, a labeled deterministic fallback selects the 1 RLUSD brief. |
+The sponsor map above is the short version. The bounty table names the files.
 
 ## Bounty to files
 
@@ -87,9 +95,9 @@ flowchart LR
 | --- | --- |
 | Agentic finance track | `agent/rules.js`, `agent/agent.js`, `agent/jev.js`, `dashboard/src/App.jsx` |
 | Mastercard AP4M | `agent/ap4m-x402.mjs`, `agent/ap4m-hackathon-sdk.cjs`, `merchant/index.js`, `agent/agent.js` |
-| Ledger | `shared/approval.js`, `shared/erc7730-approve-purchase.json`, `dashboard/src/ledger.js`, `server/ledger.js`, `server/allowance.js` |
+| Ledger | `shared/approval.js`, `shared/mandate.js`, `shared/erc7730-approve-purchase.json`, `dashboard/src/ledger.js`, `server/ledger.js`, `server/mandate.js` |
 | AWS Bedrock | `agent/planner.js`, `server/bedrock.js`, `server/eve.js` |
-| XRPL EVM and RLUSD | `shared/network.json`, `agent/chain-spend.js`, `shared/catalog.js` |
+| XRPL EVM and RLUSD | `shared/network.json`, `agent/chain-spend.js`, `agent/anchor.js`, `shared/catalog.js` |
 
 XRPL EVM Testnet is the chain: chain ID `1449000`, RPC `https://rpc.testnet.xrplevm.org`, gas in test XRP from the [faucet](https://faucet.testevm.ripple.com). RLUSD has 18 decimals. This project refuses to run if the AP4M service reports another chain.
 
