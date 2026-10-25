@@ -78,13 +78,45 @@ export function missingInstalls(rootExists) {
   return steps;
 }
 
-export function dashboardInstall(dashboardExists) {
-  if (dashboardExists) return null;
-  return { label: 'Installing dashboard dependencies…', args: ['install', '--prefix', 'dashboard'] };
+/**
+ * Why a node_modules folder needs `npm install`, or null when it is current.
+ * npm writes node_modules/.package-lock.json on every install, so a manifest
+ * or lockfile edited after it (a git pull that bumped a version) is stale.
+ * A dependency folder that is missing is stale too.
+ *
+ *   modulesExists       node_modules is present
+ *   installedAt         mtime of node_modules/.package-lock.json, or null
+ *   manifestAt          newest mtime of package.json and package-lock.json
+ *   dependencies        names from package.json dependencies and devDependencies
+ *   hasDependency(name) true when node_modules/<name> exists
+ */
+export function installStaleness({ modulesExists, installedAt, manifestAt, dependencies = [], hasDependency = () => true }) {
+  if (!modulesExists) return 'missing';
+  if (installedAt == null) return 'unknown install';
+  if (manifestAt != null && manifestAt > installedAt + 1000) return 'package files changed';
+  const absent = dependencies.find((name) => !hasDependency(name));
+  if (absent) return `${absent} is missing`;
+  return null;
+}
+
+/** reason is what installStaleness returned for dashboard/node_modules. */
+export function dashboardInstall(reason) {
+  if (!reason) return null;
+  const why = reason === 'missing' ? '' : ` (${reason})`;
+  return { label: `Installing dashboard dependencies…${why}`, args: ['install', '--prefix', 'dashboard'] };
 }
 
 export function npmBin(platform = process.platform) {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+/**
+ * Node 18.20.2+ and 20.12.2+ refuse to spawn a .cmd file without a shell
+ * (the CVE-2024-27980 fix), so `npm.cmd` fails with EINVAL on Windows unless
+ * shell is on. The arguments passed here are fixed words, never user text.
+ */
+export function npmSpawnOptions(platform = process.platform) {
+  return platform === 'win32' ? { shell: true } : {};
 }
 
 /** Open a URL in the desktop browser. Failure to open must not stop the servers. */

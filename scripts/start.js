@@ -6,7 +6,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -15,10 +15,12 @@ import {
   dashboardInstall,
   dashboardLaunch,
   envFileNotice,
+  installStaleness,
   lanAddresses,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
+  npmSpawnOptions,
   optionalKeyNotices,
   phoneRequested,
 } from './start-lib.js';
@@ -26,7 +28,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function runNpm(args) {
-  const result = spawnSync(npmBin(), args, { cwd: root, stdio: 'inherit' });
+  const result = spawnSync(npmBin(), args, { cwd: root, stdio: 'inherit', ...npmSpawnOptions() });
   if (result.error) {
     console.error(result.error.message);
     process.exit(1);
@@ -37,12 +39,39 @@ function runNpm(args) {
   }
 }
 
+function mtime(path) {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** Is dir/node_modules missing, or older than dir/package.json and its lockfile? */
+function staleness(dir) {
+  const modules = join(dir, 'node_modules');
+  let manifest = {};
+  try {
+    manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+  } catch {
+    /* No manifest to compare. */
+  }
+  const manifestTimes = [mtime(join(dir, 'package.json')), mtime(join(dir, 'package-lock.json'))].filter((at) => at != null);
+  return installStaleness({
+    modulesExists: existsSync(modules),
+    installedAt: mtime(join(modules, '.package-lock.json')),
+    manifestAt: manifestTimes.length ? Math.max(...manifestTimes) : null,
+    dependencies: [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})],
+    hasDependency: (name) => existsSync(join(modules, ...name.split('/'))),
+  });
+}
+
 function installIfNeeded() {
   for (const step of missingInstalls(existsSync(join(root, 'node_modules')))) {
     console.log(step.label);
     runNpm(step.args);
   }
-  const dashboard = dashboardInstall(existsSync(join(root, 'dashboard', 'node_modules')));
+  const dashboard = dashboardInstall(staleness(join(root, 'dashboard')));
   if (dashboard) {
     console.log(dashboard.label);
     runNpm(dashboard.args);
@@ -88,9 +117,20 @@ async function main() {
 
   installIfNeeded();
 
+  const { clearStaleMerchantLocks } = await import('../shared/merchant-lock.js');
+  const { merchantPort, historyPort } = await import('../shared/catalog.js');
+
   const { default: dotenv } = await import('dotenv');
   dotenv.config({ path: join(root, '.env') });
   const { readBedrockSettings } = await import('../server/bedrock.js');
+
+  // A merchant that crashed or was closed with its window leaves merchant.lock behind.
+  for (const row of await clearStaleMerchantLocks([
+    { stateDirectory: process.env.MERCHANT_STATE_DIRECTORY || join(root, 'merchant', 'state'), port: merchantPort(process.env) },
+    { stateDirectory: process.env.HISTORY_STATE_DIRECTORY || join(root, 'merchant', 'state-history'), port: historyPort(process.env) },
+  ])) {
+    if (row.verdict === 'stale') console.log(`Removed a leftover merchant lock in ${row.stateDirectory}. No merchant was running.`);
+  }
 
   const envNotice = envFileNotice(existsSync(join(root, '.env')));
   if (envNotice) console.log(envNotice);
@@ -132,13 +172,14 @@ async function main() {
     setTimeout(() => process.exit(code), 400).unref();
   }
 
-  function launch(label, command, args) {
+  function launch(label, command, args, extra = {}) {
     const child = spawn(command, args, {
       cwd: root,
       env: childEnv,
       stdio: 'inherit',
       detached: process.platform !== 'win32',
       windowsHide: true,
+      ...extra,
     });
     children.push(child);
     child.on('error', (error) => {
@@ -155,7 +196,7 @@ async function main() {
   }
 
   launch('The allowance server', process.execPath, ['server/index.js']);
-  launch('The dashboard', npmBin(), ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', launchPlan.host]);
+  launch('The dashboard', npmBin(), ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', launchPlan.host], npmSpawnOptions());
 
   process.on('SIGINT', () => shutdown(0));
   process.on('SIGTERM', () => shutdown(0));

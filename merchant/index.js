@@ -20,7 +20,8 @@ import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
-import { HEIST_INJECTION, historyPort, historyResourceUrl } from '../shared/catalog.js';
+import { HEIST_INJECTION, historyPort, historyResourceUrl, merchantPort } from '../shared/catalog.js';
+import { clearStaleMerchantLocks, removeOwnerPid, writeOwnerPid } from '../shared/merchant-lock.js';
 import { activeApprover, loadRules } from '../agent/rules.js';
 import { decodeMandateHeader, judgeMandate } from '../shared/mandate.js';
 import { readMandate } from '../server/store.js';
@@ -30,6 +31,20 @@ const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: join(rootDir, '.env') });
 
 export { UNLISTED_MERCHANT };
+
+/** Both kit merchants and the port each one listens on. */
+export function merchantStateTargets(env = process.env) {
+  return [
+    {
+      stateDirectory: env.MERCHANT_STATE_DIRECTORY || join(rootDir, 'merchant/state'),
+      port: merchantPort(env),
+    },
+    {
+      stateDirectory: env.HISTORY_STATE_DIRECTORY || join(rootDir, 'merchant/state-history'),
+      port: historyPort(env),
+    },
+  ];
+}
 
 function requestedUrl(req) {
   const host = req.headers.host;
@@ -185,11 +200,15 @@ async function main() {
   if (!configResponse.ok) fail(`Could not read AP4M network config (${configResponse.status}).`);
   const provider = new ethers.JsonRpcProvider(process.env.AP4M_RPC_URL || config.network.rpcUrl);
   const submitter = new ethers.Wallet(submitterKey, provider);
+  const [mainState, historyState] = merchantStateTargets();
+  for (const row of await clearStaleMerchantLocks([mainState, historyState])) {
+    if (row.verdict === 'stale') console.log(`Removed a leftover ${row.stateDirectory}/merchant.lock. No merchant was running.`);
+  }
   const merchant = createX402Merchant({
     context,
     provider,
     submitter,
-    stateDirectory: process.env.MERCHANT_STATE_DIRECTORY || join(rootDir, 'merchant/state'),
+    stateDirectory: mainState.stateDirectory,
     resourceUrl,
     merchantParticipantId: merchantId,
     payout,
@@ -216,7 +235,7 @@ async function main() {
     context,
     provider,
     submitter,
-    stateDirectory: process.env.HISTORY_STATE_DIRECTORY || join(rootDir, 'merchant/state-history'),
+    stateDirectory: historyState.stateDirectory,
     resourceUrl: historyUrl,
     merchantParticipantId: merchantId,
     payout,
@@ -228,6 +247,15 @@ async function main() {
       servedAt: 'purchase',
     },
   });
+
+  // The kit holds both locks now. Record who, so a later start can tell a crash from a running merchant.
+  writeOwnerPid(mainState.stateDirectory);
+  writeOwnerPid(historyState.stateDirectory);
+  const releaseOwners = () => {
+    removeOwnerPid(mainState.stateDirectory);
+    removeOwnerPid(historyState.stateDirectory);
+  };
+  process.once('exit', releaseOwners);
 
   const app = createQuoteApp({
     payout,
