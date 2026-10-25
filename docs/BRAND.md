@@ -41,9 +41,9 @@ Inter 400, 500, 600, and 700 for the interface. Outfit 600 and 700 for the wordm
 
 | File | Use |
 | --- | --- |
-| `dashboard/public/brand/mark.svg` | Cream tile, corner 7, pine disk, lime band, pine keyline. Lockups and the brand sheet |
+| `dashboard/public/brand/mark.svg` | Cream tile, corner 7, the key centered at the app icon's 80% so the bit never touches the edge. Lockups and the brand sheet |
 | `dashboard/public/brand/mark-light.svg` | The same disk with no tile. Header and loading, light theme. The notch shows the page |
-| `dashboard/public/brand/mark-dark.svg` | The same disk on a cream circle, so it reads on a dark page. Dark lockups use this |
+| `dashboard/public/brand/mark-dark.svg` | The same centered key on a cream tile, corner 8, so it reads on a dark page with even clear space. Dark lockups use this |
 | `dashboard/public/brand/lockup-horizontal.svg` | Cream tile and the ink name. Allowance is kerned at Al, wa, and ce |
 | `dashboard/public/brand/lockup-horizontal-dark.svg` | `mark-dark.svg` and the cream name |
 | `dashboard/public/brand/lockup-stacked.svg` | Cream tile above the ink name |

@@ -191,6 +191,23 @@ def inset_art(art, scale):
     )
 
 
+def centered_art(art):
+    # Scale to the app icon's 80% and center the drawn bounds, not the viewBox, so clear space is even.
+    image = render_svg(svg_doc(art), 320)
+    box = image.getbbox()
+    scale = content_scale(art)
+    if not box:
+        return inset_art(art, scale)
+    cx = (box[0] + box[2]) / 2 / 10
+    cy = (box[1] + box[3]) / 2 / 10
+    return f'<g transform="translate(16 16) scale({scale:.4f}) translate({-cx:.2f} {-cy:.2f})">{art}</g>'
+
+
+def tile(art, rx=7):
+    # A tiled mark keeps the app icon's clear space, so the bit never touches the tile edge.
+    return f'<rect width="32" height="32" rx="{rx}" fill="{CREAM}"/>{centered_art(art)}'
+
+
 def render_svg(text, width, height=None):
     png = cairosvg.svg2png(
         bytestring=text.encode(),
@@ -333,11 +350,8 @@ def text_svg(text, em, fill):
 
 def lockup_doc(art, horizontal, dark):
     text_fill = CREAM if dark else INK
-    mark_body = plate(art) if not dark else plate(art, 8)
-    # Dark lockup sits on a transparent page. The plate is the cream tile.
-    # A dark page needs the tile; the wordmark is cream.
-    if dark:
-        mark_body = plate(art, 8)
+    # Dark lockup sits on a transparent page. The cream tile carries the mark; the wordmark is cream.
+    mark_body = tile(art, 8) if dark else tile(art)
     label = "Agent Allowance"
     if horizontal:
         pad, mark, gap, em = 8, 48, 14, 22
@@ -373,14 +387,13 @@ def lockup_doc(art, horizontal, dark):
 
 def write_assets(art):
     OUT.mkdir(parents=True, exist_ok=True)
-    icon_scale = content_scale(art)
     files = {
-        "mark.svg": svg_doc(plate(art)),
+        "mark.svg": svg_doc(tile(art)),
         "mark-light.svg": svg_doc(art),
-        "mark-dark.svg": svg_doc(plate(art, 8)),
+        "mark-dark.svg": svg_doc(tile(art, 8)),
         "favicon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{art}'),
-        "app-icon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{inset_art(art, icon_scale)}'),
-        "app-icon-light.svg": svg_doc(f'<rect width="32" height="32" fill="{WHITE}"/>{inset_art(art, icon_scale)}'),
+        "app-icon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{centered_art(art)}'),
+        "app-icon-light.svg": svg_doc(f'<rect width="32" height="32" fill="{WHITE}"/>{centered_art(art)}'),
     }
     for name, text in files.items():
         (OUT / name).write_text(text)

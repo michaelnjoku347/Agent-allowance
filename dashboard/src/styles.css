@@ -3004,9 +3004,15 @@ input[type="range"] {
 .btn:disabled, .chip:disabled {
   cursor: not-allowed;
   opacity: 1;
-  background: var(--disabled-bg);
+  background: color-mix(in srgb, var(--disabled-bg) 55%, transparent);
   color: var(--disabled-ink);
-  border: 1px solid var(--disabled-line);
+  border: 1px dashed color-mix(in srgb, var(--disabled-line) 55%, transparent);
+  box-shadow: none;
+}
+
+.btn.text:disabled {
+  background: transparent;
+  border-color: transparent;
 }
 
 .explorer, .tx-list a, .facts a {
@@ -3788,5 +3794,169 @@ html {
   .app.is-frozen .hero,
   .attack-card {
     animation: none;
+  }
+}
+
+/* Design review pass: hierarchy, lockup balance, rows and toggles. */
+.sidenav-brand h1 {
+  font-size: var(--fs-4);
+}
+
+.section-head h2,
+.card > h2,
+.activity-card > h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.section-head {
+  gap: 4px;
+}
+
+.need.is-neutral {
+  padding: 12px;
+  border-radius: var(--r-3);
+}
+
+.need.is-neutral + .need,
+.need + .need.is-neutral {
+  margin-top: 4px;
+}
+
+.need-lock svg {
+  flex: none;
+}
+
+.more-sheet button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.more-sheet button[aria-current="page"] {
+  background: var(--pine-soft);
+  color: var(--pine-ink);
+}
+
+.people .merchant-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+}
+
+.merchant-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-1);
+}
+
+.setting-list {
+  display: grid;
+  margin-top: 8px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+}
+
+.setting-row:last-child,
+.people .merchant-row:last-child {
+  border-bottom: 0;
+}
+
+.setting-label {
+  font-weight: 600;
+}
+
+.toggle-switch {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.toggle-switch[aria-checked="true"] {
+  background: var(--pine);
+  border-color: var(--pine);
+}
+
+.toggle-switch[aria-checked="true"] .toggle-knob {
+  transform: translateX(20px);
+  background: var(--on-pine);
+}
+
+.toggle-switch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (min-width: 721px) {
+  .flow-step {
+    flex: 0 0 68px;
+  }
+  .flow-item:first-child {
+    flex: 0 0 auto;
+  }
+}
+
+.need.is-neutral .avatar {
+  background: var(--surface);
+}
+
+@media (min-width: 1100px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  }
+}
+
+@media (max-width: 720px) {
+  main {
+    padding-bottom: 72px;
+  }
+}
+
+@media (max-width: 480px) {
+  .need .amount {
+    font-size: var(--fs-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle-switch, .toggle-knob {
+    transition: none;
   }
 }

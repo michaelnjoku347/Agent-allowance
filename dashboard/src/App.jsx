@@ -510,7 +510,7 @@ export default function App() {
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
         <div className="sidenav-brand">
-          <BrandMark size={64} />
+          <BrandMark size={40} />
           <h1>Agent Allowance</h1>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
@@ -563,7 +563,7 @@ export default function App() {
                 <BrandMark size={48} />
                 <h1>Agent Allowance</h1>
               </div>
-              <p className="hero-tagline">Spending power for AI, with a human key.</p>
+              {route === 'home' ? <p className="hero-tagline">Spending power for AI, with a human key.</p> : null}
             </div>
             <div className="top-tools">
               <button
@@ -572,6 +572,7 @@ export default function App() {
                 aria-pressed={Boolean(snapshot?.frozen)}
                 onClick={onFreeze}
                 disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                title={snapshot?.offlinePreview ? 'Freeze works when the allowance is online.' : undefined}
               >
                 <IconLock />
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
@@ -771,7 +772,7 @@ export default function App() {
                           <h3>{item.merchantLabel || 'Merchant'}</h3>
                           <p className="amount">{money(item.amount)} RLUSD</p>
                         </div>
-                        <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>
+                        {cannotApprove(item) ? null : <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>}
                         {cannotApprove(item) ? (
                           <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
                         ) : (
@@ -876,11 +877,15 @@ export default function App() {
         </nav>
         {moreOpen ? (
           <div className="more-sheet" role="dialog" aria-label="More">
-            {moreItems().map((item) => (
-              <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
-                {item.label}
-              </button>
-            ))}
+            {moreItems().map((item) => {
+              const Icon = ICONS[item.id];
+              return (
+                <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+                  <Icon />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </div>
         ) : null}
         <div className="toasts" aria-live="polite">

@@ -8,6 +8,25 @@ function when(value) {
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
+function shortAddress(address) {
+  const text = String(address ?? '');
+  return text.length > 14 ? `${text.slice(0, 6)}…${text.slice(-4)}` : text;
+}
+
+function Switch({ label, hint, on, onToggle }) {
+  return (
+    <div className="setting-row">
+      <div>
+        <p className="setting-label">{label}</p>
+        {hint ? <p className="meta">{hint}</p> : null}
+      </div>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} className="toggle-switch" onClick={onToggle}>
+        <span className="toggle-knob" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function Empty({ title, body, action, actionLabel }) {
   return (
     <div className="empty-state">
@@ -70,9 +89,13 @@ export function MerchantsView({ snapshot }) {
       ) : (
         <ul className="people">
           {allowed.map((item) => (
-            <li key={item.address}>
-              <strong>{item.label}</strong>
-              <span className="meta">{item.address}</span>
+            <li key={item.address} className="merchant-row">
+              <span className="avatar" aria-hidden="true">{(item.label || 'M').trim().charAt(0).toUpperCase()}</span>
+              <span className="merchant-copy">
+                <strong>{item.label}</strong>
+                <code className="meta address" title={item.address}>{shortAddress(item.address)}</code>
+              </span>
+              <span className="pill ok">Allowed</span>
             </li>
           ))}
         </ul>
@@ -97,7 +120,7 @@ export function AgentsView({ snapshot }) {
         </div>
         <div>
           <dt>Planner</dt>
-          <dd>{bedrock ? 'Amazon Bedrock is configured' : 'Fallback. Bedrock is not configured'}</dd>
+          <dd>{bedrock ? 'Amazon Bedrock' : 'Built-in rules planner'}</dd>
         </div>
         <div>
           <dt>Mandate</dt>
@@ -155,13 +178,9 @@ export function SettingsView({ theme, onTheme, voiceOn, onVoice }) {
         <h2 id="settings-title">Settings</h2>
         <p>Appearance and spoken updates stay on this device.</p>
       </div>
-      <div className="how-actions">
-        <button type="button" className="btn" aria-pressed={theme === 'dark'} onClick={onTheme}>
-          {theme === 'dark' ? 'Use light appearance' : 'Use dark appearance'}
-        </button>
-        <button type="button" className="btn" aria-pressed={voiceOn} onClick={onVoice}>
-          {voiceOn ? 'Spoken updates on' : 'Spoken updates off'}
-        </button>
+      <div className="setting-list">
+        <Switch label="Dark appearance" hint="Matches the theme menu in the header." on={theme === 'dark'} onToggle={onTheme} />
+        <Switch label="Spoken updates" hint="Eve reads approvals and blocks aloud." on={Boolean(voiceOn)} onToggle={onVoice} />
       </div>
     </section>
   );
