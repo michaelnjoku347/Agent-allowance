@@ -3,6 +3,7 @@ import { allowanceView } from './allowance.js';
 import { declinePurchase, fetchHealth, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
 import { backoffDelay, describeConnection, failureKind } from './connection.js';
 import { freezeControl, freezeNotice, freezeResult } from './freeze.js';
+import { handleMenuKey } from './menuKeys.js';
 import { daysLabel, daysLeft, outcomeCounts, spendByMerchant } from './insights.js';
 import BedrockMark from './BedrockMark.jsx';
 import BrandMark from './BrandMark.jsx';
@@ -853,6 +854,11 @@ export default function App() {
                   </section>
                 ) : null}
                 <section className="card hero board-hero" aria-labelledby="allowance-title">
+                  <svg className="hero-watermark" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
+                    <circle cx="100" cy="100" r="92" />
+                    <circle cx="100" cy="100" r="70" />
+                    <path d="M100 8 A92 92 0 0 1 187 70" />
+                  </svg>
                   <div className="hero-main">
                     <div className="hero-copy">
                       <h2 id="allowance-title" className="eyebrow">{snapshot.profile?.agentName ? `${snapshot.profile.agentName} · left to spend` : 'Left to spend'}</h2>
@@ -1160,7 +1166,18 @@ export default function App() {
           </div>
         </nav>
         {moreOpen ? (
-          <div className="more-sheet" role="dialog" aria-label="More">
+          <div
+            className="more-sheet"
+            role="dialog"
+            aria-label="More"
+            ref={(node) => { if (node && !node.contains(document.activeElement)) node.querySelector('button')?.focus(); }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              setMoreOpen(false);
+              document.querySelector('.tabbar button[aria-expanded]')?.focus();
+            }}
+          >
             {moreItems().map((item) => {
               const Icon = ICONS[item.id];
               return (
@@ -1350,17 +1367,24 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
+/**
+ * The balance as the brand's gauge disk: a pine disk, a tick ring, and the
+ * lime band of what is left, which sweeps in on first paint and eases to
+ * each new value. The cream dot marks where the band ends, like the cut in
+ * the logo. Reduced motion shows the final band at once.
+ */
 function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, ratio));
   const percent = Math.round(clamped * 100);
-  const angle = clamped * Math.PI * 2;
+  const angle = clamped * Math.PI * 2 - Math.PI / 2;
   const dotX = 60 + radius * Math.cos(angle);
   const dotY = 60 + radius * Math.sin(angle);
+  const ticks = Array.from({ length: 24 }, (_, index) => index);
   return (
     <div
-      className={mood ? `ring is-${mood}` : 'ring'}
+      className={mood ? `ring gauge is-${mood}` : 'ring gauge'}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -1368,15 +1392,34 @@ function SpendRing({ ratio, label, mood = '' }) {
       aria-label={label}
     >
       <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="gauge-disk" cx="60" cy="60" r="58" />
+        <g className="gauge-ticks">
+          {ticks.map((index) => {
+            const a = (index / ticks.length) * Math.PI * 2;
+            const inner = index % 6 === 0 ? 52 : 54;
+            return (
+              <line
+                key={index}
+                x1={60 + inner * Math.cos(a)}
+                y1={60 + inner * Math.sin(a)}
+                x2={60 + 56 * Math.cos(a)}
+                y2={60 + 56 * Math.sin(a)}
+              />
+            );
+          })}
+        </g>
         <circle className="ring-track" cx="60" cy="60" r={radius} />
         <circle
           className="ring-value"
           cx="60"
           cy="60"
           r={radius}
+          transform="rotate(-90 60 60)"
+          style={{ '--circ': circumference }}
           strokeDasharray={`${circumference * clamped} ${circumference}`}
         />
-        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="6" /> : null}
+        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="5" /> : null}
+        <circle className="gauge-core" cx="60" cy="60" r="34" />
       </svg>
       <div className="ring-label" aria-hidden="true">
         <strong>{percent}%</strong>
@@ -1398,21 +1441,40 @@ function DemoBridge({ bridge, onBusy, runHeist, runRogue, heistBusy, rogueBusy }
 function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBusy, rogueBusy }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
   useEffect(() => {
     if (!open) return undefined;
+    ref.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
     function onDoc(event) {
       if (!ref.current?.contains(event.target)) setOpen(false);
     }
     document.addEventListener('pointerdown', onDoc);
     return () => document.removeEventListener('pointerdown', onDoc);
   }, [open]);
+  function onMenuKey(event) {
+    handleMenuKey(event, {
+      items: [...(ref.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') ?? [])],
+      close: () => setOpen(false),
+      button: buttonRef.current,
+    });
+  }
   return (
     <div className="demo-menu" ref={ref}>
-      <button type="button" className="chip" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="chip"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}
+      >
         Demo
       </button>
       {open ? (
-        <div className="demo-pop" role="menu">
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Demo" onKeyDown={onMenuKey}>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onOverCap(); }} disabled={overCapBusy}>
             {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
           </button>
@@ -1463,18 +1525,16 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, 
     function onDoc(event) {
       if (!ref.current?.contains(event.target)) setOpen(false);
     }
-    function onKey(event) {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      buttonRef.current?.focus();
-    }
     document.addEventListener('pointerdown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDoc);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('pointerdown', onDoc);
   }, [open]);
+  function onMenuKey(event) {
+    handleMenuKey(event, {
+      items: [...(ref.current?.querySelectorAll('[role="menuitem"]:not(:disabled), [role="menuitemradio"]') ?? [])],
+      close: () => setOpen(false),
+      button: buttonRef.current,
+    });
+  }
   function pick(action) {
     setOpen(false);
     action();
@@ -1494,7 +1554,7 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, 
         <IconMoreVertical />
       </button>
       {open ? (
-        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions">
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions" onKeyDown={onMenuKey}>
           <button type="button" role="menuitem" onClick={() => pick(onFreeze)} disabled={freezeDisabled}>
             <IconLock size={18} />
             <span>{frozen ? 'Unfreeze the agent' : 'Freeze the agent'}</span>

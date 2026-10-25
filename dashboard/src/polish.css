@@ -2666,3 +2666,152 @@ body.has-overlay .toasts {
 .slide-nav .btn.is-placeholder {
   visibility: hidden;
 }
+
+/* ------------------------------------------------------------------ */
+/* Hero gauge disk                                                     */
+/* ------------------------------------------------------------------ */
+
+.ring.gauge {
+  isolation: isolate;
+}
+
+.gauge .gauge-disk {
+  fill: color-mix(in srgb, #000 22%, var(--pine));
+}
+
+.gauge .gauge-ticks line {
+  stroke: color-mix(in srgb, var(--on-pine) 28%, transparent);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.gauge .ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--on-pine) 14%, transparent);
+  stroke-width: 12;
+}
+
+.gauge .ring-value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 12;
+  stroke-linecap: round;
+  animation: gauge-sweep 1100ms var(--ease-out) 120ms both;
+  transition: stroke-dasharray 700ms var(--ease-out);
+}
+
+.gauge circle.ring-dot {
+  fill: var(--on-pine);
+  stroke: color-mix(in srgb, #000 22%, var(--pine));
+  stroke-width: 2;
+  animation: gauge-dot 1100ms var(--ease-out) 120ms both;
+}
+
+.gauge .gauge-core {
+  fill: var(--pine);
+}
+
+.board-hero .ring-label strong {
+  color: var(--on-pine);
+}
+
+.board-hero .ring-label span {
+  color: color-mix(in srgb, var(--on-pine) 78%, transparent);
+}
+
+@keyframes gauge-sweep {
+  from { stroke-dasharray: 0 var(--circ, 289); }
+}
+
+@keyframes gauge-dot {
+  0%, 70% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.hero-watermark {
+  position: absolute;
+  left: -120px;
+  bottom: -150px;
+  width: 340px;
+  height: 340px;
+  pointer-events: none;
+  fill: none;
+  stroke: color-mix(in srgb, var(--on-pine) 5%, transparent);
+  stroke-width: 14;
+  animation: watermark-turn 90s linear infinite;
+}
+
+.hero-watermark path {
+  stroke: color-mix(in srgb, var(--accent) 16%, transparent);
+  stroke-linecap: round;
+}
+
+.board-hero > :not(.hero-watermark) {
+  position: relative;
+}
+
+@keyframes watermark-turn {
+  to { transform: rotate(360deg); }
+}
+
+/* Disabled controls: quiet and solid, never dashed. */
+.btn:disabled,
+.chip:disabled {
+  border-style: solid;
+  border-color: var(--hairline);
+  background: var(--surface-2);
+  color: var(--disabled-ink);
+  opacity: 0.72;
+}
+
+.btn.primary:disabled {
+  background: color-mix(in srgb, var(--pine) 45%, var(--surface-2));
+  color: var(--on-pine);
+}
+
+/* No stripes or double outlines on demo cards. */
+.attack-card {
+  border-left: 0;
+}
+
+.blocked-stamp {
+  border: 1px solid color-mix(in srgb, #FFB4A8 60%, transparent);
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, #FFB4A8 12%, transparent);
+}
+
+/* Toasts slide in and settle. */
+.toast {
+  box-shadow: none;
+  animation: toast-in var(--dur-3) var(--ease-spring) both;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Stat tiles lift their value on hover; nothing moves under reduced motion. */
+.stat-tile .stat-value {
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.stat-tile:hover .stat-value {
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gauge .ring-value,
+  .gauge circle.ring-dot,
+  .hero-watermark,
+  .toast {
+    animation: none;
+  }
+  .stat-tile:hover .stat-value { transform: none; }
+}
+
+.eve-window .transcript:focus-visible {
+  outline: var(--ring-width) solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--r-2);
+}

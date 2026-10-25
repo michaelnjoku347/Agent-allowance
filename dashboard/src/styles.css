@@ -2649,8 +2649,8 @@ input[type="range"] {
 }
 
 .chain-chip.is-warn {
-  background: #F8EFE4;
-  color: #8A4518;
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 .home-grid {
@@ -2742,8 +2742,8 @@ input[type="range"] {
   margin-top: 12px;
   padding: 0 8px;
   border-radius: var(--r-pill);
-  background: #F8EFE4;
-  color: #8A4518;
+  background: var(--warn-bg);
+  color: var(--warn);
   font-size: var(--fs-1);
   font-weight: 600;
 }
@@ -2760,18 +2760,18 @@ input[type="range"] {
 }
 
 .pill.warn {
-  color: #8A4518;
-  background: #F8EFE4;
+  color: var(--warn);
+  background: var(--warn-bg);
 }
 
 .pill.ok {
-  color: #0F5C3D;
-  background: #E3F2EA;
+  color: var(--ok);
+  background: var(--ok-bg);
 }
 
 .pill.danger {
-  color: #8E2218;
-  background: #F8E8E4;
+  color: var(--danger);
+  background: var(--danger-bg);
 }
 
 .activity .row {
@@ -2989,8 +2989,8 @@ input[type="range"] {
   gap: 8px;
   align-items: center;
   margin: 0;
-  background: #F8EFE4;
-  color: #8A4518;
+  background: var(--warn-bg);
+  color: var(--warn);
   border-radius: var(--r-1);
   padding: 12px 16px;
   font-weight: 600;

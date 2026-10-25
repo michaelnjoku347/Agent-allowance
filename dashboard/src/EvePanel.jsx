@@ -476,7 +476,8 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   return (
     <div className="eve">
-      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions">
+      {/* Focusable so a keyboard can scroll a long conversation (WCAG 2.1.1). */}
+      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation with Eve" tabIndex={0}>
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
