@@ -299,12 +299,9 @@ export default function App() {
     document.title = pageTitle(route);
     const move = focusAfterRoute.current;
     focusAfterRoute.current = null;
-    if (!move) return undefined;
-    const frame = window.requestAnimationFrame(() => {
-      const heading = document.querySelector('#main h1');
-      (heading || document.getElementById('main'))?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    // The effect runs after the new page is in the DOM. No animation frame: a
+    // background tab never runs one, and focus would stay on the old link.
+    if (move) (document.querySelector('#main h1') || document.getElementById('main'))?.focus({ preventScroll: true });
   }, [route]);
 
   function go(id, { focus = true } = {}) {
