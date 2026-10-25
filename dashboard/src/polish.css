@@ -1,0 +1,174 @@
+/*
+ * Components added in the launch polish pass. Same tokens as styles.css.
+ * Loaded after it, so a rule here wins at equal specificity.
+ */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --info: #1F4E79;
+  --info-bg: #E6EEF6;
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 420ms;
+}
+
+:root[data-theme="dark"] {
+  --info: #A9CBEA;
+  --info-bg: #1B2A38;
+}
+
+/* Connection banner */
+.conn-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: var(--r-3);
+  background: var(--warn-bg);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  animation: conn-in var(--dur-3) var(--ease-out) both;
+}
+
+.conn-banner.is-danger {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.conn-banner.is-info {
+  background: var(--info-bg);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 60%, transparent);
+  animation: conn-pulse 1.8s var(--ease-out) infinite;
+}
+
+.conn-banner.is-danger .conn-dot { background: var(--danger); }
+.conn-banner.is-info .conn-dot { background: var(--info); animation: none; }
+
+.conn-copy p {
+  margin: 0;
+}
+
+.conn-title {
+  font-weight: 650;
+}
+
+.conn-banner.is-warn .conn-title { color: var(--warn); }
+.conn-banner.is-danger .conn-title { color: var(--danger); }
+.conn-banner.is-info .conn-title { color: var(--info); }
+
+.conn-action {
+  align-self: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .conn-banner {
+    grid-template-columns: auto 1fr;
+  }
+  .conn-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@keyframes conn-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes conn-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent); transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-banner, .conn-dot { animation: none; }
+}
+
+/* Freeze: one obvious state on every page, one obvious way back */
+.freeze-notice {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  border-radius: var(--r-3);
+  background: var(--warn-bg);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--ink);
+  animation: conn-in var(--dur-3) var(--ease-out) both;
+}
+
+.freeze-notice.is-error {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.freeze-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.freeze-copy p { margin: 0; }
+.freeze-copy p + p { margin-top: 4px; }
+
+.freeze-title {
+  font-weight: 700;
+  color: var(--warn);
+}
+
+.freeze-notice.is-error .freeze-title,
+.freeze-error {
+  color: var(--danger);
+}
+
+.freeze-error {
+  font-weight: 600;
+}
+
+.freeze-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.chip.freeze-toggle.is-unfreeze {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .freeze-notice {
+    grid-template-columns: auto 1fr;
+  }
+  .freeze-action {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .freeze-notice { animation: none; }
+}
