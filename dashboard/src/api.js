@@ -230,6 +230,16 @@ export async function confirmEve(token) {
   return postJson('/api/eve/confirm', { token }, 'That confirmation did not go through.', 120_000);
 }
 
+/** The agent's display name, and the moment setup finished. */
+export async function saveProfile(profile) {
+  return postJson('/api/profile', profile, 'Could not save the agent name.');
+}
+
+/** First run only: the server refuses once an approver is set. */
+export async function setApprover(address) {
+  return postJson('/api/approver', { address }, 'Could not save the approver.');
+}
+
 /** What an allowance change would do, and whether the Ledger must sign it. Writes nothing. */
 export async function previewAllowance(patch) {
   return postJson('/api/allowance/preview', patch, 'Could not check that change.');

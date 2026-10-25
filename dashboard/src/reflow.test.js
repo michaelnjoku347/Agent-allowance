@@ -241,3 +241,116 @@ test('phone pages do not scroll sideways at 320 and 390', { timeout: 150_000 }, 
     rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
   }
 });
+
+/** Start Vite if it is not up, and a headless Chrome with a CDP session helper. */
+async function openBrowser(port) {
+  const chromeBin = resolveChrome();
+  const profile = mkdtempSync(join(tmpdir(), 'chrome-onboard-'));
+  let vite = null;
+  if (!(await up(DASHBOARD))) {
+    vite = spawn(WINDOWS ? 'npm.cmd' : 'npm', ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
+      cwd: fileURLToPath(new URL('../..', import.meta.url)),
+      stdio: 'ignore',
+      detached: !WINDOWS,
+      shell: WINDOWS,
+      windowsHide: true,
+    });
+  }
+  assert.equal(await waitUntilUp(DASHBOARD, 90_000), true, 'dashboard dev server');
+  assert.equal(await up(new URL('/src/main.jsx', DASHBOARD).href, 15_000), true, 'dashboard entry module');
+  const chrome = spawn(chromeBin, ['--headless=new', '--no-sandbox', '--disable-gpu', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+  let version;
+  for (let i = 0; i < 40 && !version; i += 1) {
+    await wait(200);
+    try {
+      version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+    } catch {
+      /* chrome is still starting */
+    }
+  }
+  assert.ok(version?.webSocketDebuggerUrl, 'chrome debugging socket');
+  const ws = new WebSocket(version.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve);
+    ws.addEventListener('error', reject);
+  });
+  let id = 0;
+  const pending = new Map();
+  ws.addEventListener('message', (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
+      else resolve(msg.result);
+    }
+  });
+  const send = (method, params = {}, sessionId) => {
+    const msgId = ++id;
+    ws.send(JSON.stringify({ id: msgId, method, params, ...(sessionId ? { sessionId } : {}) }));
+    return new Promise((resolve, reject) => pending.set(msgId, { resolve, reject }));
+  };
+  return {
+    send,
+    close() {
+      ws.close();
+      chrome.kill('SIGKILL');
+      stop(vite);
+      rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+    },
+  };
+}
+
+test('the first-run intro is a keyboard dialog that respects reduced motion', { timeout: 150_000 }, async () => {
+  const browser = await openBrowser(9226);
+  try {
+    const { send } = browser;
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await send('Target.attachToTarget', { targetId: created.targetId, flatten: true });
+    const page = (method, params) => send(method, params, sessionId);
+    await page('Page.enable');
+    await page('Runtime.enable');
+    await page('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 1, mobile: true });
+    await page('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await page('Page.addScriptToEvaluateOnNewDocument', {
+      source: `
+        localStorage.removeItem('allowance-intro-done');
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = typeof input === 'string' ? input : (input && input.url) || '';
+          if (url.includes('/api/')) return Promise.reject(new TypeError('onboarding fixture'));
+          return originalFetch(input, init);
+        };
+      `,
+    });
+    await page('Page.navigate', { url: DASHBOARD });
+    const evaluate = async (expression) => (await page('Runtime.evaluate', { expression, returnByValue: true })).result?.value;
+    let open = false;
+    for (let i = 0; i < 100 && !open; i += 1) {
+      await wait(200);
+      open = await evaluate('Boolean(document.querySelector(".onboard[role=dialog][aria-modal=true]"))');
+    }
+    assert.equal(open, true, 'the intro opens on first run');
+    await wait(300);
+    assert.equal(await evaluate('document.activeElement?.tagName'), 'H2', 'focus starts on the slide heading');
+    assert.equal(await evaluate('document.querySelectorAll(".dot").length'), 4);
+    assert.equal(await evaluate('getComputedStyle(document.querySelector(".slide.is-active .slide-copy")).animationName'), 'none', 'no slide animation under reduced motion');
+    const key = async (keyName, code, keyCode) => {
+      await page('Input.dispatchKeyEvent', { type: 'keyDown', key: keyName, code, windowsVirtualKeyCode: keyCode });
+      await page('Input.dispatchKeyEvent', { type: 'keyUp', key: keyName, code, windowsVirtualKeyCode: keyCode });
+      await wait(150);
+    };
+    await key('ArrowRight', 'ArrowRight', 39);
+    assert.equal(await evaluate('[...document.querySelectorAll(".dot")].findIndex((dot) => dot.classList.contains("is-on"))'), 1, 'ArrowRight moves to slide 2');
+    await key('ArrowLeft', 'ArrowLeft', 37);
+    assert.equal(await evaluate('[...document.querySelectorAll(".dot")].findIndex((dot) => dot.classList.contains("is-on"))'), 0, 'ArrowLeft moves back');
+    const sizes = await evaluate('[...document.querySelectorAll(".onboard button")].filter((b) => b.offsetParent && getComputedStyle(b).visibility !== "hidden").map((b) => { const r = b.getBoundingClientRect(); return Math.min(r.width, r.height); })');
+    assert.ok(sizes.every((size) => size >= 40), `touch targets ${sizes.join(',')}`);
+    await key('Escape', 'Escape', 27);
+    assert.equal(await evaluate('Boolean(document.querySelector(".onboard"))'), false, 'Escape closes the intro');
+    assert.equal(await evaluate('localStorage.getItem("allowance-intro-done")'), 'skipped');
+    await send('Target.closeTarget', { targetId: created.targetId });
+  } finally {
+    browser.close();
+  }
+});

@@ -224,7 +224,7 @@ export function AgentsView({ snapshot, view, onOpen, agentPanels = null }) {
   return (
     <div className="page-grid agents-page">
       <ul className="stat-tiles page-tiles" aria-label="Agent summary">
-        <Tile label="Status" value={snapshot?.frozen ? 'Frozen' : snapshot?.agentConnected ? 'Connected' : 'Waiting'} hint={snapshot?.frozen ? 'Nothing can be signed' : 'Pays inside the rules'} tone={snapshot?.frozen ? 'warn' : ''} />
+        <Tile label="Agent" value={snapshot?.profile?.agentName || 'Unnamed'} hint={snapshot?.frozen ? 'Frozen. Nothing can be signed' : snapshot?.agentConnected ? 'Connected, pays inside the rules' : 'Waiting for its first payment'} tone={snapshot?.frozen ? 'warn' : ''} />
         <Tile label="Planner" value={bedrock ? 'Bedrock' : 'Built-in'} hint={bedrock ? 'Amazon Bedrock chooses' : 'Rules planner, no model'} />
         <Tile label="Mandate" value={mandate?.signed ? 'Signed' : 'Not signed'} hint={mandate?.signed ? `For ${shortAddress(mandate.agent)}` : 'Optional Ledger-signed scope'} />
         <Tile label="Payments made" value={String(paidCount)} hint={`${money(view?.spent ?? 0)} RLUSD in total`} />
@@ -365,9 +365,10 @@ export function SettingsView({ theme, setTheme, voiceOn, onVoice, onReplayIntro 
       </section>
       <section className="card" aria-labelledby="intro-title">
         <div className="card-head"><h2 id="intro-title">Introduction</h2></div>
-        <p className="meta">See the four-step tour of allowances, rules, and Ledger approvals again.</p>
+        <p className="meta">See the tour of allowances, rules, and Ledger approvals again, or rerun the guided setup.</p>
         <div className="how-actions">
           <button type="button" className="btn" onClick={onReplayIntro}>Show the intro</button>
+          <button type="button" className="btn" onClick={() => window.dispatchEvent(new Event('setup:open'))}>Run setup</button>
         </div>
       </section>
     </div>

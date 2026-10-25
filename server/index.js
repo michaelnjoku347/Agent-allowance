@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
-import { describeAllowanceChange, formatRlusd, loadRules, presentRules, toUnits, updateAllowance } from '../agent/rules.js';
+import { describeAllowanceChange, formatRlusd, loadRules, presentRules, setApproverAddress, toUnits, updateAllowance } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
 import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext, safeUi } from './eve.js';
@@ -33,7 +33,7 @@ import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './
 import { anchorDecision } from '../agent/anchor.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { acceptMandate, createMandateChallenge } from './mandate.js';
-import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, saveAnchor, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
+import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, recordSetupDecision, saveAnchor, saveProfile, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
 import { freezeAgent } from './freeze-channel.js';
@@ -46,6 +46,7 @@ import {
   createRateLimiter,
   logError,
   optionalString,
+  parseAgentName,
   parseAllowancePatch,
   rateLimitSettings,
   requireId,
@@ -386,6 +387,47 @@ export function createApp(options = {}) {
         return res.status(status).json({ error: applied.code || 'invalid', message: applied.error });
       }
       res.json({ ok: true, rules: applied.rules, note: 'Allowance lowered. Nothing was signed or paid.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/profile', async (req, res, next) => {
+    try {
+      const body = req.body ?? {};
+      const unknown = Object.keys(body).filter((key) => key !== 'agentName' && key !== 'onboarded');
+      if (unknown.length) return res.status(400).json({ error: 'invalid', message: `Unknown field: ${unknown[0]}.` });
+      let agentName;
+      if (body.agentName !== undefined) {
+        const parsed = parseAgentName(body.agentName);
+        if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+        agentName = parsed.value;
+      }
+      if (body.onboarded !== undefined && typeof body.onboarded !== 'boolean') {
+        return res.status(400).json({ error: 'invalid', message: 'onboarded must be true or false.' });
+      }
+      res.json({ ok: true, profile: await saveProfile({ agentName, onboarded: body.onboarded === true }) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // First run only: name the Ledger account that approves exceptions. Once one
+  // is set (here or in APPROVER_ADDRESS) this refuses; changing it is a server edit.
+  app.post('/api/approver', async (req, res, next) => {
+    try {
+      const address = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+        return res.status(400).json({ error: 'invalid', message: 'That is not an 0x address with 40 hex characters.' });
+      }
+      if (!rulesOrRefuse(res)) return;
+      const result = setApproverAddress(address, undefined, ledgerOptions.env ?? process.env);
+      if (result.error) {
+        const status = result.code === 'approver_set' ? 409 : 400;
+        return res.status(status).json({ error: result.code, message: result.error });
+      }
+      await recordSetupDecision({ rule: 'approver', reason: `Approver set to ${result.approverAddress}.` });
+      res.json({ ok: true, approverAddress: result.approverAddress, note: 'Approver saved. Purchases over the cap and raises now need this Ledger.' });
     } catch (error) {
       next(error);
     }

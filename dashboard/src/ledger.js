@@ -131,23 +131,9 @@ function watch(observable, onState) {
   });
 }
 
-/**
- * Call this from the Connect click. Discovery starts immediately so the
- * browser still treats it as the user gesture.
- */
-export async function signOnLedger(typedData, { expectedAddress, onState, setCancel } = {}) {
-  if (!webHidSupported()) {
-    throw userError(
-      'Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.',
-      'unsupported',
-    );
-  }
-  assertTypedData(typedData);
-  const kit = ledgerKit();
-  onState?.({ code: 'connecting', message: 'Choose the Ledger in the browser prompt.' });
-
-  let sessionId = '';
-  const discovery = new Promise((resolve, reject) => {
+/** Open the browser's device picker and resolve with the chosen Ledger. */
+function discoverLedger(kit, setCancel) {
+  return new Promise((resolve, reject) => {
     let settled = false;
     const sub = kit.startDiscovering({}).subscribe({
       next(device) {
@@ -177,9 +163,57 @@ export async function signOnLedger(typedData, { expectedAddress, onState, setCan
       clearTimeout(timer);
       sub.unsubscribe();
       kit.stopDiscovering().catch(() => {});
-      reject(userError('The Ledger approval was cancelled. Nothing was paid.', 'rejected'));
+      reject(userError('The Ledger request was cancelled. Nothing was signed.', 'rejected'));
     });
   });
+}
+
+/**
+ * Read the Ethereum address of the Ledger's approval account, for setting
+ * up the approver. Nothing is signed. Call it from a click.
+ */
+export async function readLedgerAddress({ onState, setCancel } = {}) {
+  if (!webHidSupported()) {
+    throw userError('Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.', 'unsupported');
+  }
+  const kit = ledgerKit();
+  onState?.({ code: 'connecting', message: 'Choose the Ledger in the browser prompt.' });
+  let sessionId = '';
+  try {
+    const device = await discoverLedger(kit, setCancel);
+    onState?.({ code: 'connecting', message: 'Connecting to the Ledger…' });
+    sessionId = await kit.connect({ device });
+    const signer = new SignerEthBuilder({ dmk: kit, sessionId }).withContextModule(fieldContextModule()).build();
+    const addressAction = signer.getAddress(LEDGER_ACCOUNT_PATH, { checkOnDevice: false });
+    setCancel?.(() => addressAction.cancel());
+    const address = await watch(addressAction.observable, onState);
+    const connected = String(address?.address ?? '').toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(connected)) throw userError('The Ledger did not return an Ethereum address.', 'device');
+    return connected;
+  } catch (error) {
+    throw wrap(error);
+  } finally {
+    if (sessionId) await kit.disconnect({ sessionId }).catch(() => {});
+  }
+}
+
+/**
+ * Call this from the Connect click. Discovery starts immediately so the
+ * browser still treats it as the user gesture.
+ */
+export async function signOnLedger(typedData, { expectedAddress, onState, setCancel } = {}) {
+  if (!webHidSupported()) {
+    throw userError(
+      'Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.',
+      'unsupported',
+    );
+  }
+  assertTypedData(typedData);
+  const kit = ledgerKit();
+  onState?.({ code: 'connecting', message: 'Choose the Ledger in the browser prompt.' });
+
+  let sessionId = '';
+  const discovery = discoverLedger(kit, setCancel);
 
   try {
     const device = await discovery;

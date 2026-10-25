@@ -164,6 +164,43 @@ function presentAudit(store) {
 }
 
 /** A rules decision for the export. Does not create a payment or mark the agent connected. */
+function presentProfile(profile) {
+  return {
+    agentName: typeof profile?.agentName === 'string' ? profile.agentName : '',
+    onboardedAt: typeof profile?.onboardedAt === 'string' ? profile.onboardedAt : null,
+  };
+}
+
+export async function readProfile() {
+  return presentProfile((await readStore()).profile);
+}
+
+/** The agent's display name and when setup finished. Nothing here touches the rules. */
+export async function saveProfile({ agentName, onboarded = false } = {}) {
+  return updateStore((store) => {
+    store.profile = {
+      ...(store.profile ?? {}),
+      ...(agentName !== undefined ? { agentName } : {}),
+      ...(onboarded ? { onboardedAt: store.profile?.onboardedAt ?? new Date().toISOString() } : {}),
+    };
+    return presentProfile(store.profile);
+  });
+}
+
+/** One audit row for a setup step a person took, such as naming the approver. */
+export async function recordSetupDecision({ rule, reason, signer = 'person' }) {
+  return updateStore((store) => pushAudit(store, {
+    outcome: 'allowed',
+    rule,
+    reason,
+    signer,
+    amount: null,
+    merchantLabel: null,
+    task: null,
+    paymentId: null,
+  }));
+}
+
 export async function recordBlockedDecision(input) {
   return updateStore((store) => pushAudit(store, {
     outcome: 'blocked',
@@ -298,6 +335,7 @@ export function summarize(store, rules = loadRules()) {
     channelClosed: Boolean(store.channelClosed),
     freezeDetail: typeof store.freezeDetail === 'string' ? store.freezeDetail : null,
     mandate: presentMandate(store.mandate),
+    profile: presentProfile(store.profile),
     anchor: presentAnchor(store.anchor),
     useCase: presentUseCase(store.useCase),
     audit: presentAudit(store),

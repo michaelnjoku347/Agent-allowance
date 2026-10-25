@@ -37,6 +37,7 @@ import {
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import HistoryView from './HistoryView.jsx';
+import Onboarding, { readIntroDone } from './Onboarding.jsx';
 import ApprovalWhy from './ApprovalWhy.jsx';
 import { explainApproval } from './approvalWhy.js';
 import { EMPTY_FILTERS, downloadCsv, filterHistory, normalizeFilters } from './history.js';
@@ -213,6 +214,8 @@ export default function App() {
   const [filter, setFilter] = useState('all');
   const [historyFilters, setHistoryFilters] = useState(EMPTY_FILTERS);
   const [editorSeed, setEditorSeed] = useState(null);
+  const [intro, setIntro] = useState(null);
+  const introChecked = useRef(false);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -361,6 +364,25 @@ export default function App() {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
       close();
+    };
+  }, []);
+
+  // First run: once the allowance answers (or the offline preview loads), show the intro
+  // unless this browser finished or skipped it, or setup already finished on the server.
+  useEffect(() => {
+    if (!snapshot || introChecked.current) return;
+    introChecked.current = true;
+    if (readIntroDone() == null && !snapshot.profile?.onboardedAt) setIntro('intro');
+  }, [snapshot]);
+
+  useEffect(() => {
+    const openIntro = () => setIntro('intro');
+    const openSetup = () => setIntro('setup');
+    window.addEventListener('intro:open', openIntro);
+    window.addEventListener('setup:open', openSetup);
+    return () => {
+      window.removeEventListener('intro:open', openIntro);
+      window.removeEventListener('setup:open', openSetup);
     };
   }, []);
 
@@ -708,6 +730,7 @@ export default function App() {
           })}
         </nav>
         <div className="sidenav-foot">
+          {snapshot?.profile?.agentName ? <p className="side-agent">{snapshot.profile.agentName}</p> : null}
           <p className="side-balance"><strong>{money(view.left)}</strong> of {money(view.budget)} RLUSD left</p>
           <p className={snapshot?.frozen ? 'side-status is-frozen' : 'side-status'}>
             <span className="side-dot" aria-hidden="true" />
@@ -819,12 +842,12 @@ export default function App() {
                 rogueBusy={rogueBusy}
               />
               <div className="home-board">
-                {!onboarded && !presenting ? (
+                {!onboarded && !presenting && !intro && !snapshot.profile?.onboardedAt && readIntroDone() === 'skipped' ? (
                   <section className="card setup-card board-setup" aria-labelledby="setup-title">
-                    <h2 id="setup-title">Set up this allowance</h2>
-                    <p>The budget, the cap, and the merchant list are already in place. Review them before the agent pays.</p>
+                    <h2 id="setup-title">Finish setting up your agent</h2>
+                    <p>Name it, check the budget, the cap, the merchants, and the end date, and connect your Ledger. It takes about a minute.</p>
                     <div className="how-actions">
-                      <button type="button" className="btn primary" onClick={() => { dismissOnboarding(); go('rules'); }}>Review rules</button>
+                      <button type="button" className="btn primary" onClick={() => setIntro('setup')}>Finish setup</button>
                       <button type="button" className="btn" onClick={dismissOnboarding}>Not now</button>
                     </div>
                   </section>
@@ -832,7 +855,7 @@ export default function App() {
                 <section className="card hero board-hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
                     <div className="hero-copy">
-                      <h2 id="allowance-title" className="eyebrow">Left to spend</h2>
+                      <h2 id="allowance-title" className="eyebrow">{snapshot.profile?.agentName ? `${snapshot.profile.agentName} · left to spend` : 'Left to spend'}</h2>
                       <p className="figure">
                         <CountUp value={view.leftNumber} />
                         <span className="unit">RLUSD</span>
@@ -1155,6 +1178,15 @@ export default function App() {
       </div>
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
+      {intro && snapshot ? (
+        <Onboarding
+          startAt={intro}
+          snapshot={snapshot}
+          onClose={() => setIntro(null)}
+          onSaved={load}
+          onNotice={(line) => { pushToast(line); setAnnounce(line); }}
+        />
+      ) : null}
       {approval ? (
         <Sheet variant="ceremony" title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
           <ApprovalWhy why={explainApproval(approval, whyContext)} headingLevel={3} />
