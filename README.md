@@ -1,8 +1,17 @@
 # Agent Allowance
 
-<img src="dashboard/public/brand/lockup-readme.svg" alt="Agent Allowance" width="280" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="dashboard/public/brand/lockup-horizontal-dark.svg" />
+  <img src="dashboard/public/brand/lockup-readme.svg" alt="Agent Allowance" width="280" />
+</picture>
 
 Spending power for AI, with a human key.
+
+![Agent Allowance on a desktop browser](docs/dashboard-desktop.png)
+
+![The same dashboard at phone width](docs/dashboard-mobile.png)
+
+![The same dashboard in dark mode](docs/dashboard-dark.png)
 
 [![Tests](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml/badge.svg)](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml)
 
@@ -41,11 +50,7 @@ The same four jobs are on the dashboard under **How it works**.
 
 RLUSD is the settlement asset, and AP4M runs the payment channel on XRPL EVM Testnet. Gas is test XRP. A purchase does not open a new payment rail: the agent signs one voucher on the channel it already holds, the merchant redeems that voucher, and the channel stays open for the next payment. The on-chain step is that redemption. The marginal cost is the redemption's gas, not a fresh account setup each time.
 
-![Agent Allowance on a desktop browser, with 19 RLUSD left, one paid brief, and two quotes waiting](docs/dashboard-desktop.png)
-
-![The same dashboard at phone width](docs/dashboard-mobile.png)
-
-The screenshots are the local dashboard after the three demo decisions: 1 RLUSD paid inside the rules, 8 RLUSD waiting on the cap, and an unlisted merchant waiting for a person. A funded live run fills in the testnet transaction and the AP4M receipt. The [90-second backup video](docs/demo-backup.mp4) uses a **simulated Ledger signature**, labeled on screen, for the approval step.
+The screenshots under the tagline are the local dashboard after the three demo decisions: 1 RLUSD paid inside the rules, 8 RLUSD waiting on the cap, and an unlisted merchant waiting for a person. A funded live run fills in the testnet transaction and the AP4M receipt. The [90-second backup video](docs/demo-backup.mp4) uses a **simulated Ledger signature**, labeled on screen, for the approval step.
 
 Pitch and click-path: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 

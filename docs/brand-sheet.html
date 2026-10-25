@@ -7,94 +7,232 @@
       @font-face { font-family: Inter; font-weight: 400; src: url("../dashboard/public/fonts/inter-400.woff2") format("woff2"); }
       @font-face { font-family: Inter; font-weight: 600; src: url("../dashboard/public/fonts/inter-600.woff2") format("woff2"); }
       @font-face { font-family: Outfit; font-weight: 600; src: url("../dashboard/public/fonts/outfit-600.woff2") format("woff2"); }
+      * { box-sizing: border-box; }
       body { margin: 0; font-family: Inter, sans-serif; background: #ECE8DE; color: #1A1814; }
-      main { width: 1120px; margin: 0 auto; padding: 40px 36px 48px; display: grid; gap: 28px; }
-      h1 { font-family: Outfit, Inter, sans-serif; font-size: 40px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
-      .tag { margin: 6px 0 0; font-size: 17px; }
-      .row { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; }
-      .tile { background: #fff; border: 1px solid #7C7468; border-radius: 16px; padding: 20px; }
+      main {
+        width: 1200px;
+        margin: 0 auto;
+        padding: 32px;
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+      h1 { font-family: Outfit, Inter, sans-serif; font-size: 40px; font-weight: 600; letter-spacing: -0.03em; margin: 0; }
+      h2 { font-size: 13px; font-weight: 600; letter-spacing: 0; margin: 0 0 12px; }
+      .tag { margin: 8px 0 0; font-size: 17px; }
+      .span-12 { grid-column: span 12; }
+      .span-8 { grid-column: span 8; }
+      .span-6 { grid-column: span 6; }
+      .span-4 { grid-column: span 4; }
+      .span-3 { grid-column: span 3; }
+      .tile { background: #fff; border: 1px solid #7C7468; border-radius: 16px; padding: 16px; min-width: 0; }
       .dark { background: #121411; color: #F7F4EC; }
-      figcaption { font-size: 13px; font-weight: 600; color: #5A534A; margin-top: 12px; }
-      .dark figcaption { color: #C9C2B4; }
-      .sizes { display: flex; gap: 20px; align-items: end; }
-      .swatches { display: flex; gap: 16px; flex-wrap: wrap; }
-      .swatch { width: 140px; }
-      .chip { height: 64px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; text-align: center; padding: 8px; }
+      figcaption, .note { font-size: 13px; font-weight: 600; color: #5A534A; margin: 12px 0 0; }
+      .dark figcaption, .dark .note { color: #C9C2B4; }
+      figure { margin: 0; }
+      .sizes { display: flex; gap: 18px; align-items: end; }
+      .pair { display: flex; gap: 28px; align-items: center; }
+      .donts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+      .dont { background: #fff; border: 1px solid #7C7468; border-radius: 16px; padding: 12px; }
+      .dont p { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+      .x { color: #8E2218; }
+      .browser { border-radius: 12px; overflow: hidden; border: 1px solid #7C7468; }
+      .chrome { display: flex; gap: 6px; align-items: flex-end; padding: 8px 8px 0; background: #E4DDD0; }
+      .dark .chrome { background: #1C1F1A; }
+      .tab {
+        display: flex; align-items: center; gap: 8px;
+        height: 32px; padding: 0 12px; border-radius: 10px 10px 0 0;
+        background: transparent; color: #5A534A; font-size: 13px; font-weight: 600;
+      }
+      .tab.is-on { background: #fff; color: #1A1814; }
+      .dark .tab { color: #C9C2B4; }
+      .dark .tab.is-on { background: #121411; color: #F4F0E6; }
+      .page { height: 36px; background: #fff; }
+      .dark .page { background: #121411; }
+      .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+      .chip { height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
       .swatch p { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
       .swatch span { display: block; font-weight: 400; color: #5A534A; }
+      .clear { display: flex; gap: 24px; align-items: center; }
     </style>
   </head>
   <body>
     <main>
-      <header>
+      <header class="span-8">
         <h1>Agent Allowance</h1>
         <p class="tag">Spending power for AI, with a human key.</p>
       </header>
-      <section class="row">
-        <figure class="tile">
-          <img src="../dashboard/public/brand/mark.svg" width="72" height="72" alt="Pine mark" />
-          <figcaption>Pine mark</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/mark-light.svg" width="72" height="72" alt="Light mark, no tile" />
-          <figcaption>Light mark, no tile</figcaption>
-        </figure>
-        <figure class="tile dark">
-          <img src="../dashboard/public/brand/mark-dark.svg" width="72" height="72" alt="Dark mark, no tile" />
-          <figcaption>Dark mark, no tile</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/favicon.svg" width="32" height="32" alt="Favicon at 32" />
-          <figcaption>Favicon, drawn for 16</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/app-icon-512.png" width="72" height="72" alt="App icon" />
-          <figcaption>App icon, full bleed</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/app-icon-light-512.png" width="72" height="72" alt="Light app icon" />
-          <figcaption>App icon, light</figcaption>
-        </figure>
+      <p class="span-4 note">A pine disk on cream. The rim wedge is what is already spent. The lime wedge is what is left, held off the disk by a pine keyline.</p>
+
+      <figure class="tile span-4">
+        <img src="../dashboard/public/brand/mark.svg" width="96" height="96" alt="Pine disk on a cream tile" />
+        <figcaption>Mark on the cream tile</figcaption>
+      </figure>
+      <figure class="tile span-4">
+        <img src="../dashboard/public/brand/mark-light.svg" width="96" height="96" alt="Pine disk with no tile" />
+        <figcaption>Same disk, no tile, for a light page</figcaption>
+      </figure>
+      <figure class="tile dark span-4">
+        <img src="../dashboard/public/brand/mark-dark.svg" width="96" height="96" alt="Pine disk on a cream circle" />
+        <figcaption>Same disk on a cream circle, for a dark page</figcaption>
+      </figure>
+
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/favicon.svg" width="32" height="32" alt="Favicon" />
+        <figcaption>Favicon, the same disk</figcaption>
+      </figure>
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/app-icon-512.png" width="72" height="72" alt="Cream app icon" />
+        <figcaption>App icon, cream, full bleed</figcaption>
+      </figure>
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/app-icon-light-512.png" width="72" height="72" alt="White app icon" />
+        <figcaption>App icon, white, full bleed</figcaption>
+      </figure>
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/apple-touch-icon.png" width="72" height="72" alt="Apple touch icon" />
+        <figcaption>Apple touch, 180</figcaption>
+      </figure>
+
+      <figure class="tile span-6 sizes">
+        <img src="../dashboard/public/brand/mark.svg" width="16" height="16" alt="16 pixel mark" />
+        <img src="../dashboard/public/brand/mark.svg" width="24" height="24" alt="24 pixel mark" />
+        <img src="../dashboard/public/brand/mark.svg" width="32" height="32" alt="32 pixel mark" />
+        <figcaption>16, 24, 32 on the page</figcaption>
+      </figure>
+      <figure class="tile dark span-6 sizes">
+        <img src="../dashboard/public/brand/mark-dark.svg" width="16" height="16" alt="16 pixel dark mark" />
+        <img src="../dashboard/public/brand/mark-dark.svg" width="24" height="24" alt="24 pixel dark mark" />
+        <img src="../dashboard/public/brand/mark-dark.svg" width="32" height="32" alt="32 pixel dark mark" />
+        <figcaption>16, 24, 32 on #121411</figcaption>
+      </figure>
+
+      <figure class="tile span-6">
+        <img src="../dashboard/public/brand/lockup-horizontal.svg" width="420" alt="Horizontal lockup" />
+        <figcaption>Horizontal. Allowance is kerned tighter at Al, wa, and ce.</figcaption>
+      </figure>
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/lockup-stacked.svg" width="180" alt="Stacked lockup" />
+        <figcaption>Stacked</figcaption>
+      </figure>
+      <figure class="tile span-3">
+        <img src="../dashboard/public/brand/lockup-readme.svg" width="220" alt="README lockup" />
+        <figcaption>README plate</figcaption>
+      </figure>
+      <figure class="tile dark span-6">
+        <img src="../dashboard/public/brand/lockup-horizontal-dark.svg" width="420" alt="Dark horizontal lockup" />
+        <figcaption>Horizontal on dark</figcaption>
+      </figure>
+      <figure class="tile dark span-6">
+        <img src="../dashboard/public/brand/lockup-stacked-dark.svg" width="200" alt="Dark stacked lockup" />
+        <figcaption>Stacked on dark</figcaption>
+      </figure>
+
+      <section class="tile span-6">
+        <h2>Clear space</h2>
+        <div class="clear">
+          <svg width="160" height="160" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="0.5" y="0.5" width="47" height="47" fill="none" stroke="#7C7468" stroke-dasharray="1.5 1.5" />
+            <image href="../dashboard/public/brand/mark.svg" x="8" y="8" width="32" height="32" />
+          </svg>
+          <p class="note">The dashed box is 8 units off every side, a quarter of the tile. Do not put type or another mark inside it.</p>
+        </div>
       </section>
-      <section class="row">
-        <figure class="tile sizes">
-          <img src="../dashboard/public/brand/mark.svg" width="16" height="16" alt="16 pixel mark" />
-          <img src="../dashboard/public/brand/mark.svg" width="24" height="24" alt="24 pixel mark" />
-          <img src="../dashboard/public/brand/mark.svg" width="32" height="32" alt="32 pixel mark" />
-          <figcaption>16, 24, 32 on the page</figcaption>
-        </figure>
-        <figure class="tile dark sizes">
-          <img src="../dashboard/public/brand/mark-dark.svg" width="16" height="16" alt="16 pixel dark mark" />
-          <img src="../dashboard/public/brand/mark-dark.svg" width="24" height="24" alt="24 pixel dark mark" />
-          <img src="../dashboard/public/brand/mark-dark.svg" width="32" height="32" alt="32 pixel dark mark" />
-          <figcaption>16, 24, 32 on #121411</figcaption>
-        </figure>
+      <section class="tile span-6">
+        <h2>One disk</h2>
+        <p class="note">The hub stays whole. The bite is only in the rim, on the upper right, so it is not a power mark and not a pie. The lime wedge sits in the bite. A pine keyline keeps the lime off the cream. At 16px the keyline stays at least 2 pixels from the disk.</p>
       </section>
-      <section class="row">
-        <figure class="tile">
-          <img src="../dashboard/public/brand/lockup-horizontal.svg" width="340" alt="Horizontal lockup" />
-          <figcaption>Horizontal, light</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/lockup-stacked.svg" width="200" alt="Stacked lockup" />
-          <figcaption>Stacked, light</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/lockup-readme.svg" width="340" alt="README lockup on a cream plate" />
-          <figcaption>README, cream plate</figcaption>
-        </figure>
+
+      <section class="span-12">
+        <h2>Do not</h2>
+        <div class="donts">
+          <div class="dont">
+            <svg width="48" height="48" viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="11" fill="none" stroke="#1B4D3E" stroke-width="3" />
+              <path d="M16 4.2v6.2" stroke="#1B4D3E" stroke-width="3" stroke-linecap="round" />
+            </svg>
+            <p><span class="x">No.</span> A top gap and a stem is the power mark.</p>
+          </div>
+          <div class="dont">
+            <svg width="48" height="48" viewBox="0 0 32 32" aria-hidden="true">
+              <path d="M16 16 L16 4 A12 12 0 1 1 6 10 Z" fill="#1B4D3E" />
+              <path d="M16 16 L22 6 L27 12 Z" fill="#C6F36B" />
+            </svg>
+            <p><span class="x">No.</span> A cut to the center is a pie chart.</p>
+          </div>
+          <div class="dont">
+            <svg width="48" height="48" viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="12" fill="#1B4D3E" />
+            </svg>
+            <p><span class="x">No.</span> A closed disk does not show what is left.</p>
+          </div>
+          <div class="dont">
+            <svg width="48" height="48" viewBox="0 0 32 32" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#F7F4EC" />
+              <circle cx="16" cy="16" r="12" fill="#1B4D3E" />
+              <circle cx="24" cy="10" r="3.2" fill="#C6F36B" />
+            </svg>
+            <p><span class="x">No.</span> Lime on cream with no pine keyline.</p>
+          </div>
+          <div class="dont">
+            <svg width="48" height="48" viewBox="0 0 32 32" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#1B4D3E" />
+              <circle cx="16" cy="16" r="10" fill="#F7F4EC" />
+              <circle cx="16" cy="16" r="4" fill="#8E2218" />
+            </svg>
+            <p><span class="x">No.</span> Do not recolor the lime red or amber.</p>
+          </div>
+        </div>
       </section>
-      <section class="row">
-        <figure class="tile dark">
-          <img src="../dashboard/public/brand/lockup-horizontal-dark.svg" width="340" alt="Dark horizontal lockup" />
-          <figcaption>Horizontal, dark</figcaption>
-        </figure>
-        <figure class="tile dark">
-          <img src="../dashboard/public/brand/lockup-stacked-dark.svg" width="200" alt="Dark stacked lockup" />
-          <figcaption>Stacked, dark</figcaption>
-        </figure>
+
+      <section class="tile span-12">
+        <h2>Real Chrome tabs, favicon beside a power icon</h2>
+        <img src="favicon-chrome-1x.png" width="710" alt="Chrome tab at 1x. The Agent Allowance favicon is a disk with an upper-right bite. The next tab is a power icon." />
+        <img src="favicon-chrome-2x.png" width="710" alt="The same two Chrome tabs at 2x." style="display:block;margin-top:12px" />
+        <p class="note">Captured from headless Chrome’s tab strip at device scale 1 and 2. The bite stays on the upper right. The power icon’s gap stays on top, with a stem.</p>
       </section>
-      <section class="swatches">
+      <section class="tile span-6">
+        <h2>16px tab, light</h2>
+        <div class="browser">
+          <div class="chrome">
+            <div class="tab is-on">
+              <img src="../dashboard/public/brand/favicon.svg" width="16" height="16" alt="" />
+              Agent Allowance
+            </div>
+            <div class="tab">
+              <svg width="16" height="16" viewBox="0 0 32 32" aria-label="Power icon">
+                <path d="M16 6v7" fill="none" stroke="#1A1814" stroke-width="2.6" stroke-linecap="round" />
+                <path d="M10.2 10.2a8.2 8.2 0 1 0 11.6 0" fill="none" stroke="#1A1814" stroke-width="2.6" stroke-linecap="round" />
+              </svg>
+              Power
+            </div>
+          </div>
+          <div class="page"></div>
+        </div>
+        <p class="note">The disk’s bite is on the upper right. The power icon’s gap is on top, with a stem.</p>
+      </section>
+      <section class="tile dark span-6">
+        <h2>16px tab, dark</h2>
+        <div class="browser">
+          <div class="chrome">
+            <div class="tab is-on">
+              <img src="../dashboard/public/brand/favicon.svg" width="16" height="16" alt="" />
+              Agent Allowance
+            </div>
+            <div class="tab">
+              <svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true">
+                <path d="M16 6v7" fill="none" stroke="#F4F0E6" stroke-width="2.6" stroke-linecap="round" />
+                <path d="M10.2 10.2a8.2 8.2 0 1 0 11.6 0" fill="none" stroke="#F4F0E6" stroke-width="2.6" stroke-linecap="round" />
+              </svg>
+              Power
+            </div>
+          </div>
+          <div class="page"></div>
+        </div>
+        <p class="note">Same favicon. The cream field keeps the disk readable on a dark tab.</p>
+      </section>
+
+      <section class="span-12 swatches">
         <div class="swatch"><div class="chip" style="background:#1B4D3E;color:#F7F4EC">Pine</div><p>Pine <span>#F7F4EC on #1B4D3E</span></p></div>
         <div class="swatch"><div class="chip" style="background:#F7F4EC;border:1px solid #7C7468;color:#1A1814">Cream</div><p>Cream <span>#1A1814 on #F7F4EC</span></p></div>
         <div class="swatch"><div class="chip" style="background:#1B4D3E;color:#C6F36B">Left</div><p>Accent <span>#C6F36B on #1B4D3E</span></p></div>
