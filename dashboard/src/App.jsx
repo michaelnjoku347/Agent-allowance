@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useStat
 import { allowanceView } from './allowance.js';
 import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
+import BrandMark from './BrandMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
@@ -992,15 +993,6 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
-function BrandMark({ size }) {
-  return (
-    <>
-      <img className="logo-mark mark-for-light" src="/brand/mark-light.svg" width={size} height={size} alt="" />
-      <img className="logo-mark mark-for-dark" src="/brand/mark-dark.svg" width={size} height={size} alt="" />
-    </>
-  );
-}
-
 function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
@@ -1343,7 +1335,7 @@ function Skeletons() {
     <div className="loading-splash" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
-        <BrandMark size={40} />
+        <BrandMark size={64} />
         <h1>Agent Allowance</h1>
       </div>
       <div className="stack loading-skeleton">

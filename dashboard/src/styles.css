@@ -138,12 +138,12 @@
   --wash: none;
 }
 
-:root[data-theme="dark"] .mark-for-light {
-  display: none;
+:root[data-theme="dark"] .mark-tile {
+  display: inline;
 }
 
-:root[data-theme="dark"] .mark-for-dark {
-  display: block;
+:root[data-theme="dark"] .mark-art {
+  transform: scale(0.8);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -3045,8 +3045,13 @@ input[type="range"] {
   color: #F7F4EC;
 }
 
-.mark-for-dark {
+.mark-tile {
   display: none;
+}
+
+.mark-art {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
 }
 
 /* Motion */
@@ -3479,11 +3484,11 @@ html {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root[data-theme="system"] .mark-for-light {
-      display: none;
-}
-:root[data-theme="system"] .mark-for-dark {
-    display: block;
+  :root[data-theme="system"] .mark-tile {
+    display: inline;
+  }
+  :root[data-theme="system"] .mark-art {
+    transform: scale(0.8);
   }
 }
 
@@ -3762,6 +3767,25 @@ html {
   to { opacity: 1; transform: none; }
 }
 
+/* The lime band sweeps into the cut: what is left fills in after the disk lands. */
+.logo-mark .mark-sweep {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 0;
+}
+
+.logo-mark.is-animated .mark-sweep {
+  animation: mark-sweep 720ms cubic-bezier(0.2, 0.8, 0.2, 1) 240ms both;
+}
+
+.loading-brand .logo-mark.is-animated .mark-sweep {
+  animation: mark-sweep 1400ms cubic-bezier(0.65, 0, 0.35, 1) 200ms infinite alternate;
+}
+
+@keyframes mark-sweep {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
 @keyframes card-rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
@@ -3792,7 +3816,9 @@ html {
   .activity-card,
   .flow-step.is-on .flow-dot,
   .app.is-frozen .hero,
-  .attack-card {
+  .attack-card,
+  .logo-mark.is-animated .mark-sweep,
+  .loading-brand .logo-mark.is-animated .mark-sweep {
     animation: none;
   }
 }

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """One source for the Agent Allowance mark, icons, and lockups.
 
-Four concepts live in CONCEPTS. Ship one by changing CONCEPT. `python3
-scripts/build-brand.py` writes that concept's assets and docs/logo-concepts.png,
-which shows every concept at 16, 32, and 180 on cream and on pine, plus a lockup.
+The shipped mark is the gauge disk: a pine disk with a wedge cut from the
+upper-right rim, and a lime band in that wedge for what is left to spend.
+The other concepts stay in CONCEPTS for the record. `python3
+scripts/build-brand.py` writes the shipped assets, dashboard/src/brandMark.js
+(the same geometry for the animated in-app mark), and docs/logo-concepts.png.
 """
 
 import math
@@ -35,10 +37,15 @@ LIME_RGB = (198, 243, 107)
 CREAM_RGB = (247, 244, 236)
 INK_RGB = (26, 24, 20)
 
-# Change this name to ship a different mark. The sheet always draws all four.
-CONCEPT = "gauge-key"
+# Change this name to ship a different mark. The sheet always draws every concept.
+CONCEPT = "gauge-disk"
 
 CONCEPTS = (
+    {
+        "id": "gauge-disk",
+        "name": "Gauge disk (chosen)",
+        "line": "The disk is the allowance. The cut is what is spent. Lime is what is left.",
+    },
     {
         "id": "gauge-key",
         "name": "Gauge key",
@@ -106,6 +113,93 @@ def rrect_path(x, y, w, h, r):
     )
 
 
+# Gauge disk geometry, viewBox 32, angles counterclockwise from 3 o'clock.
+# The wedge is centered at 22 degrees, so it reads as a dial reading, not a
+# pie slice at 12 o'clock and not a power icon. Every width below is at least
+# one device pixel at 32px, so the cuts stay crisp in a tab and the sidebar.
+DISK_R = 14.6
+WEDGE_MID = 22.0
+WEDGE_SPAN = 112.0
+HUB_R = 3.0  # the cut stops at a hub, so the disk keeps its center
+CUT = 1.5  # cream cut between the disk and the wedge: 1.5px at 32px
+RIM_PINE = 2.6  # pine between the lime and the rim
+HUB_PINE = 2.2  # pine between the lime and the hub cut
+SIDE_PINE = 2.3  # pine between the lime and each radial cut
+WEDGE_A0 = WEDGE_MID - WEDGE_SPAN / 2
+WEDGE_A1 = WEDGE_MID + WEDGE_SPAN / 2
+
+
+def offset_sector(r_outer, r_inner, a0, a1, off):
+    """Sector whose straight sides run parallel to the radials at a0 and a1,
+    `off` units inside them. Parallel sides keep a cut the same width from hub
+    to rim, where a radial cut would fan open toward the rim."""
+    oa0 = a0 + math.degrees(math.asin(off / r_outer))
+    oa1 = a1 - math.degrees(math.asin(off / r_outer))
+    ia0 = a0 + math.degrees(math.asin(off / r_inner))
+    ia1 = a1 - math.degrees(math.asin(off / r_inner))
+    large = 1 if (oa1 - oa0) > 180 else 0
+    return (
+        f"M {fmt(pt(16, 16, r_outer, oa0))} "
+        f"A {r_outer:.2f} {r_outer:.2f} 0 {large} 0 {fmt(pt(16, 16, r_outer, oa1))} "
+        f"L {fmt(pt(16, 16, r_inner, ia1))} "
+        f"A {r_inner:.2f} {r_inner:.2f} 0 0 1 {fmt(pt(16, 16, r_inner, ia0))} Z"
+    )
+
+
+def disk_geometry():
+    """Paths for the shipped mark. Shared by the SVG files and the app."""
+    seg_ri = HUB_R + CUT
+    lime_ro = DISK_R - RIM_PINE
+    lime_ri = seg_ri + HUB_PINE
+    mid = (lime_ro + lime_ri) / 2
+    if lime_ro - lime_ri < 4:
+        raise SystemExit(f"bad disk geometry lime {lime_ri:.2f}-{lime_ro:.2f}")
+    # The disk is one outline: the long way round the rim, in along one cut,
+    # the short way round the hub so it stays solid, and out along the other. No even-odd bite, so nothing pokes past
+    # the rim. Each cut is CUT wide, half on each side of the wedge radial.
+    half = CUT / 2
+    body_a0 = WEDGE_A1 + math.degrees(math.asin(half / DISK_R))
+    body_a1 = WEDGE_A0 + 360 - math.degrees(math.asin(half / DISK_R))
+    hub_a0 = WEDGE_A1 + math.degrees(math.asin(half / HUB_R))
+    hub_a1 = WEDGE_A0 + 360 - math.degrees(math.asin(half / HUB_R))
+    disk = (
+        f"M {fmt(pt(16, 16, DISK_R, body_a0))} "
+        f"A {DISK_R:.2f} {DISK_R:.2f} 0 1 0 {fmt(pt(16, 16, DISK_R, body_a1))} "
+        f"L {fmt(pt(16, 16, HUB_R, hub_a1))} "
+        f"A {HUB_R:.2f} {HUB_R:.2f} 0 0 0 {fmt(pt(16, 16, HUB_R, hub_a0))} Z"
+    )
+    return {
+        "disk": disk,
+        "segment": offset_sector(DISK_R, seg_ri, WEDGE_A0, WEDGE_A1, half),
+        "lime": offset_sector(lime_ro, lime_ri, WEDGE_A0, WEDGE_A1, half + SIDE_PINE),
+        "sweep": {
+            "r": round(mid, 2),
+            "width": round(lime_ro - lime_ri + 1, 2),
+            "a0": round(WEDGE_A0 + math.degrees((half + SIDE_PINE) / mid) - 3, 2),
+            "a1": round(WEDGE_A1 - math.degrees((half + SIDE_PINE) / mid) + 3, 2),
+        },
+    }
+
+
+def artwork_gauge_disk():
+    geo = disk_geometry()
+    return (
+        f'<path fill="{PINE}" d="{geo["disk"]}"/>'
+        f'<path fill="{PINE}" d="{geo["segment"]}"/>'
+        f'<path fill="{LIME}" d="{geo["lime"]}"/>'
+    )
+
+
+def artwork_gauge_disk_small():
+    """The 16px cut. Sub-pixel cream cuts turn to grey mush in a tab, so the
+    favicon keeps the solid disk and a wider lime band on whole pixels."""
+    r = 15.0
+    return (
+        circle(16, 16, r, PINE)
+        + f'<path fill="{LIME}" d="{arc_sector(16, 16, 12.0, 6.0, WEDGE_MID - 44, WEDGE_MID + 44)}"/>'
+    )
+
+
 def artwork_gauge_key():
     """Key in profile. The bow is a solid gauge, not a ring and not a pie."""
     cx, cy, radius = 10.7, 14.5, 9.15
@@ -167,6 +261,7 @@ def artwork_key_monogram():
 
 
 DRAW = {
+    "gauge-disk": artwork_gauge_disk,
     "gauge-key": artwork_gauge_key,
     "card-latch": artwork_card_latch,
     "agent-seal": artwork_agent_seal,
@@ -385,13 +480,42 @@ def lockup_doc(art, horizontal, dark):
     return doc, advances, width, height
 
 
+def small_art():
+    return artwork_gauge_disk_small() if CONCEPT == "gauge-disk" else DRAW[CONCEPT]()
+
+
+def write_mark_module():
+    geo = disk_geometry()
+    sweep = geo["sweep"]
+    a0, a1 = math.radians(sweep["a0"]), math.radians(sweep["a1"])
+    r = sweep["r"]
+    start = (16 + r * math.cos(a0), 16 - r * math.sin(a0))
+    end = (16 + r * math.cos(a1), 16 - r * math.sin(a1))
+    sweep_d = f"M {fmt(start)} A {r:.2f} {r:.2f} 0 0 0 {fmt(end)}"
+    text = (
+        "// Written by scripts/build-brand.py. Do not edit by hand.\n"
+        "export const MARK = {\n"
+        f"  pine: '{PINE}',\n"
+        f"  accent: '{LIME}',\n"
+        f"  cream: '{CREAM}',\n"
+        f"  disk: '{geo['disk']}',\n"
+        f"  segment: '{geo['segment']}',\n"
+        f"  lime: '{geo['lime']}',\n"
+        f"  sweep: '{sweep_d}',\n"
+        f"  sweepWidth: {sweep['width']},\n"
+        f"  scale: {content_scale(artwork_gauge_disk()):.4f},\n"
+        "};\n"
+    )
+    (ROOT / "dashboard" / "src" / "brandMark.js").write_text(text)
+
+
 def write_assets(art):
     OUT.mkdir(parents=True, exist_ok=True)
     files = {
         "mark.svg": svg_doc(tile(art)),
         "mark-light.svg": svg_doc(art),
         "mark-dark.svg": svg_doc(tile(art, 8)),
-        "favicon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{art}'),
+        "favicon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{small_art()}'),
         "app-icon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{centered_art(art)}'),
         "app-icon-light.svg": svg_doc(f'<rect width="32" height="32" fill="{WHITE}"/>{centered_art(art)}'),
     }
@@ -428,7 +552,7 @@ def write_assets(art):
 
 def measure(art):
     failed = False
-    favicon = svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{art}')
+    favicon = svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{small_art()}')
     for label, size in (("favicon-16", 16), ("favicon-32", 32)):
         image = render_svg(favicon, size)
         hits = contacts(image)
@@ -456,7 +580,7 @@ def measure(art):
 
 def cell(art, size, ground):
     if ground == "pine":
-        image = composite(render_svg(svg_doc(plate(art, 8)), size), PINE_RGB)
+        image = composite(render_svg(svg_doc(tile(art, 8)), size), PINE_RGB)
     else:
         image = composite(render_svg(svg_doc(art), size), CREAM_RGB)
     return image
@@ -513,7 +637,7 @@ def draw_sheet():
         draw.text((pad + 16, y + 16), concept["name"], font=name_font, fill=INK_RGB)
         draw.text((pad + 16, y + 46), concept["line"], font=body_font, fill=(90, 83, 74))
         if concept["id"] == CONCEPT:
-            draw.text((pad + 16, y + 72), "Wired into the app. Swap CONCEPT in scripts/build-brand.py.", font=cap_font, fill=PINE_RGB)
+            draw.text((pad + 16, y + 72), "Chosen. Shipped in the app, favicon, and app icons.", font=cap_font, fill=PINE_RGB)
         x = pad + text_w
         for title, kind_name, size, factor in columns:
             if kind_name == "lockup":
@@ -543,6 +667,8 @@ def main():
     draw_sheet()
     art = DRAW[CONCEPT]()
     code = write_assets(art)
+    if CONCEPT == "gauge-disk":
+        write_mark_module()
     for name in ("app-icon-512.png", "app-icon-light-512.png", "apple-touch-icon.png", "favicon-32.png"):
         image = Image.open(OUT / name)
         print(name, image.mode, image.size, image.getpixel((0, 0)))
