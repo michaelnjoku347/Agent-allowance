@@ -9,9 +9,9 @@ const VOICE_KEY = 'allowance-voice';
 
 export function readVoiceEnabled(storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(VOICE_KEY) !== 'off';
+    return storage?.getItem(VOICE_KEY) === 'on';
   } catch {
-    return true;
+    return false;
   }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchApprovalProgress, requestApprovalChallenge, simulateLedgerApproval, submitLedgerApproval } from './api.js';
-import { when } from './format.js';
+import { ceremonyDate, money } from './format.js';
 import { prepareLedger, signOnLedger } from './ledger.js';
 import { webHidSupported } from '../../shared/ledger-device.js';
 
@@ -23,8 +23,8 @@ function stageClass(current, id) {
  * Approval sheet. The dark panel is the readable message. The device may show
  * raw fields or a blind-signing prompt on chain 1449000.
  */
-export default function LedgerApproval({ item, onPaid, simulated = false }) {
-  const [phase, setPhase] = useState('loading');
+export default function LedgerApproval({ item, onPaid, simulated = false, preview = false, expiresAt = '' }) {
+  const [phase, setPhase] = useState(preview ? 'ready' : 'loading');
   const [challenge, setChallenge] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -76,6 +76,10 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
   }, []);
 
   useEffect(() => {
+    if (preview) {
+      setPhase('ready');
+      return undefined;
+    }
     let stop = false;
     prepareLedger();
     requestApprovalChallenge(item.id)
@@ -100,7 +104,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
     return () => {
       stop = true;
     };
-  }, [item.id]);
+  }, [item.id, preview]);
 
   async function simulate() {
     setError('');
@@ -165,49 +169,47 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
   }
 
   const display = challenge?.display;
-  const deviceFields = display ? [
-    ['purchaseId', display.purchaseId],
-    ['merchant', display.merchant],
-    ['amount', display.amount],
-    ['expiry', String(display.expiry)],
-  ] : [];
+  const amountText = `${money(item.amount)} RLUSD`;
+  const merchantName = item.merchantLabel || display?.merchantLabel || 'Merchant';
+  const expiryText = ceremonyDate(display?.expiryIso || expiresAt);
+  const approveLabel = `Approve ${money(item.amount)} RLUSD`;
+
+  function approve() {
+    if (preview) {
+      setError('This is a preview. Nothing was signed. Chain 1449000 cannot clear-sign this message on the device.');
+      setPhase('error');
+      return;
+    }
+    if (simulated) simulate();
+    else connect();
+  }
+
+  const canApprove = preview || ((phase === 'ready' || phase === 'error') && (simulated ? Boolean(challenge) : supported && Boolean(challenge)));
 
   return (
     <div className="approval">
-      {simulated ? (
-        <p className="sim-banner" role="status">simulated Ledger signature</p>
-      ) : (
-        <p>
-          The panel shows the readable purchase, merchant, amount, and expiry. The Ledger may show raw fields, or it may ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor.
-        </p>
-      )}
-      {display ? (
-        <>
-          <div className="device" aria-label="What the Ledger will display">
-            <p className="device-kicker">{simulated ? 'simulated Ledger signature' : 'On the Ledger'}</p>
-            <p className="device-domain">{display.domain}</p>
-            <dl>
-              {deviceFields.map(([name, value]) => (
-                <div key={name}>
-                  <dt>{name}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <p className="meta">
-            {display.amountLabel}
-            {display.merchantLabel ? ` to ${display.merchantLabel}` : ''}. Expires {when(display.expiryIso)}. The panel shows the expiry as {display.expiry}.
-          </p>
-          {simulated ? (
-            <p className="meta">Backup demo key <code>{challenge.approverAddress}</code>. Not a hardware account.</p>
-          ) : (
-            <p className="meta">
-              Account {challenge.derivationPath}. Registered approver <code>{challenge.approverAddress}</code>.
-            </p>
-          )}
-        </>
+      <p>
+        The panel shows the readable purchase, merchant, amount, and expiry. The Ledger may show raw fields, or it may ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor.
+      </p>
+      <div className="device ceremony" aria-label="What the room is approving">
+        <p className="device-kicker">Approve on Ledger</p>
+        <p className="ceremony-amount">{amountText}</p>
+        <p className="ceremony-merchant">{merchantName}</p>
+        {expiryText ? <p className="ceremony-date">Expires {expiryText}</p> : null}
+      </div>
+      {simulated && !preview ? (
+        <p className="sim-banner" role="status">simulated Ledger signature. This is not a Ledger device.</p>
       ) : null}
+      <details className="device-more">
+        <summary>Account details</summary>
+        {preview || !challenge ? (
+          <p>No device is connected for this preview.</p>
+        ) : simulated ? (
+          <p>Backup demo key <code>{challenge.approverAddress}</code>. Not a hardware account.</p>
+        ) : (
+          <p>Account {challenge.derivationPath}. Registered approver <code>{challenge.approverAddress}</code>.</p>
+        )}
+      </details>
 
       {phase === 'loading' ? <p className="device-status" role="status">Preparing the approval…</p> : null}
       {phase === 'device' || phase === 'paying' ? <p className="device-status" role="status">{status}</p> : null}
@@ -221,38 +223,31 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
       {phase === 'done' ? (
         <p className="note" role="status">{result?.note || (simulated ? 'simulated Ledger signature' : 'Approved on the Ledger.')}</p>
       ) : null}
-      {error ? <p className="note warn" role="alert">{error}</p> : null}
+      {error ? (
+        <div className="state-error" role="alert">
+          <p className="state-error-title">{preview ? 'Preview only' : 'The Ledger did not finish'}</p>
+          <p>{error}</p>
+        </div>
+      ) : null}
 
-      {simulated && (phase === 'ready' || phase === 'error') ? (
+      {phase === 'ready' || phase === 'error' || preview ? (
         <div className="pair">
           <button
             type="button"
             className="btn primary"
-            disabled={!challenge || phase === 'loading'}
-            onClick={simulate}
+            disabled={!canApprove || phase === 'loading' || phase === 'device' || phase === 'paying'}
+            onClick={approve}
           >
-            simulated Ledger signature
+            {approveLabel}
           </button>
         </div>
       ) : null}
-      {!simulated && (phase === 'ready' || phase === 'error') ? (
-        <div className="pair">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={!supported || !challenge || phase === 'loading'}
-            onClick={connect}
-          >
-            {phase === 'error' && challenge ? 'Try again' : 'Connect Ledger'}
-          </button>
-        </div>
-      ) : null}
-      {!simulated && phase === 'ready' && !supported ? (
-        <p className="note warn" role="alert">
+      {!preview && !simulated && phase === 'ready' && !supported ? (
+        <p className="note warn" role="status">
           Connect a Ledger from Chrome, Edge, or Brave. This browser has no WebHID support.
         </p>
       ) : null}
-      {!simulated && phase === 'ready' && supported ? (
+      {!preview && !simulated && phase === 'ready' && supported ? (
         <p className="meta">
           Unlock the Ledger, open the Ethereum app if it asks, and confirm there. If the app asks for blind signing, compare the panel with the quote before you allow it. The device is not clear-signing this testnet message.
         </p>

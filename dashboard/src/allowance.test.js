@@ -80,15 +80,18 @@ test('decimal strings do not drift and left stays at zero when spent passes the 
   assert.equal(over.ratio, 1);
 });
 
-test('offline preview lists the sample rows and does not spend them', () => {
+test('offline preview counts the sample payments in the one balance', () => {
   const view = allowanceView({ ...samples, offlinePreview: true, chain: null });
   assert.equal(view.offlinePreview, true);
-  assert.equal(view.spent, '0');
-  assert.equal(view.localSpent, '0');
-  assert.equal(view.left, '20');
+  assert.equal(view.spent, '7.5');
+  assert.equal(view.localSpent, '7.5');
+  assert.equal(view.left, '12.5');
+  assert.equal(view.ratio, 0.375);
+  assert.equal(view.held, '8');
   assert.equal(view.activity.length, 4);
   assert.equal(view.chainRedeemed, null);
   assert.equal(view.chainWarning, null);
+  assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
 });
 
 test('on-chain redeemed raises spent above the local ledger', () => {

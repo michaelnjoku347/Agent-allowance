@@ -14,15 +14,14 @@ const pen = {
 };
 
 export function LogoMark({ tone = 'pine', size = 36 }) {
-  const bg = tone === 'cream' ? '#F4F0E6' : '#1B4D3E';
-  const stroke = tone === 'cream' ? '#1B4D3E' : '#F4F0E6';
-  const dot = tone === 'cream' ? '#8C5A1E' : '#E2B15A';
+  const bg = tone === 'cream' ? '#F7F4EC' : '#1B4D3E';
+  const stroke = tone === 'cream' ? '#1B4D3E' : '#F7F4EC';
+  const dot = tone === 'cream' ? '#143D31' : '#C6F36B';
   return (
     <svg className="logo-mark" width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
-      <rect width="36" height="36" rx="10" fill={bg} />
-      <path d="M18 8.2a9.8 9.8 0 1 1-8.4 4.8" stroke={stroke} strokeWidth="2.2" fill="none" strokeLinecap="round" />
-      <path d="M18 14v6.4" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="18" cy="23.4" r="1.45" fill={dot} />
+      <rect width="36" height="36" rx="8" fill={bg} />
+      <path d="M23.5 24.6A8.6 8.6 0 1 1 25.5 13.7" stroke={stroke} strokeWidth="3" fill="none" strokeLinecap="round" />
+      <circle cx="25.5" cy="13.7" r="2.5" fill={dot} />
     </svg>
   );
 }
@@ -114,9 +113,9 @@ export function IconMinus({ size = 22 }) {
   );
 }
 
-export function IconAlert() {
+export function IconAlert({ size = 18 }) {
   return (
-    <Stroke>
+    <Stroke size={size}>
       <path {...pen} d="M12 4.5 20.5 19H3.5L12 4.5z" />
       <path {...pen} d="M12 10v4.2M12 16.8h.01" />
     </Stroke>

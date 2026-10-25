@@ -30,7 +30,7 @@ function readMode() {
   } catch {
     /* Private browsing can block storage. */
   }
-  return mobileDock() ? 'peek' : 'open';
+  return 'min';
 }
 
 function focusable(root) {
@@ -236,6 +236,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [failedText, setFailedText] = useState('');
   const [confirmation, setConfirmation] = useState(null);
   const [interim, setInterim] = useState('');
   const [listening, setListening] = useState(false);
@@ -258,7 +259,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   }, [listening, speaking, onStatus]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'nearest' });
+    const node = bottomRef.current;
+    if (!node || node.closest('[hidden]')) return;
+    node.scrollIntoView({ block: 'nearest' });
   }, [messages, interim, confirmation]);
 
   useEffect(() => () => {
@@ -358,6 +361,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
         if (voiceRef.current) startListening();
       });
     } catch (err) {
+      setFailedText(message);
       setError(err.message || 'Eve could not answer.');
     } finally {
       setBusy(false);
@@ -428,7 +432,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   return (
     <div className="eve">
-      <div className="transcript" id={listId} aria-relevant="additions">
+      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions">
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
@@ -514,7 +518,13 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
           The microphone is blocked. Allow it in the browser site settings, then reload this page.
         </p>
       ) : null}
-      {error ? <p className="note warn" role="alert">{error}</p> : null}
+      {error ? (
+        <div className="state-error" role="alert">
+          <p className="state-error-title">Eve is offline</p>
+          <p>{error}</p>
+          <button type="button" className="btn" onClick={() => send(failedText)} disabled={busy || !failedText}>Retry</button>
+        </div>
+      ) : null}
     </div>
   );
 }

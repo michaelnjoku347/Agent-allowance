@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { rogueFrames, rogueSummaryLine } from './rogue.js';
+import { rogueFrames, rogueSummaryLine, scriptedRogueReport } from './rogue.js';
 
 const attempts = [
   { id: 'over-cap', title: 'Over the cap', attempt: 'Buy 8', ruleText: 'Over the cap.', outcome: 'Blocked', note: 'Ledger', paid: false },
@@ -31,4 +31,16 @@ test('each attack plays attempt, then the rule, then Blocked, then the summary',
   assert.deepEqual(frames.at(-1).shown.map((card) => card.phase), ['blocked', 'blocked', 'blocked']);
   assert.equal(rogueSummaryLine({ attempts: 3, blocked: 3, lost: '0' }), '3 attempts, 3 blocked, 0 RLUSD lost');
   assert.equal(rogueSummaryLine({ attempts: 3, blocked: 3, lost: '1' }), '');
+});
+
+test('a failed request can still show the three blocked frames', () => {
+  const report = scriptedRogueReport();
+  assert.equal(report.scripted, true);
+  assert.equal(report.paid, false);
+  assert.equal(report.summary.line, '3 attempts, 3 blocked, 0 RLUSD lost');
+  const frames = rogueFrames(report.attempts);
+  const last = frames.at(-1);
+  assert.equal(last.summary, true);
+  assert.equal(last.shown.length, 3);
+  assert.deepEqual(last.shown.map((card) => card.phase), ['blocked', 'blocked', 'blocked']);
 });

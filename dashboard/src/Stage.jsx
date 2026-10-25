@@ -7,26 +7,40 @@ const STATE_WORD = {
   stop: 'stopped here',
 };
 
-export function MoneyFlow({ flow }) {
+export function MoneyFlow({ flow, embedded = false }) {
   const steps = flow?.steps ?? [];
+  const track = (
+    <ol className="flow-track">
+      {steps.map((step, index) => {
+        const previous = steps[index - 1];
+        const lineOn = previous?.state === 'on';
+        const state = STATE_WORD[step.state] || step.state;
+        return (
+          <li key={step.id} className="flow-item">
+            {index > 0 ? <span className={lineOn ? 'flow-line is-on' : 'flow-line'} aria-hidden="true" /> : null}
+            <span className={`flow-step is-${step.state}`} role="img" aria-label={`${step.label}, ${state}`}>
+              <span className="flow-dot" />
+              <span className="flow-label">{step.label}</span>
+              <span className="flow-state">{state}</span>
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+  if (embedded) {
+    return (
+      <div className="flow flow-embedded">
+        <p className="eyebrow">Payment path</p>
+        {track}
+        {flow?.caption ? <p className="flow-caption">{flow.caption}</p> : null}
+      </div>
+    );
+  }
   return (
     <section className="card flow" aria-labelledby="flow-title">
       <h2 id="flow-title" className="eyebrow">Payment path</h2>
-      <ol className="flow-track">
-        {steps.map((step, index) => {
-          const previous = steps[index - 1];
-          const lineOn = previous?.state === 'on';
-          return (
-            <li key={step.id} className="flow-item">
-              {index > 0 ? <span className={lineOn ? 'flow-line is-on' : 'flow-line'} aria-hidden="true" /> : null}
-              <span className={`flow-step is-${step.state}`} aria-label={`${step.label}, ${STATE_WORD[step.state] || step.state}`}>
-                <span className="flow-dot" />
-                <span className="flow-label">{step.label}</span>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      {track}
       {flow?.caption ? <p className="flow-caption">{flow.caption}</p> : null}
     </section>
   );

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 150" role="img" aria-label="Agent Allowance">
+  <svg x="86" y="0" width="48" height="48" viewBox="0 0 36 36">
+  <rect width="36" height="36" rx="8" fill="#1B4D3E"/>
+  <path d="M23.5 24.6A8.6 8.6 0 1 1 25.5 13.7" fill="none" stroke="#F7F4EC" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="25.5" cy="13.7" r="2.5" fill="#C6F36B"/>
+</svg>
+  <text x="110" y="84" text-anchor="middle" fill="#1A1814" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="22" font-weight="600">Agent</text>
+  <text x="110" y="112" text-anchor="middle" fill="#1A1814" font-family="IBM Plex Sans, Segoe UI, sans-serif" font-size="22" font-weight="600">Allowance</text>
+</svg>

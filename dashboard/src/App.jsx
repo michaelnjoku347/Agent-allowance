@@ -436,7 +436,6 @@ export default function App() {
             <div className="brand">
               <LogoMark size={40} />
               <div>
-                <p className="eyebrow">Mastercard × XRPL Hackathon</p>
                 <h1>Agent Allowance</h1>
               </div>
             </div>
@@ -450,6 +449,7 @@ export default function App() {
               <ThemeControl theme={theme} setTheme={setTheme} />
             </div>
           </header>
+          <main id="main" tabIndex={-1}>
           <p className="lede">Autonomous agents are economic actors. This allowance is programmable, and a Ledger is the hardware guard. The agent decides what to buy. It cannot decide what it is allowed to spend.</p>
           {snapshot?.simulatedLedger ? (
             <p className="sim-banner sim-banner-page" role="status">
@@ -457,18 +457,17 @@ export default function App() {
             </p>
           ) : null}
 
-          <main id="main" tabIndex={-1}>
             {connection === 'loading' && !snapshot ? <Skeletons /> : null}
             {snapshot?.offlinePreview ? (
-              <p className="offline-banner" role="status">
-                Offline sample preview. The allowance server is not running, so these rows are examples, not payments.
-                Start it with npm run server.
+              <div className="offline-banner" role="status">
+                <p>Sample preview. These rows are examples, not payments.</p>
                 <button type="button" className="btn" onClick={load}>Retry</button>
-              </p>
+              </div>
             ) : null}
             {snapshot && tab === 'home' ? (
-              <div className="stack">
-                <HowItWorks snapshot={snapshot} onChange={load} />
+              <HeistDemo onDone={load} onResult={onHeist}>
+                {({ trigger, stage }) => (
+              <div className="stack home-stack">
                 {snapshot.frozen ? (
                   <p className="freeze-banner" role="status">
                     {snapshot.channelClosed
@@ -479,16 +478,16 @@ export default function App() {
                   </p>
                 ) : null}
                 {connection === 'offline' && !snapshot.offlinePreview ? (
-                  <p className="note warn" role="alert">
-                    <IconAlert />
-                    <span>Could not refresh. Showing the last numbers.</span>
+                  <div className="state-error" role="alert">
+                    <p className="state-error-title">Could not refresh</p>
+                    <p>Showing the last numbers.</p>
                     <button type="button" className="btn" onClick={load}>Retry</button>
-                  </p>
+                  </div>
                 ) : null}
                 <section className="card hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
                     <div className="hero-copy">
-                      <h2 id="allowance-title" className="eyebrow">RLUSD left</h2>
+                      <h2 id="allowance-title" className="eyebrow">Left to spend</h2>
                       <p className="figure">
                         <CountUp value={view.leftNumber} />
                         <span className="unit">RLUSD</span>
@@ -510,16 +509,12 @@ export default function App() {
                           <dd>{money(view.lost)} RLUSD</dd>
                         </div>
                       </dl>
-                      <p className="chain-lines">
-                        <span>Local ledger {money(view.localSpent)} RLUSD</span>
-                        <span>
-                          On-chain redeemed {view.chainRedeemed == null ? 'not loaded' : `${money(view.chainRedeemed)} RLUSD`}
-                        </span>
-                        <span>Local budget {money(view.budget)} RLUSD</span>
-                        <span>
-                          Channel cap {view.chainCap == null ? 'not loaded' : `${money(view.chainCap)} RLUSD`}
-                        </span>
-                      </p>
+                      {view.chainRedeemed != null || view.chainCap != null ? (
+                        <p className="chain-lines">
+                          {view.chainRedeemed != null ? <span>On-chain redeemed {money(view.chainRedeemed)} RLUSD</span> : null}
+                          {view.chainCap != null ? <span>Channel cap {money(view.chainCap)} RLUSD</span> : null}
+                        </p>
+                      ) : null}
                       {view.chainWarning ? <p className="note warn" role="status">{view.chainWarning}</p> : null}
                     </div>
                     <SpendRing ratio={view.ratio} label={balanceLabel} mood={ringMood} />
@@ -538,11 +533,10 @@ export default function App() {
                       <dd>{merchantCount} allowed</dd>
                     </div>
                   </dl>
+                  <MoneyFlow flow={liveFlow} embedded />
                   <div className="hero-actions">
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
-                    <button type="button" className="btn" onClick={onOverCap} disabled={overCapBusy}>
-                      {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
-                    </button>
+                    {trigger}
                     <button
                       type="button"
                       className={snapshot.frozen ? 'btn' : 'btn danger'}
@@ -554,19 +548,6 @@ export default function App() {
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
-
-                <UseCaseCard
-                  selected={snapshot.useCase?.id}
-                  busy={controlBusy}
-                  disabled={Boolean(snapshot.offlinePreview)}
-                  onSelect={onUseCase}
-                />
-
-                <MoneyFlow flow={liveFlow} />
-                <TxFeed rows={feed} />
-
-                <HeistDemo onDone={load} onResult={onHeist} />
-                <AuditCard rows={snapshot.audit} onExport={exportAudit} />
 
                 {overCap ? (
                   <section className="card rejection" role="alert" aria-labelledby="over-cap-title">
@@ -595,8 +576,9 @@ export default function App() {
                   </section>
                 ) : null}
 
+                <div className="heist-stage">{stage}</div>
                 <div className="split">
-                  <section className="card" aria-labelledby="needs-title">
+                  <section className="card needs-card" aria-labelledby="needs-title">
                     <div className="section-head">
                       <h2 id="needs-title">Needs you</h2>
                       <p>A quote outside the rules waits here. Approving it asks the Ledger to sign, then pays that quote once.</p>
@@ -620,16 +602,20 @@ export default function App() {
                             </div>
                             <p>{plainReason(item.reason)}</p>
                             {item.declineReason ? <p>{item.declineReason}</p> : null}
-                            <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
+                            {item.sample ? (
+                              <p className="meta">{when(item.createdAt)}</p>
+                            ) : (
+                              <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
+                            )}
                             <JevCard jev={item.jev} />
                             <div className="pair">
-                              {item.declineOnly || item.sample || snapshot.offlinePreview ? (
+                              {item.declineOnly ? (
                                 <p className="meta">Decline only. A Ledger signature cannot pay this quote.</p>
-                              ) : snapshot.frozen ? (
+                              ) : snapshot.frozen && !item.sample && !snapshot.offlinePreview ? (
                                 <p className="meta">Frozen. Unfreeze the agent before this quote can be paid.</p>
                               ) : (
                                 <button type="button" className="btn primary" onClick={() => setApproval(item)}>
-                                  Approve with Ledger
+                                  Approve {money(item.amount)} RLUSD
                                 </button>
                               )}
                               <button type="button" className="btn" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
@@ -640,14 +626,18 @@ export default function App() {
                         ))}
                       </ul>
                     )}
-                    {actionError ? <p className="note warn" role="alert">{actionError}</p> : null}
+                    {actionError ? (
+                      <div className="state-error" role="alert">
+                        <p className="state-error-title">That did not finish</p>
+                        <p>{actionError}</p>
+                      </div>
+                    ) : null}
                   </section>
 
-                  <section className="card" aria-labelledby="latest-title">
+                  <section className="card activity-card" aria-labelledby="latest-title">
                     <h2 id="latest-title">Latest activity</h2>
                     <ActivityList
                       items={latest}
-                      explorer={snapshot.network?.explorerUrl}
                       flashId={flashId}
                       onOpen={setDetail}
                       empty={(
@@ -662,7 +652,22 @@ export default function App() {
                     />
                   </section>
                 </div>
+                <details className="quiet">
+                  <summary>How this is guarded</summary>
+                  <HowItWorks snapshot={snapshot} onChange={load} />
+                  <UseCaseCard
+                    selected={snapshot.useCase?.id}
+                    busy={controlBusy}
+                    disabled={Boolean(snapshot.offlinePreview)}
+                    onSelect={onUseCase}
+                  />
+                  <button type="button" className="btn" onClick={onOverCap} disabled={overCapBusy}>
+                    {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
+                  </button>
+                </details>
               </div>
+                )}
+              </HeistDemo>
             ) : null}
 
             {snapshot && tab === 'activity' ? (
@@ -683,7 +688,6 @@ export default function App() {
                 </div>
                 <ActivityList
                   items={shown}
-                  explorer={snapshot.network?.explorerUrl}
                   flashId={flashId}
                   onOpen={setDetail}
                   empty={filter === 'all' ? (
@@ -705,6 +709,7 @@ export default function App() {
 
             {snapshot && tab === 'activity' ? (
               <div className="stack">
+                {feed.length ? <TxFeed rows={feed} /> : null}
                 <AuditCard rows={snapshot.audit} onExport={exportAudit} />
               </div>
             ) : null}
@@ -731,8 +736,14 @@ export default function App() {
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} />
       {approval ? (
-        <Sheet title="Approve with Ledger" onClose={() => setApproval(null)}>
-          <LedgerApproval item={approval} onPaid={load} simulated={Boolean(snapshot?.simulatedLedger)} />
+        <Sheet title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
+          <LedgerApproval
+            item={approval}
+            onPaid={load}
+            preview={Boolean(approval.sample || snapshot?.offlinePreview)}
+            expiresAt={snapshot?.rules?.expiresAt || ''}
+            simulated={Boolean(snapshot?.simulatedLedger) && !approval.sample && !snapshot?.offlinePreview}
+          />
         </Sheet>
       ) : null}
       {detail ? (
@@ -913,7 +924,7 @@ function RowSkeleton() {
   );
 }
 
-function ActivityList({ items, onOpen, empty, explorer, flashId = '' }) {
+function ActivityList({ items, onOpen, empty, flashId = '' }) {
   if (!items.length) return empty;
   return (
     <ul className="activity">
@@ -940,9 +951,6 @@ function ActivityList({ items, onOpen, empty, explorer, flashId = '' }) {
               </p>
             ) : null}
             {item.status === 'skipped' && item.reason ? <p className="row-plan">{item.reason}</p> : null}
-            {item.status === 'paid' && (item.txHash || item.payoutTx || item.receiptUrl) ? (
-              <ReceiptCard item={item} explorer={explorer} />
-            ) : null}
             {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
           </li>
         );
@@ -963,11 +971,14 @@ function Detail({ item, currency }) {
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      {item.status === 'paid' ? <ReceiptCard item={item} explorer={EXPLORER} /> : (
+      {item.sample ? <p>Sample preview</p> : null}
+      {item.sample || item.status !== 'paid' ? (
         <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
+      ) : (
+        <ReceiptCard item={item} explorer={EXPLORER} />
       )}
       <p className="detail-name">{name}</p>
-      <p className="meta"><code>{item.merchant}</code></p>
+      {item.sample ? null : <p className="meta"><code>{item.merchant}</code></p>}
       <p className="meta">{when(item.createdAt)}</p>
       {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
@@ -983,13 +994,16 @@ function Detail({ item, currency }) {
       <ul className="checks">
         {ruleRows(item).map((row) => (
           <li key={row.label} className={row.state}>
-            <span aria-hidden="true">{row.state === 'pass' ? '✓' : row.state === 'fail' ? '✗' : '–'}</span>
+            <span className={`check-icon is-${row.state}`} aria-hidden="true">
+              {row.state === 'fail' ? <IconAlert size={16} /> : <IconCheck size={16} />}
+            </span>
             <span>{row.text}</span>
             <span>{row.label}</span>
           </li>
         ))}
       </ul>
       <JevCard jev={item.jev} />
+      {item.sample ? null : (
       <dl className="facts">
         <div>
           <dt>Transaction</dt>
@@ -1001,7 +1015,7 @@ function Detail({ item, currency }) {
         </div>
         <div>
           <dt>AP4M channel</dt>
-          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+          <dd>{item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>Settlement</dt>
@@ -1009,7 +1023,7 @@ function Detail({ item, currency }) {
         </div>
         <div>
           <dt>AP4M claim</dt>
-          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+          <dd>{item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>Receipt</dt>
@@ -1020,6 +1034,7 @@ function Detail({ item, currency }) {
           <dd>{item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer noopener">View on explorer</a> : 'Not recorded'}</dd>
         </div>
       </dl>
+      )}
     </div>
   );
 }
@@ -1084,6 +1099,10 @@ function Skeletons() {
   return (
     <div className="stack" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
+      <div className="loading-brand">
+        <LogoMark size={40} />
+        <p>Agent Allowance</p>
+      </div>
       <div className="card hero-skeleton" aria-hidden="true">
         <div className="sk-copy">
           <span className="sk sk-label" />

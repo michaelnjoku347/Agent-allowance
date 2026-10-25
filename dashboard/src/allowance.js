@@ -1,11 +1,10 @@
 /**
  * Figures for the allowance hero.
  *
- * Sample rows are a preview. `/api/status` counts them until the agent
- * connects (seeded ledger: 7.5 spent, 12.5 remaining) while this screen
- * lists only real payments, the same rule as `spentRlusd()` in the ledger.
- * Left, spent, and budget all come from those real rows, so the hero, the
- * ring, and the caption describe one total.
+ * A live allowance counts only real payments, the same rule as
+ * `spentRlusd()` in the ledger. The offline preview lists the sample rows,
+ * so those paid samples are the spend the hero, the ring, and the caption
+ * describe: 7.5 of 20, 12.5 left.
  */
 
 const SCALE = 1_000_000n;
@@ -70,7 +69,7 @@ export function allowanceView(snapshot) {
   const parsedBudget = parseMicro(snapshot?.rules?.budget ?? snapshot?.budget ?? 0);
   const budgetMicro = parsedBudget !== null && parsedBudget > 0n ? parsedBudget : 0n;
   const localSpentMicro = payments.reduce((sum, item) => {
-    if (item.sample || item.status !== 'paid') return sum;
+    if ((!offlinePreview && item.sample) || item.status !== 'paid') return sum;
     const amount = parseMicro(item.amount);
     if (amount === null || amount <= 0n) return sum;
     return sum + amount;

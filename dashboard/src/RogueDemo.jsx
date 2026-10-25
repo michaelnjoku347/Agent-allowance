@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runRogueDemo } from './api.js';
-import { IconAlert } from './icons.jsx';
-import { rogueFrames } from './rogue.js';
+import { rogueFrames, scriptedRogueReport } from './rogue.js';
 
 const BEAT_MS = 900;
 
@@ -36,7 +35,9 @@ export default function RogueDemo({ onDone, onBeat }) {
     try {
       const body = await runRogueDemo();
       if (!body?.ok || body.paid || body.signed || body.summary?.lost !== '0') {
-        throw new Error('The rogue demo did not stay blocked.');
+        const failure = new Error('The rogue demo did not stay blocked.');
+        failure.live = true;
+        throw failure;
       }
       const next = rogueFrames(body.attempts);
       setReport(body);
@@ -53,7 +54,14 @@ export default function RogueDemo({ onDone, onBeat }) {
       }
       onDone?.();
     } catch (err) {
-      setError(err.message || 'The rogue demo did not run.');
+      if (err.live) {
+        setError(err.message || 'The rogue demo did not stay blocked.');
+      } else {
+        const scripted = scriptedRogueReport();
+        const next = rogueFrames(scripted.attempts);
+        setReport(scripted);
+        setCursor(Math.max(0, next.length - 1));
+      }
     } finally {
       setBusy(false);
     }
@@ -72,15 +80,23 @@ export default function RogueDemo({ onDone, onBeat }) {
   return (
     <section className="card rogue" aria-labelledby="rogue-title">
       <div className="section-head">
-        <h2 id="rogue-title">Rogue agent</h2>
-        <p>Three tries to spend outside the allowance. The rules run for real. Nothing is signed.</p>
+        <h2 id="rogue-title">Three blocks</h2>
+        <p>Three tries to spend outside the allowance. Nothing is signed.</p>
       </div>
-      <button type="button" className="btn danger" onClick={run} disabled={busy}>
-        <IconAlert />
-        <span>{busy ? 'Running the three attacks…' : 'Rogue agent'}</span>
+      <button type="button" className="btn" onClick={run} disabled={busy}>
+        <span>{busy ? 'Running the three blocks…' : 'Run the three blocks'}</span>
       </button>
       <p className="visually-hidden" aria-live="polite">{live}</p>
-      {error ? <p className="note warn" role="alert">{error}</p> : null}
+      {error ? (
+        <div className="state-error" role="alert">
+          <p className="state-error-title">Could not run the three blocks</p>
+          <p>{error}</p>
+          <button type="button" className="btn" onClick={run}>Retry</button>
+        </div>
+      ) : null}
+      {report?.scripted ? (
+        <p className="heist-note">Scripted preview. The server did not answer. This is not a live rules run.</p>
+      ) : null}
       {frame ? (
         <ol className="rogue-cards">
           {frame.shown.map((card) => (

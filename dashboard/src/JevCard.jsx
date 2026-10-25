@@ -12,6 +12,7 @@ export function riskDisplay(score) {
 }
 
 export default function JevCard({ jev }) {
+  if (!jev) return null;
   const source = jevSourceLabel(jev?.source);
   const needed = percent(jev?.needed);
   const review = percent(jev?.review);

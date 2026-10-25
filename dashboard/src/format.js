@@ -33,6 +33,21 @@ export function clock(iso) {
   }).format(date);
 }
 
+/** Readable expiry for the approval sheet, for example "Dec 31, 2026, 11:59 PM". */
+export function ceremonyDate(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 export function shortAddress(address) {
   if (!address || address.length < 12) return address || '';
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
