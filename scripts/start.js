@@ -26,7 +26,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function runNpm(args) {
-  const result = spawnSync(npmBin(), args, { cwd: root, stdio: 'inherit' });
+  const result = spawnSync(npmBin(), args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
   if (result.error) {
     console.error(result.error.message);
     process.exit(1);
@@ -138,6 +138,7 @@ async function main() {
       env: childEnv,
       stdio: 'inherit',
       detached: process.platform !== 'win32',
+      shell: process.platform === 'win32',
       windowsHide: true,
     });
     children.push(child);
