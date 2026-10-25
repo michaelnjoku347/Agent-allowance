@@ -111,6 +111,7 @@ async function paySavedQuote(pending) {
     merchantLabel: pending.merchantLabel,
     jev: pending.jev,
     approver: pending.approver,
+    plan: pending.plan,
     purchaseId: pending.id,
     spent: await spentRlusd(),
   });

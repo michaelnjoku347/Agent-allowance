@@ -711,6 +711,15 @@ main > .eve {
 .bubble.eve { background: var(--pine-soft); border-color: transparent; }
 .bubble.you { background: var(--bg); }
 .who { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.bedrock-mark {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.plan { display: grid; gap: 4px; }
 .interim { opacity: 0.8; }
 .composer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .composer input, .rate input { min-height: 48px; }

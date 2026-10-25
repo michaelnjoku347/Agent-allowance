@@ -118,16 +118,19 @@ export function createApp(options = {}) {
       const message = typeof req.body?.message === 'string' ? req.body.message.slice(0, 2000) : '';
       const context = await loadEveContext();
       const result = await answerEve(message, context);
-      if (!result.action) return res.json({ reply: result.reply, confirmation: null });
-      const token = confirmations.issue(result.action);
-      res.json({
+      const payload = {
         reply: result.reply,
-        confirmation: {
-          token,
-          summary: confirmationSummary(result.action, context),
-          action: result.action,
-        },
-      });
+        bedrock: result.source === 'bedrock',
+        confirmation: null,
+      };
+      if (!result.action) return res.json(payload);
+      const token = confirmations.issue(result.action);
+      payload.confirmation = {
+        token,
+        summary: confirmationSummary(result.action, context),
+        action: result.action,
+      };
+      res.json(payload);
     } catch (error) {
       next(error);
     }

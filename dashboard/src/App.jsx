@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
 import { declinePurchase, fetchSnapshot, runAgent, runOverCap } from './api.js';
+import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
@@ -666,6 +667,13 @@ function Detail({ item, currency }) {
       <p className="meta"><code>{item.merchant}</code></p>
       <p className="meta">{when(item.createdAt)}</p>
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
+      {item.plan?.source === 'bedrock' && item.plan.reason ? (
+        <div className="plan">
+          <h3>Purchase plan</h3>
+          <p>{item.plan.reason}</p>
+          <BedrockMark />
+        </div>
+      ) : null}
       <h3>Rule checks</h3>
       <ul className="checks">
         {ruleRows(item).map((row) => (

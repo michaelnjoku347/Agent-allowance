@@ -8,6 +8,9 @@
  *                    explorer link are saved.
  *   needs_approval → the quote is saved and nothing is paid.
  *
+ * Bedrock may attach a purchase plan (what the quote is for, and why). The
+ * plan is recorded for the dashboard. checkRules and Jev still decide.
+ *
  * The private key is read from AGENT_PRIVATE_KEY and is never printed.
  *
  * Usage (from the repo root, with the merchant already running):
@@ -22,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { selectOpenChannel } from './channel.js';
 import { pendingPurchase, validateRecovery } from './recovery.js';
 import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
+import { planPurchase } from './planner.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
@@ -112,7 +116,7 @@ async function serviceConfig(apiUrl) {
   return config;
 }
 
-async function hold({ recordHold, task, quote, label, resourceUrl, reason, description, jev }) {
+async function hold({ recordHold, task, quote, label, resourceUrl, reason, description, jev, plan = null }) {
   const record = jev ?? rulesOnlyJev(reason).jev;
   await recordHold({
     task,
@@ -123,6 +127,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     description,
     resourceUrl,
     jev: record,
+    plan,
   });
   console.log('Not paying. Saved for approval.');
   return {
@@ -135,6 +140,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     receiptUrl: null,
     explorerUrl: null,
     jev: record,
+    plan,
     line: resultLine({ decision: 'needs_approval', reason }),
   };
 }
@@ -156,9 +162,17 @@ export async function finishQuote({
   recordHold = recordPending,
   recentPayments = [],
   review = askJev,
+  plan = planPurchase,
 }) {
   const label = merchantLabel(rules, quote.merchant);
   const merchant = canonicalAddress(quote.merchant);
+  let purchasePlan = null;
+  try {
+    purchasePlan = await plan({ task, quote, rules });
+  } catch {
+    purchasePlan = null;
+  }
+  if (purchasePlan?.reason) console.log(`Plan: ${purchasePlan.reason}`);
   const decision = checkRules({
     merchant,
     amount: quote.amount,
@@ -176,6 +190,7 @@ export async function finishQuote({
       reason: decision.reason,
       description: quote.description,
       jev: rulesOnlyJev(decision.reason).jev,
+      plan: purchasePlan,
     });
   }
 
@@ -215,6 +230,7 @@ export async function finishQuote({
       reason: verdict.jev.reason,
       description: quote.description,
       jev: verdict.jev,
+      plan: purchasePlan,
     });
   }
 
@@ -233,6 +249,7 @@ export async function finishQuote({
         reason: 'over channel cap',
         description: 'The Channel cannot cover this payment on top of what it has already redeemed.',
         jev: rulesOnlyJev('over channel cap').jev,
+        plan: purchasePlan,
       });
     }
     throw error;
@@ -249,6 +266,7 @@ export async function finishQuote({
   let saved = await recordPayment({
     task, merchant, merchantLabel: label, amount: quote.amount, txHash,
     claimId: purchase.claimId ?? null, channelId, resourceUrl, jev: verdict.jev,
+    plan: purchasePlan,
   });
   const settled = await report(purchase);
   const claimId = settled?.claimId ?? purchase.claimId ?? null;
@@ -267,6 +285,7 @@ export async function finishQuote({
       receiptUrl,
       resourceUrl,
       jev: verdict.jev,
+      plan: purchasePlan,
     });
   } catch (error) {
     console.error('Payment is on-chain but the local ledger was not updated.');
@@ -285,6 +304,7 @@ export async function finishQuote({
     receiptUrl,
     explorerUrl,
     resource: purchase.resource ?? null,
+    plan: purchasePlan,
     line: resultLine({
       decision: 'allow',
       amount: quote.amount,
@@ -411,6 +431,7 @@ export async function payExactQuote({
   jev = null,
   approver = null,
   purchaseId = '',
+  plan = null,
   recordPayment = recordAgentPayment,
 } = {}) {
   const hard = checkApprovalHardRules({ merchant, amount, spent, at }, rules);
@@ -470,6 +491,7 @@ export async function payExactQuote({
     resourceUrl: url,
     jev,
     approver,
+    plan,
     note,
   });
   try {
@@ -487,6 +509,7 @@ export async function payExactQuote({
       resourceUrl: url,
       jev,
       approver,
+      plan,
       note,
     });
   } catch (error) {

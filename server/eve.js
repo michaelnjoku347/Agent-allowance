@@ -6,6 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { loadRules, presentRules, updateAllowance } from '../agent/rules.js';
 import { plainReason, jevSourceLabel } from '../shared/words.js';
+import { converse, parseModelJson, readBedrockSettings } from './bedrock.js';
 import { declinePending, readStore, spentRlusd } from './store.js';
 
 const CONFIRM_MS = 120_000;
@@ -190,32 +191,7 @@ async function answerWithLlm(message, context, env, fetchImpl) {
       messages: [
         {
           role: 'system',
-          content: [
-            'You are Eve, the allowance assistant. Answer only from the JSON context.',
-            'Do not invent payments. Return JSON {"reply":"...","action":null}',
-            'action is null or one of',
-            '{"type":"decline","id":"..."}',
-            '{"type":"set_cap","amount":"3"} {"type":"set_budget","amount":"20"}.',
-            'Never approve a purchase. Tell the person to approve it on the Ledger in the dashboard.',
-            'Never claim a change already happened. A person confirms it separately.',
-            `Context: ${JSON.stringify({
-              rules: context.rules,
-              spent: context.spent,
-              pending: context.pending.map((item) => ({
-                id: item.id,
-                amount: item.amount,
-                merchant: item.merchantLabel || item.merchant,
-                reason: item.reason,
-              })),
-              payments: context.payments.slice(0, 12).map((item) => ({
-                id: item.id,
-                amount: item.amount,
-                status: item.status,
-                merchant: item.merchantLabel || item.merchant,
-                createdAt: item.createdAt,
-              })),
-            })}`,
-          ].join(' '),
+          content: [...EVE_SYSTEM, `Context: ${JSON.stringify(eveContext(context))}`].join(' '),
         },
         { role: 'user', content: message },
       ],
@@ -230,7 +206,7 @@ async function answerWithLlm(message, context, env, fetchImpl) {
     throw new Error('LLM reply was empty.');
   }
   const action = normalizeAction(parsed.action, context);
-  return { reply: parsed.reply.trim(), action };
+  return guardModelAnswer({ reply: parsed.reply.trim(), action, source: 'llm' }, context);
 }
 
 function normalizeAction(action, context) {
@@ -249,17 +225,101 @@ function normalizeAction(action, context) {
   return null;
 }
 
+/** A model can suggest a change. The allowance limits still have to hold. */
+function guardModelAnswer(result, context) {
+  const action = result.action;
+  if (action?.type === 'set_cap') {
+    const cap = Number(action.amount);
+    const budget = Number(context.rules.budget);
+    if (!(cap > 0) || cap > budget) {
+      return {
+        reply: `The cap has to be greater than 0 and no more than the budget of ${context.rules.budget} RLUSD.`,
+        action: null,
+        source: result.source,
+      };
+    }
+  }
+  if (action?.type === 'set_budget') {
+    const next = Number(action.amount);
+    const cap = Number(context.rules.maxPerPurchase);
+    if (!(next > 0) || next < cap) {
+      return {
+        reply: `The budget has to be greater than 0 and at least the per-purchase cap of ${context.rules.maxPerPurchase} RLUSD.`,
+        action: null,
+        source: result.source,
+      };
+    }
+  }
+  return result;
+}
+
+const EVE_SYSTEM = [
+  'You are Eve, the allowance assistant. Answer only from the JSON context.',
+  'Do not invent payments. Return JSON {"reply":"...","action":null}',
+  'action is null or one of',
+  '{"type":"decline","id":"..."}',
+  '{"type":"set_cap","amount":"3"} {"type":"set_budget","amount":"20"}.',
+  'Never approve a purchase. Tell the person to approve it on the Ledger in the dashboard.',
+  'Never claim a change already happened. A person confirms it separately.',
+];
+
+function eveContext(context) {
+  return {
+    rules: context.rules,
+    spent: context.spent,
+    pending: context.pending.map((item) => ({
+      id: item.id,
+      amount: item.amount,
+      merchant: item.merchantLabel || item.merchant,
+      reason: item.reason,
+    })),
+    payments: context.payments.slice(0, 12).map((item) => ({
+      id: item.id,
+      amount: item.amount,
+      status: item.status,
+      merchant: item.merchantLabel || item.merchant,
+      createdAt: item.createdAt,
+    })),
+  };
+}
+
+async function answerWithBedrock(message, context, env, client) {
+  const result = await converse({
+    env,
+    client,
+    maxTokens: 512,
+    system: [...EVE_SYSTEM, `Context: ${JSON.stringify(eveContext(context))}`].join(' '),
+    user: message,
+  });
+  const parsed = parseModelJson(result.text);
+  if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) {
+    throw new Error('Bedrock reply was empty.');
+  }
+  return guardModelAnswer({
+    reply: parsed.reply.trim(),
+    action: normalizeAction(parsed.action, context),
+    source: 'bedrock',
+  }, context);
+}
+
 export async function answerEve(message, context, options = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
+  if (readBedrockSettings(env).configured) {
+    try {
+      return await answerWithBedrock(message, context, env, options.bedrockClient);
+    } catch {
+      // Bedrock is optional at runtime. The built-in parser, or LLM_*, still answers.
+    }
+  }
   if (env.LLM_API_KEY?.trim()) {
     try {
       return await answerWithLlm(message, context, env, fetchImpl);
     } catch {
-      return ruleAnswer(message, context);
+      return { ...ruleAnswer(message, context), source: 'rules' };
     }
   }
-  return ruleAnswer(message, context);
+  return { ...ruleAnswer(message, context), source: 'rules' };
 }
 
 export async function executeConfirmed(action) {
