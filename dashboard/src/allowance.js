@@ -62,14 +62,16 @@ export function channelWarning({ localSpent, budget, chain }) {
 
 export function allowanceView(snapshot) {
   const offlinePreview = Boolean(snapshot?.offlinePreview);
-  const payments = (snapshot?.payments ?? []).filter((item) => item && (offlinePreview || !item.sample));
+  // Sample rows stay on screen until a real agent decision replaces them.
+  const showSamples = offlinePreview || snapshot?.agentConnected === false;
+  const payments = (snapshot?.payments ?? []).filter((item) => item && (showSamples || !item.sample));
   const pending = (snapshot?.pending ?? [])
-    .filter((item) => item && (offlinePreview || !item.sample))
+    .filter((item) => item && (showSamples || !item.sample))
     .map((item) => ({ ...item, status: item.status || 'pending' }));
   const parsedBudget = parseMicro(snapshot?.rules?.budget ?? snapshot?.budget ?? 0);
   const budgetMicro = parsedBudget !== null && parsedBudget > 0n ? parsedBudget : 0n;
   const localSpentMicro = payments.reduce((sum, item) => {
-    if ((!offlinePreview && item.sample) || item.status !== 'paid') return sum;
+    if ((!showSamples && item.sample) || item.status !== 'paid') return sum;
     const amount = parseMicro(item.amount);
     if (amount === null || amount <= 0n) return sum;
     return sum + amount;
@@ -101,6 +103,10 @@ export function allowanceView(snapshot) {
     chainCap: snapshot?.chain?.cap ?? null,
     chainWarning: channelWarning({ localSpent, budget, chain: snapshot?.chain }),
     offlinePreview,
+    demo: showSamples && (
+      (snapshot?.payments ?? []).some((item) => item?.sample)
+      || (snapshot?.pending ?? []).some((item) => item?.sample)
+    ),
     spent: formatMicro(spentMicro),
     left: formatMicro(leftMicro),
     held: formatMicro(heldMicro),

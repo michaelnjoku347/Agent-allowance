@@ -26,3 +26,8 @@ export function jevSourceLabel(source) {
   if (source === 'kev') return 'Kev';
   return 'rules only';
 }
+
+/** One explanation of Jev, shared by Eve and the dashboard. */
+export function explainJev() {
+  return 'Jev is the risk review. It runs only after the rules allow a purchase. It can hold a payment for a person. It cannot spend past a rule. If Jev is down, the rules still decide.';
+}

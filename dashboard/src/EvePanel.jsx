@@ -13,6 +13,23 @@ const CHIPS = [
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;
 const DOCK_KEY = 'allowance-eve';
+const CHAT_KEY = 'allowance-eve-chat';
+const HELLO = 'Ask what was spent, why a quote was blocked, or to change a rule. I ask before I change anything.';
+
+function readChat() {
+  try {
+    const raw = sessionStorage.getItem(CHAT_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return null;
+    const messages = parsed.filter((item) => (
+      item && typeof item.text === 'string' && (item.role === 'eve' || item.role === 'you')
+    ));
+    if (messages.length) return messages.slice(-40);
+  } catch {
+    /* Private browsing can block storage. The chat still lasts while Eve stays mounted. */
+  }
+  return null;
+}
 
 function speechRecognition() {
   if (typeof window === 'undefined') return null;
@@ -171,13 +188,13 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
 
   return (
     <div className={`eve-dock is-${mode}`}>
-      {mode === 'min' ? null : (
       <section
         className={`eve-window is-${mode}`}
         id={panelId}
         ref={panelRef}
         role="region"
         aria-label="Eve"
+        hidden={mode === 'min'}
       >
         <button
           type="button"
@@ -210,7 +227,6 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
           onReply={onReply}
         />
       </section>
-      )}
       <button
         type="button"
         className="eve-pill"
@@ -232,12 +248,7 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
 
 export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   const listId = useId();
-  const [messages, setMessages] = useState([
-    {
-      role: 'eve',
-      text: 'Ask what was spent, why a quote was blocked, or to change a rule. I ask before I change anything.',
-    },
-  ]);
+  const [messages, setMessages] = useState(() => readChat() ?? [{ role: 'eve', text: HELLO }]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -262,6 +273,14 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   useEffect(() => {
     onStatus?.({ listening, speaking });
   }, [listening, speaking, onStatus]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-40)));
+    } catch {
+      /* The mounted panel still keeps the thread if storage is blocked. */
+    }
+  }, [messages]);
 
   useEffect(() => {
     const node = bottomRef.current;

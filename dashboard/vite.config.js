@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: {
-    host: '127.0.0.1',
+    host: process.env.DASHBOARD_HOST || '127.0.0.1',
     port: 5173,
     strictPort: true,
     // The API listens on 8787 (PORT in .env.example). Keep these in step.

@@ -13,7 +13,7 @@ export function riskDisplay(score) {
 
 export default function JevCard({ jev, merchant = '' }) {
   if (!jev || jev.source !== 'jev') {
-    return <p className="jev-line">Rules decided. Jev not consulted.</p>;
+    return <p className="jev-line">Rules decided. Jev risk review skipped.</p>;
   }
   const source = jevSourceLabel(jev?.source);
   const needed = percent(jev?.needed);

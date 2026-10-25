@@ -23,6 +23,8 @@ Spending power for AI, with a human key.
 
 `npm start` checks for Node.js 22, installs dependencies when they are missing, and starts the allowance server and the dashboard together. The terminal prints that dashboard URL. Blank AWS and Jev keys are optional: the app keeps running and prints a one-line notice. A funded payment still needs the keys in `.env`, and `npm run merchant` in a second terminal. That path is in Quickstart below.
 
+`npm run start:phone` (or `DASHBOARD_HOST=0.0.0.0 npm start`) is the same command, bound so a phone on the same Wi-Fi can open it. The terminal prints `On your phone: http://<LAN-IP>:5173`. The default `npm start` stays on this computer only.
+
 `npm run ship` is the one-container path. Docker must be running. It builds an image and serves the dashboard and the API at [http://127.0.0.1:8787](http://127.0.0.1:8787). A `.env` file is passed into the container when it exists, and it is not copied into the image. The mainnet plan, custody, the team allowance, compliance, and the business model are in [docs/PATH_TO_PRODUCTION.md](docs/PATH_TO_PRODUCTION.md). The five-minute judging script is [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 Would you give an AI your credit card?

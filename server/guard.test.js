@@ -86,6 +86,18 @@ test('state-changing posts need a localhost host and the dashboard origin', asyn
       body: '{}',
     });
     assert.equal(allowed.status, 404);
+
+    process.env.DASHBOARD_ORIGIN = 'http://192.168.1.42:5173';
+    const phone = await raw({
+      port,
+      method: 'POST',
+      path: '/api/decline/missing',
+      host: `127.0.0.1:${port}`,
+      origin: 'http://192.168.1.42:5173',
+      body: '{}',
+    });
+    assert.equal(phone.status, 404);
+    delete process.env.DASHBOARD_ORIGIN;
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));

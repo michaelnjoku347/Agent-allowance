@@ -41,8 +41,10 @@ export function dashboardOrigins(env = process.env) {
     const origin = `http://${host}:${port}`;
     if (!origins.includes(origin)) origins.push(origin);
   }
-  const extra = String(env.DASHBOARD_ORIGIN ?? '').trim();
-  if (extra && !origins.includes(extra)) origins.push(extra);
+  const extra = String(env.DASHBOARD_ORIGIN ?? '');
+  for (const origin of extra.split(',').map((item) => item.trim()).filter(Boolean)) {
+    if (!origins.includes(origin)) origins.push(origin);
+  }
   return origins;
 }
 

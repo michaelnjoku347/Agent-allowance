@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
 import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
@@ -25,11 +25,30 @@ import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
+import { NAV, approvalCount, mobileTabs, moreItems, navSections, parseRoute, routeHash } from './routes.js';
 
-const TABS = [
-  ['home', 'Home', IconHome],
-  ['activity', 'Activity', IconActivity],
-];
+const Desk = lazy(() => import('./views.jsx'));
+
+const ICONS = {
+  home: IconHome,
+  activity: IconActivity,
+  approvals: IconReceipt,
+  rules: IconLock,
+  merchants: IconCheck,
+  agents: IconAlert,
+  security: IconLock,
+  settings: IconSettings,
+  help: IconAlert,
+  more: IconSettings,
+};
+
+function readFlag(key) {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const EXPLORER = 'https://explorer.testnet.xrplevm.org';
 
@@ -199,7 +218,10 @@ function receiptHref(url) {
 
 export default function App() {
   const [theme, setTheme] = useTheme();
-  const [tab, setTab] = useState('home');
+  const [route, setRoute] = useState(() => (typeof window === 'undefined' ? 'home' : parseRoute(window.location.hash)));
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [onboarded, setOnboarded] = useState(() => readFlag('allowance-onboarded'));
   const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
@@ -242,6 +264,40 @@ export default function App() {
           ? current
           : { ...sampleSnapshot, offlinePreview: true }
       ));
+    }
+  }
+
+  useEffect(() => {
+    function onHash() {
+      setRoute(parseRoute(window.location.hash));
+      setMoreOpen(false);
+    }
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  function go(id) {
+    const next = routeHash(id);
+    const current = window.location.hash;
+    if (current === next || (id === 'home' && (current === '' || current === '#'))) setRoute('home');
+    else window.location.hash = next;
+    setMoreOpen(false);
+  }
+
+  function pushToast(text) {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((list) => [...list.slice(-2), { id, text }]);
+    window.setTimeout(() => {
+      setToasts((list) => list.filter((item) => item.id !== id));
+    }, 4200);
+  }
+
+  function dismissOnboarding() {
+    setOnboarded(true);
+    try {
+      localStorage.setItem('allowance-onboarded', '1');
+    } catch {
+      /* The card stays dismissed for this visit. */
     }
   }
 
@@ -349,6 +405,7 @@ export default function App() {
     setActionError('');
     try {
       await declinePurchase(id);
+      pushToast('Declined. Nothing was paid.');
       await load();
     } catch (error) {
       setActionError(error.message || 'That did not save.');
@@ -361,7 +418,9 @@ export default function App() {
     setRunNote('');
     try {
       const body = await runAgent('Buy the morning market brief');
-      setRunNote(body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.'));
+      const note = body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
+      setRunNote(note);
+      if (body.ok) pushToast('The agent started.');
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
     }
@@ -372,7 +431,9 @@ export default function App() {
     try {
       const nextFrozen = !snapshot?.frozen;
       await setAgentFrozen(nextFrozen);
-      setAnnounce(nextFrozen ? 'Agent frozen' : 'Agent can pay inside the allowance again.');
+      const line = nextFrozen ? 'Agent frozen. New signatures have stopped.' : 'Agent can pay inside the allowance again.';
+      setAnnounce(line);
+      pushToast(line);
       await load();
     } catch (error) {
       setRunNote(error.message || 'Could not change the freeze.');
@@ -432,7 +493,8 @@ export default function App() {
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   const loading = connection === 'loading' && !snapshot;
-  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
+  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : '', snapshot?.frozen ? 'is-frozen' : ''].filter(Boolean).join(' ');
+  const pendingCount = approvalCount(view.pending);
 
   return (
     <div className={appClass}>
@@ -440,23 +502,48 @@ export default function App() {
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
         <div className="sidenav-brand">
-          <BrandMark size={32} />
-          <h1>Agent Allowance</h1>
+          <BrandMark size={64} />
+          <div>
+            <p className="eyebrow">Allowance</p>
+            <h1>Agent Allowance</h1>
+          </div>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
-          {TABS.map(([id, label, Icon]) => (
-            <button
-              key={id}
-              type="button"
-              aria-current={tab === id ? 'page' : undefined}
-              onClick={() => setTab(id)}
-            >
-              <Icon />
-              <span>{label}</span>
-            </button>
+          {navSections().map((section) => (
+            <div key={section.label} className="sidenav-section">
+              <p className="sidenav-label">{section.label}</p>
+              {section.items.map((item) => {
+                const Icon = ICONS[item.id];
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={route === item.id ? 'page' : undefined}
+                    onClick={() => go(item.id)}
+                  >
+                    <Icon />
+                    <span>{item.label}</span>
+                    {item.id === 'approvals' && pendingCount > 0 ? (
+                      <span className="nav-count">{pendingCount}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
-        <p className="sidenav-foot">Spending account</p>
+        <div className="sidenav-links">
+          {NAV.filter((item) => item.id === 'settings' || item.id === 'help').map((item) => (
+            <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="sidenav-foot">
+          <p className="side-balance"><strong>{money(view.left)}</strong> RLUSD left</p>
+          <p className="meta">{snapshot?.frozen ? 'Agent frozen' : 'Inside the rules'}</p>
+          <p className="meta">{snapshot?.simulatedLedger ? 'Demo signer' : 'Ledger for exceptions'}</p>
+        </div>
       </aside>
 
       <div className="frame">
@@ -464,7 +551,7 @@ export default function App() {
           <header className="top">
             <div className="brand-lockup">
               <div className="brand">
-                <BrandMark size={40} />
+                <BrandMark size={48} />
                 <h1>Agent Allowance</h1>
               </div>
               <p className="hero-tagline">Spending power for AI, with a human key.</p>
@@ -481,7 +568,7 @@ export default function App() {
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
               <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
-              {tab === 'home' && snapshot && !presenting ? (
+              {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
                   onHeist={() => demoBridge.current.runHeist?.()}
@@ -502,13 +589,18 @@ export default function App() {
           </header>
           <main id="main" tabIndex={-1}>
             {loading ? <Skeletons /> : null}
-            {snapshot?.offlinePreview ? (
-              <div className="offline-banner" role="status">
-                <p>Sample preview. These rows are examples, not payments.</p>
-                <button type="button" className="btn" onClick={load}>Retry</button>
-              </div>
+            {view.demo ? (
+              <p className="demo-badge" role="status">
+                <span>Demo</span>
+                {snapshot?.offlinePreview
+                  ? 'Example rows, while the allowance is offline.'
+                  : 'Example rows, until the agent pays.'}
+                {snapshot?.offlinePreview ? (
+                  <button type="button" className="btn text" onClick={load}>Try again</button>
+                ) : null}
+              </p>
             ) : null}
-            {snapshot && tab === 'home' ? (
+            {snapshot && route === 'home' ? (
               <HeistDemo onDone={load} onResult={onHeist}>
                 {({ stage: heistStage, run: runHeist, busy: heistBusy }) => (
               <RogueDemo onBeat={onRogueBeat}>
@@ -524,7 +616,17 @@ export default function App() {
               />
               <div className="home-grid">
                 <div className="home-main">
-                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen</p> : null}
+                {!onboarded && !presenting ? (
+                  <section className="card setup-card" aria-labelledby="setup-title">
+                    <h2 id="setup-title">Set up this allowance</h2>
+                    <p>The budget, the cap, and the merchant list are already in place. Review them before the agent pays.</p>
+                    <div className="how-actions">
+                      <button type="button" className="btn primary" onClick={() => { dismissOnboarding(); go('rules'); }}>Review rules</button>
+                      <button type="button" className="btn" onClick={dismissOnboarding}>Not now</button>
+                    </div>
+                  </section>
+                ) : null}
+                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen. New signatures have stopped.</p> : null}
                 {connection === 'offline' && !snapshot.offlinePreview ? (
                   <div className="state-error" role="alert">
                     <p className="state-error-title">Could not refresh</p>
@@ -641,7 +743,42 @@ export default function App() {
               </HeistDemo>
             ) : null}
 
-            {snapshot && tab === 'activity' ? (
+            {snapshot && route === 'approvals' ? (
+              <section className="card needs-card" aria-labelledby="approvals-title">
+                <div className="section-head">
+                  <h2 id="approvals-title">Approvals</h2>
+                  <p>{pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`}</p>
+                </div>
+                {view.pending.length === 0 ? (
+                  <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
+                ) : (
+                  <ul className="needs">
+                    {view.pending.map((item) => (
+                      <li key={item.id} className={cannotApprove(item) ? 'need is-neutral' : 'need'}>
+                        <div className="need-top">
+                          <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
+                          <h3>{item.merchantLabel || 'Merchant'}</h3>
+                          <p className="amount">{money(item.amount)} RLUSD</p>
+                        </div>
+                        <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>
+                        {cannotApprove(item) ? (
+                          <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
+                        ) : (
+                          <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
+                            Approve with Ledger
+                          </button>
+                        )}
+                        <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
+                          Decline
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : null}
+
+            {snapshot && route === 'activity' ? (
               <section className="card" aria-labelledby="activity-title">
                 <h2 id="activity-title">Activity</h2>
                 <div className="filters" role="tablist" aria-label="Activity views">
@@ -679,24 +816,65 @@ export default function App() {
               </section>
             ) : null}
 
+            {snapshot && route !== 'home' && route !== 'activity' && route !== 'approvals' ? (
+              <Suspense fallback={<section className="card skeleton" aria-busy="true" aria-label="Loading this page" />}>
+                <Desk
+                  route={route}
+                  snapshot={snapshot}
+                  view={view}
+                  theme={theme}
+                  voiceOn={voiceOn}
+                  onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  onVoice={() => {
+                    const next = !voiceOn;
+                    setVoiceOn(next);
+                    writeVoiceEnabled(next);
+                  }}
+                  onAsk={(text) => setEveSeed({ text, id: Date.now() })}
+                  onSetup={() => setSetupOpen(true)}
+                  onFreeze={onFreeze}
+                  busy={controlBusy === 'freeze'}
+                  disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                />
+              </Suspense>
+            ) : null}
+
           </main>
         </div>
 
         <nav className="tabbar" aria-label="Mobile sections">
           <div className="tabbar-inner">
-            {TABS.map(([id, label, Icon]) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? 'page' : undefined}
-                onClick={() => setTab(id)}
-              >
-                <Icon />
-                <span>{label}</span>
+            {mobileTabs().map((item) => {
+              const Icon = ICONS[item.id];
+              const current = item.id === 'more' ? moreOpen || moreItems().some((entry) => entry.id === route) : route === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={current ? 'page' : undefined}
+                  aria-expanded={item.id === 'more' ? moreOpen : undefined}
+                  onClick={() => (item.id === 'more' ? setMoreOpen((open) => !open) : go(item.id))}
+                >
+                  <Icon />
+                  <span>{item.label}</span>
+                  {item.id === 'approvals' && pendingCount > 0 ? <span className="nav-count">{pendingCount}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+        {moreOpen ? (
+          <div className="more-sheet" role="dialog" aria-label="More">
+            {moreItems().map((item) => (
+              <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+                {item.label}
               </button>
             ))}
           </div>
-        </nav>
+        ) : null}
+        <div className="toasts" aria-live="polite">
+          {toasts.map((item) => <p key={item.id} className="toast" role="status">{item.text}</p>)}
+        </div>
       </div>
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
@@ -946,11 +1124,11 @@ function ReceiptCard({ item, explorer }) {
         </div>
         <div>
           <dt>AP4M channel</dt>
-          <dd>{item.sample ? 'Sample preview' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
+          <dd>{item.sample ? 'Example' : item.channelId ? <code>{item.channelId}</code> : 'Not recorded'}</dd>
         </div>
         <div>
           <dt>AP4M claim</dt>
-          <dd>{item.sample ? 'Sample preview' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
+          <dd>{item.sample ? 'Example' : item.claimId ? <code>{item.claimId}</code> : 'Not recorded'}</dd>
         </div>
       </dl>
       {kitReceipt ? (
@@ -1017,7 +1195,7 @@ function Detail({ item, currency }) {
   return (
     <div className="detail">
       <p className={`pill ${status.tone}`}>{status.label}</p>
-      {item.sample ? <p>Sample preview</p> : null}
+      {item.sample ? <p>Example row</p> : null}
       {item.sample || item.status !== 'paid' ? (
         <p className="figure">{money(item.amount)} <span className="unit">{currency}</span></p>
       ) : (

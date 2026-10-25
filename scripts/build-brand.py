@@ -1,106 +1,188 @@
 #!/usr/bin/env python3
 """One source for the Agent Allowance mark, icons, and lockups.
 
-The disk is a pine circle. Two straight radial cuts open a rim bite. A lime
-band follows that rim inside the disk, and a pine keyline of one thickness
-keeps every lime pixel off the cream, including the diagonal neighbors.
+Four concepts live in CONCEPTS. Ship one by changing CONCEPT. `python3
+scripts/build-brand.py` writes that concept's assets and docs/logo-concepts.png,
+which shows every concept at 16, 32, and 180 on cream and on pine, plus a lockup.
 """
 
 import math
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import cairosvg
 from fontTools.pens.basePen import BasePen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dashboard" / "public" / "brand"
+SHEET = ROOT / "docs" / "logo-concepts.png"
 FONT = Path(__file__).resolve().parent / "fonts" / "Outfit-wght.ttf"
+LABEL_FONT = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+LABEL_FONT_BOLD = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 
 PINE = "#1B4D3E"
 CREAM = "#F7F4EC"
 LIME = "#C6F36B"
 INK = "#1A1814"
 WHITE = "#FFFFFF"
+PAGE = "#ECE8DE"
 PINE_RGB = (27, 77, 62)
 LIME_RGB = (198, 243, 107)
 CREAM_RGB = (247, 244, 236)
+INK_RGB = (26, 24, 20)
 
-# ViewBox 32. The bite is on the upper right, not at 12 o'clock, and it stops
-# short of the hub so the mark is not a pie chart or a power icon.
-CX = CY = 16.0
-DISK_R = 14.2
-NOTCH_A0 = -42.0
-NOTCH_A1 = 84.0
-NOTCH_RI = 2.8
-GAP = 1.15  # uniform cream gap between the disk body and the keyline
-OUTER_PINE = 4.0  # 2.4 viewBox units thicker than the old 1.6, a full pine pixel at 16px
-INNER_PINE = 2.3
-SIDE_PINE = 3.4
+# Change this name to ship a different mark. The sheet always draws all four.
+CONCEPT = "gauge-key"
 
-KEY_RO = DISK_R - 0.15
-KEY_A0 = NOTCH_A0 + math.degrees(GAP / KEY_RO)
-KEY_A1 = NOTCH_A1 - math.degrees(GAP / KEY_RO)
-KEY_RI = NOTCH_RI + GAP
-LIME_RO = KEY_RO - OUTER_PINE
-LIME_RI = KEY_RI + INNER_PINE
-_MID = (LIME_RO + LIME_RI) / 2
-_DANG = math.degrees(SIDE_PINE / _MID)
-LIME_A0 = KEY_A0 + _DANG
-LIME_A1 = KEY_A1 - _DANG
+CONCEPTS = (
+    {
+        "id": "gauge-key",
+        "name": "Gauge key",
+        "line": "The bow is the allowance. Lime is what is left. The bit is the human key.",
+    },
+    {
+        "id": "card-latch",
+        "name": "Card latch",
+        "line": "A spending card. The lime bar is what is left. The teeth lock it.",
+    },
+    {
+        "id": "agent-seal",
+        "name": "Agent seal",
+        "line": "A rounded limit. The lime node is the agent. The slot takes a key.",
+    },
+    {
+        "id": "key-monogram",
+        "name": "Key monogram",
+        "line": "A for Allowance. The lime bar is what is left. The leg ends in a bit.",
+    },
+)
 
 
 def fmt(point):
     return f"{point[0]:.2f} {point[1]:.2f}"
 
 
-def pt(radius, deg):
+def pt(cx, cy, radius, deg):
     rad = math.radians(deg)
-    return (CX + radius * math.cos(rad), CY - radius * math.sin(rad))
+    return (cx + radius * math.cos(rad), cy - radius * math.sin(rad))
 
 
-def arc_sector(r_outer, r_inner, a0, a1):
-    """Annulus sector: two straight radials and two SVG A arcs."""
+def arc_sector(cx, cy, r_outer, r_inner, a0, a1):
+    """Annulus sector. Angles grow counterclockwise from the right, like a gauge."""
     large = 1 if abs(a1 - a0) > 180 else 0
     sweep = 0 if a1 > a0 else 1
     back = 1 - sweep
     return (
-        f"M {fmt(pt(r_outer, a0))} "
-        f"A {r_outer:.2f} {r_outer:.2f} 0 {large} {sweep} {fmt(pt(r_outer, a1))} "
-        f"L {fmt(pt(r_inner, a1))} "
-        f"A {r_inner:.2f} {r_inner:.2f} 0 {large} {back} {fmt(pt(r_inner, a0))} Z"
+        f"M {fmt(pt(cx, cy, r_outer, a0))} "
+        f"A {r_outer:.2f} {r_outer:.2f} 0 {large} {sweep} {fmt(pt(cx, cy, r_outer, a1))} "
+        f"L {fmt(pt(cx, cy, r_inner, a1))} "
+        f"A {r_inner:.2f} {r_inner:.2f} 0 {large} {back} {fmt(pt(cx, cy, r_inner, a0))} Z"
     )
 
 
-def disk_with_notch():
-    # Full circle, then an even-odd bite. The bite's outer edge is the rim.
-    circle = (
-        f"M {CX + DISK_R:.2f} {CY:.2f} "
-        f"A {DISK_R:.2f} {DISK_R:.2f} 0 1 1 {CX - DISK_R:.2f} {CY:.2f} "
-        f"A {DISK_R:.2f} {DISK_R:.2f} 0 1 1 {CX + DISK_R:.2f} {CY:.2f} Z"
-    )
-    notch = arc_sector(DISK_R + 0.4, NOTCH_RI, NOTCH_A0, NOTCH_A1)
-    return f'<path fill="{PINE}" fill-rule="evenodd" d="{circle} {notch}"/>'
+def circle(cx, cy, r, fill):
+    return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{fill}"/>'
 
 
-def artwork():
-    if not (LIME_RO > LIME_RI and LIME_A1 > LIME_A0 and KEY_RO > KEY_RI):
-        raise SystemExit(f"bad geometry lime {LIME_RI:.2f}-{LIME_RO:.2f} key {KEY_RI:.2f}-{KEY_RO:.2f}")
+def rect(x, y, w, h, fill, rx=0):
+    radius = f' rx="{rx:.2f}"' if rx else ""
     return (
-        disk_with_notch()
-        + f'<path fill="{PINE}" d="{arc_sector(KEY_RO, KEY_RI, KEY_A0, KEY_A1)}"/>'
-        + f'<path fill="{LIME}" d="{arc_sector(LIME_RO, LIME_RI, LIME_A0, LIME_A1)}"/>'
+        f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}"{radius} fill="{fill}"/>'
     )
 
 
-def svg_doc(body, label="Agent Allowance"):
+def rrect_path(x, y, w, h, r):
+    x2, y2 = x + w, y + h
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" '
+        f"M {x + r:.2f} {y:.2f} "
+        f"H {x2 - r:.2f} A {r:.2f} {r:.2f} 0 0 1 {x2:.2f} {y + r:.2f} "
+        f"V {y2 - r:.2f} A {r:.2f} {r:.2f} 0 0 1 {x2 - r:.2f} {y2:.2f} "
+        f"H {x + r:.2f} A {r:.2f} {r:.2f} 0 0 1 {x:.2f} {y2 - r:.2f} "
+        f"V {y + r:.2f} A {r:.2f} {r:.2f} 0 0 1 {x + r:.2f} {y:.2f} Z"
+    )
+
+
+def artwork_gauge_key():
+    """Key in profile. The bow is a solid gauge, not a ring and not a pie."""
+    cx, cy, radius = 10.7, 14.5, 9.15
+    shaft_top = cy - 2.85
+    shaft_h = 5.7
+    shaft_left = cx + 2.4
+    body = (
+        circle(cx, cy, radius, PINE)
+        + rect(shaft_left, shaft_top, 31.15 - shaft_left, shaft_h, PINE, 0.7)
+        + rect(21.15, shaft_top + shaft_h - 0.35, 3.7, 6.7, PINE, 0.55)
+        + rect(27.55, shaft_top + shaft_h - 0.35, 3.55, 4.35, PINE, 0.55)
+    )
+    # Lime sits inside the bow, clear of the shaft, with pine on every side.
+    lime = (
+        f'<path fill="{LIME}" d="{arc_sector(cx, cy, radius - 2.55, radius - 6.35, 108, 252)}"/>'
+    )
+    return body + lime
+
+
+def artwork_card_latch():
+    """Payment card whose right edge is a key bit. The lime bar is remaining spend."""
+    return (
+        rect(2.15, 5.2, 19.7, 21.5, PINE, 5.1)
+        + rect(5.45, 17.15, 13.1, 4.85, LIME, 1.45)
+        + rect(18.6, 11.55, 12.5, 5.55, PINE, 0.7)
+        + rect(23.55, 16.85, 3.65, 6.85, PINE, 0.55)
+        + rect(28.55, 16.85, 2.7, 4.45, PINE, 0.55)
+    )
+
+
+def artwork_agent_seal():
+    """The allowance is a rounded square. A lime node is the agent. A slot is the key."""
+    outer = rrect_path(3.05, 3.05, 25.9, 25.9, 7.4)
+    slot = "M 13.35 23.15 H 18.65 V 32.2 H 13.35 Z"
+    return (
+        f'<path fill="{PINE}" fill-rule="evenodd" d="{outer} {slot}"/>'
+        + circle(16, 13.15, 4.55, LIME)
+    )
+
+
+def artwork_key_monogram():
+    """A geometric A. The crossbar is lime. The right foot carries a key bit."""
+    outer = (
+        "M 13.6 2.7 L 24.7 28.8 L 19.15 28.8 L 17.35 23.85 "
+        "L 8.15 23.85 L 6.35 28.8 L 1.15 28.8 Z"
+    )
+    counter = "M 13.6 9.55 L 10.55 17.55 L 16.65 17.55 Z"
+    bar = rect(9.15, 18.35, 8.7, 3.55, LIME, 0.4)
+    bit = (
+        rect(20.35, 16.4, 10.3, 4.7, PINE, 0.55)
+        + rect(23.85, 20.85, 3.15, 5.55, PINE, 0.45)
+        + rect(28.15, 20.85, 2.55, 3.55, PINE, 0.45)
+    )
+    return (
+        f'<path fill="{PINE}" fill-rule="evenodd" d="{outer} {counter}"/>'
+        + bar
+        + bit
+    )
+
+
+DRAW = {
+    "gauge-key": artwork_gauge_key,
+    "card-latch": artwork_card_latch,
+    "agent-seal": artwork_agent_seal,
+    "key-monogram": artwork_key_monogram,
+}
+
+
+def svg_doc(body, label="Agent Allowance", size=32):
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" role="img" '
         f'aria-label="{label}">\n  {body}\n</svg>\n'
     )
+
+
+def plate(art, rx=7):
+    return f'<rect width="32" height="32" rx="{rx}" fill="{CREAM}"/>{art}'
 
 
 def inset_art(art, scale):
@@ -109,8 +191,30 @@ def inset_art(art, scale):
     )
 
 
-def write_png(svg_name, dest, size):
-    cairosvg.svg2png(url=str(OUT / svg_name), write_to=str(dest), output_width=size, output_height=size)
+def render_svg(text, width, height=None):
+    png = cairosvg.svg2png(
+        bytestring=text.encode(),
+        output_width=width,
+        output_height=height or width,
+    )
+    return Image.open(BytesIO(png)).convert("RGBA")
+
+
+def composite(image, rgb):
+    base = Image.new("RGBA", image.size, rgb + (255,))
+    base.alpha_composite(image)
+    return base.convert("RGB")
+
+
+def content_scale(art):
+    image = render_svg(svg_doc(art), 320)
+    box = image.getbbox()
+    if not box:
+        return 1
+    longest = max(box[2] - box[0], box[3] - box[1]) / 320 * 32
+    if longest <= 0:
+        return 1
+    return (0.80 * 32) / longest
 
 
 def kind(pixel):
@@ -146,100 +250,6 @@ def contacts(image):
                     if kind(pix[xx, yy]) == "cream":
                         hits.append((x, y, (xx, yy)))
     return hits
-
-
-def chebyshev(image):
-    width, height = image.size
-    pix = image.load()
-    lime = [(x, y) for y in range(height) for x in range(width) if kind(pix[x, y]) == "lime"]
-    cream = [(x, y) for y in range(height) for x in range(width) if kind(pix[x, y]) == "cream"]
-    if not lime or not cream:
-        return None
-    best = 99
-    for x, y in lime:
-        for cx, cy in cream:
-            best = min(best, max(abs(x - cx), abs(y - cy)))
-            if best <= 1:
-                return best
-    return best
-
-
-def crisp(size):
-    """Nearest-neighbor sample of the same geometry, no antialiasing."""
-    image = Image.new("RGB", (size, size), CREAM_RGB)
-    pix = image.load()
-
-    def ang(x, y):
-        return math.degrees(math.atan2(-(y - CY), x - CX))
-
-    def radius(x, y):
-        return math.hypot(x - CX, y - CY)
-
-    def in_sector(a, r, a0, a1, ri, ro):
-        span = (a - a0) % 360
-        width = (a1 - a0) % 360
-        return span <= width + 1e-9 and ri - 1e-9 <= r <= ro + 1e-9
-
-    for y in range(size):
-        for x in range(size):
-            vx = (x + 0.5) * 32 / size
-            vy = (y + 0.5) * 32 / size
-            r = radius(vx, vy)
-            a = ang(vx, vy)
-            color = CREAM_RGB
-            if r <= DISK_R and not in_sector(a, r, NOTCH_A0, NOTCH_A1, NOTCH_RI, DISK_R + 0.6):
-                color = PINE_RGB
-            if in_sector(a, r, KEY_A0, KEY_A1, KEY_RI, KEY_RO):
-                color = PINE_RGB
-            if in_sector(a, r, LIME_A0, LIME_A1, LIME_RI, LIME_RO):
-                color = LIME_RGB
-            pix[x, y] = color
-    return image
-
-
-def measure():
-    print(
-        f"geometry disk {DISK_R:.2f} lime {LIME_RI:.2f}-{LIME_RO:.2f} "
-        f"key {KEY_RI:.2f}-{KEY_RO:.2f} angles {LIME_A0:.1f}..{LIME_A1:.1f}"
-    )
-    print(f"outer pine {OUTER_PINE:.2f} viewBox units, {OUTER_PINE * 16 / 32:.2f} px at 16")
-    failed = False
-    for label, image in (
-        ("crisp-16", crisp(16)),
-        ("crisp-32", crisp(32)),
-    ):
-        gap = chebyshev(image)
-        hits = contacts(image)
-        lime = sum(kind(px) == "lime" for px in image.getdata())
-        print(f"  {label}: lime {lime} chebyshev {gap} contacts {len(hits)} {hits[:6]}")
-        if label == "crisp-16":
-            chars = {"lime": "L", "pine": "P", "cream": ".", "other": "?"}
-            pix = image.load()
-            for y in range(image.size[1]):
-                print("".join(chars[kind(pix[x, y])] for x in range(image.size[0])))
-        if hits or (gap is not None and gap < 2):
-            failed = True
-    fav = Image.open(OUT / "favicon-32.png").convert("RGBA").resize((16, 16), Image.Resampling.BOX)
-    # Also the real 16px render.
-    write_png("favicon.svg", "/tmp/mark-16.png", 16)
-    rendered = Image.open("/tmp/mark-16.png").convert("RGBA")
-    for label, image in (("favicon-16", rendered), ("favicon-32-box", fav)):
-        gap = chebyshev(image)
-        hits = contacts(image)
-        lime = sum(kind(px) == "lime" for px in image.getdata())
-        print(f"  {label}: lime {lime} chebyshev {gap} contacts {len(hits)}")
-        if hits or (gap is not None and gap < 2):
-            failed = True
-            rendered.save("/tmp/mark-16-fail.png")
-    # App icon disk is about 80% of the tile.
-    icon = Image.open(OUT / "app-icon-512.png").convert("RGB")
-    pix = icon.load()
-    xs = [x for y in range(icon.size[1]) for x in range(icon.size[0]) if kind(pix[x, y]) == "pine" or kind(pix[x, y]) == "lime"]
-    ys = [y for y in range(icon.size[1]) for x in range(icon.size[0]) if kind(pix[x, y]) == "pine" or kind(pix[x, y]) == "lime"]
-    if xs:
-        diameter = max(max(xs) - min(xs), max(ys) - min(ys)) + 1
-        print(f"  app icon disk / tile {diameter / icon.size[0]:.3f}")
-    return 1 if failed else 0
 
 
 class SvgPen(BasePen):
@@ -321,10 +331,13 @@ def text_svg(text, em, fill):
     return "\n    ".join(groups), width * scale, advances
 
 
-def lockup(horizontal, dark):
+def lockup_doc(art, horizontal, dark):
     text_fill = CREAM if dark else INK
-    mark_name = "mark-dark.svg" if dark else "mark.svg"
-    mark_body = (OUT / mark_name).read_text().split(">", 1)[1].rsplit("</svg>", 1)[0].strip()
+    mark_body = plate(art) if not dark else plate(art, 8)
+    # Dark lockup sits on a transparent page. The plate is the cream tile.
+    # A dark page needs the tile; the wordmark is cream.
+    if dark:
+        mark_body = plate(art, 8)
     label = "Agent Allowance"
     if horizontal:
         pad, mark, gap, em = 8, 48, 14, 22
@@ -355,32 +368,28 @@ def lockup(horizontal, dark):
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.2f} {height:.2f}" '
         f'role="img" aria-label="Agent Allowance">\n  {body}\n</svg>\n'
     )
-    return doc, advances
+    return doc, advances, width, height
 
 
-def main():
+def write_assets(art):
     OUT.mkdir(parents=True, exist_ok=True)
-    art = artwork()
-    # App icons: the disk diameter is 80% of the tile.
-    icon_scale = (0.80 * 32) / (2 * DISK_R)
+    icon_scale = content_scale(art)
     files = {
-        "mark.svg": svg_doc(f'<rect width="32" height="32" rx="7" fill="{CREAM}"/>{art}'),
+        "mark.svg": svg_doc(plate(art)),
         "mark-light.svg": svg_doc(art),
-        "mark-dark.svg": svg_doc(f'<circle cx="16" cy="16" r="15.4" fill="{CREAM}"/>{art}'),
+        "mark-dark.svg": svg_doc(plate(art, 8)),
         "favicon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{art}'),
         "app-icon.svg": svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{inset_art(art, icon_scale)}'),
         "app-icon-light.svg": svg_doc(f'<rect width="32" height="32" fill="{WHITE}"/>{inset_art(art, icon_scale)}'),
     }
     for name, text in files.items():
         (OUT / name).write_text(text)
-    write_png("favicon.svg", OUT / "favicon-32.png", 32)
-    write_png("app-icon.svg", OUT / "apple-touch-icon.png", 180)
-    write_png("app-icon.svg", OUT / "app-icon-512.png", 512)
-    write_png("app-icon-light.svg", OUT / "app-icon-light-512.png", 512)
-    code = measure()
+    cairosvg.svg2png(url=str(OUT / "favicon.svg"), write_to=str(OUT / "favicon-32.png"), output_width=32, output_height=32)
+    cairosvg.svg2png(url=str(OUT / "app-icon.svg"), write_to=str(OUT / "apple-touch-icon.png"), output_width=180, output_height=180)
+    cairosvg.svg2png(url=str(OUT / "app-icon.svg"), write_to=str(OUT / "app-icon-512.png"), output_width=512, output_height=512)
+    cairosvg.svg2png(url=str(OUT / "app-icon-light.svg"), write_to=str(OUT / "app-icon-light-512.png"), output_width=512, output_height=512)
     if not FONT.exists():
         print("Outfit variable font is required for lockups:", FONT, file=sys.stderr)
-        print("Vendor it at scripts/fonts/Outfit-wght.ttf (SIL OFL 1.1, see scripts/fonts/OFL.txt).", file=sys.stderr)
         return 1
     for horizontal, dark, name in (
         (True, False, "lockup-horizontal.svg"),
@@ -388,7 +397,7 @@ def main():
         (False, False, "lockup-stacked.svg"),
         (False, True, "lockup-stacked-dark.svg"),
     ):
-        doc, advances = lockup(horizontal, dark)
+        doc, advances, _w, _h = lockup_doc(art, horizontal, dark)
         (OUT / name).write_text(doc)
         print(name, [(ch, extra) for ch, extra, _width in advances])
     horiz = (OUT / "lockup-horizontal.svg").read_text()
@@ -401,9 +410,137 @@ def main():
         f"  {inner.strip()}\n</svg>\n"
     )
     (OUT / "lockup-readme.svg").write_text(readme)
+    return measure(art)
+
+
+def measure(art):
+    failed = False
+    favicon = svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{art}')
+    for label, size in (("favicon-16", 16), ("favicon-32", 32)):
+        image = render_svg(favicon, size)
+        hits = contacts(image)
+        lime = sum(kind(px) == "lime" for px in image.getdata())
+        print(f"  {label}: lime {lime} contacts {len(hits)} {hits[:4]}")
+        if label == "favicon-16":
+            chars = {"lime": "L", "pine": "P", "cream": ".", "other": "?"}
+            pix = image.load()
+            for y in range(image.size[1]):
+                print("".join(chars[kind(pix[x, y])] for x in range(image.size[0])))
+        if hits:
+            failed = True
+    icon = render_svg(
+        svg_doc(f'<rect width="32" height="32" fill="{CREAM}"/>{inset_art(art, content_scale(art))}'),
+        512,
+    ).convert("RGB")
+    pix = icon.load()
+    xs = [x for y in range(icon.size[1]) for x in range(icon.size[0]) if kind(pix[x, y]) in ("pine", "lime")]
+    ys = [y for y in range(icon.size[1]) for x in range(icon.size[0]) if kind(pix[x, y]) in ("pine", "lime")]
+    if xs:
+        diameter = max(max(xs) - min(xs), max(ys) - min(ys)) + 1
+        print(f"  app icon art / tile {diameter / icon.size[0]:.3f}")
+    return 1 if failed else 0
+
+
+def cell(art, size, ground):
+    if ground == "pine":
+        image = composite(render_svg(svg_doc(plate(art, 8)), size), PINE_RGB)
+    else:
+        image = composite(render_svg(svg_doc(art), size), CREAM_RGB)
+    return image
+
+
+def zoom(image, factor):
+    return image.resize((image.width * factor, image.height * factor), Image.Resampling.NEAREST)
+
+
+def draw_sheet():
+    """One board the owner can scan. 16 and 32 are nearest-neighbor enlargements of the real pixels."""
+    columns = [
+        ("16px ×4", "cream", 16, 4),
+        ("16px ×4", "pine", 16, 4),
+        ("32px ×2", "cream", 32, 2),
+        ("32px ×2", "pine", 32, 2),
+        ("180px", "cream", 180, 1),
+        ("180px", "pine", 180, 1),
+        ("Lockup", "lockup", 0, 1),
+    ]
+    pad = 28
+    gap = 18
+    label_h = 36
+    caption_h = 22
+    row_art = 180
+    text_w = 280
+    col_w = []
+    for _title, kind_name, size, factor in columns:
+        if kind_name == "lockup":
+            col_w.append(460)
+        else:
+            col_w.append(max(size * factor, 88))
+    width = pad * 2 + text_w + gap + sum(col_w) + gap * (len(col_w) - 1)
+    row_h = label_h + row_art + caption_h
+    height = pad + 78 + (row_h + 22) * len(CONCEPTS) + pad
+    sheet = Image.new("RGB", (width, height), (236, 232, 222))
+    draw = ImageDraw.Draw(sheet)
+    title_font = ImageFont.truetype(str(LABEL_FONT_BOLD), 32)
+    name_font = ImageFont.truetype(str(LABEL_FONT_BOLD), 22)
+    body_font = ImageFont.truetype(str(LABEL_FONT), 15)
+    cap_font = ImageFont.truetype(str(LABEL_FONT), 13)
+    draw.text((pad, pad), "Agent Allowance — logo concepts", font=title_font, fill=INK_RGB)
+    draw.text(
+        (pad, pad + 42),
+        "16 and 32 are the real pixels, enlarged without smoothing. Pine cells use the cream plate the dark UI uses.",
+        font=body_font,
+        fill=(90, 83, 74),
+    )
+    y = pad + 78
+    for concept in CONCEPTS:
+        art = DRAW[concept["id"]]()
+        card = Image.new("RGB", (width - pad * 2, row_h), (255, 255, 255))
+        sheet.paste(card, (pad, y))
+        draw.text((pad + 16, y + 16), concept["name"], font=name_font, fill=INK_RGB)
+        draw.text((pad + 16, y + 46), concept["line"], font=body_font, fill=(90, 83, 74))
+        if concept["id"] == CONCEPT:
+            draw.text((pad + 16, y + 72), "Wired into the app. Swap CONCEPT in scripts/build-brand.py.", font=cap_font, fill=PINE_RGB)
+        x = pad + text_w
+        for title, kind_name, size, factor in columns:
+            if kind_name == "lockup":
+                doc, _adv, lw, lh = lockup_doc(art, True, False)
+                image = composite(render_svg(doc, 440, max(1, round(440 * lh / lw))), CREAM_RGB)
+                fitted = image.copy()
+                fitted.thumbnail((col_w[-1] - 8, row_art - 8), Image.Resampling.LANCZOS)
+            else:
+                image = cell(art, size, kind_name)
+                fitted = zoom(image, factor) if factor != 1 else image
+            ox = x + (col_w[columns.index((title, kind_name, size, factor))] - fitted.width) // 2
+            oy = y + label_h + (row_art - fitted.height) // 2
+            sheet.paste(fitted, (ox, oy))
+            caption = f"{title} · {kind_name}" if kind_name != "lockup" else "Lockup"
+            draw.text((x, y + label_h + row_art), caption, font=cap_font, fill=(90, 83, 74))
+            x += col_w[columns.index((title, kind_name, size, factor))] + gap
+        y += row_h + 22
+    SHEET.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(SHEET, "PNG")
+    print(f"wrote {SHEET} {sheet.size}")
+
+
+def main():
+    if CONCEPT not in DRAW:
+        print(f"Unknown CONCEPT {CONCEPT}", file=sys.stderr)
+        return 1
+    draw_sheet()
+    art = DRAW[CONCEPT]()
+    code = write_assets(art)
     for name in ("app-icon-512.png", "app-icon-light-512.png", "apple-touch-icon.png", "favicon-32.png"):
         image = Image.open(OUT / name)
         print(name, image.mode, image.size, image.getpixel((0, 0)))
+    # Large studies for the sizes a favicon, a tab, and an app icon actually are.
+    study = ROOT / "docs" / "logo-study"
+    study.mkdir(parents=True, exist_ok=True)
+    for concept in CONCEPTS:
+        piece = DRAW[concept["id"]]()
+        for size in (16, 32, 180, 512):
+            composite(render_svg(svg_doc(piece), size), CREAM_RGB).save(study / f"{concept['id']}-cream-{size}.png")
+            composite(render_svg(svg_doc(plate(piece, 8)), size), PINE_RGB).save(study / f"{concept['id']}-pine-{size}.png")
     return code
 
 
