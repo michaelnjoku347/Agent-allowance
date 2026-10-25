@@ -185,6 +185,15 @@ export function IconLock({ size = 16 }) {
   );
 }
 
+export function IconUnlock({ size = 16 }) {
+  return (
+    <Stroke size={size}>
+      <rect {...pen} x="6" y="11" width="12" height="8" rx="1.5" />
+      <path {...pen} d="M8.5 11V8.5a3.5 3.5 0 0 1 6.6-1.6" />
+    </Stroke>
+  );
+}
+
 export function IconAlert({ size = 18 }) {
   return (
     <Stroke size={size}>

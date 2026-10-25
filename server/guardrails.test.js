@@ -185,7 +185,7 @@ describe('API guardrails', { concurrency: false }, () => {
       assert.equal(body.api, 'up');
       assert.equal(body.rules, 'ok');
       assert.equal(body.merchant, 'down');
-      assert.match(body.message, /merchant is not answering/);
+      assert.match(body.message, process.env.RESOURCE_URL ? /merchant is not answering/ : /No merchant is configured/);
     });
   });
 

@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { declinePurchase, fetchHealth, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { backoffDelay, describeConnection, failureKind } from './connection.js';
+import { freezeControl, freezeNotice, freezeResult } from './freeze.js';
 import BedrockMark from './BedrockMark.jsx';
 import BrandMark from './BrandMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
@@ -19,6 +21,7 @@ import {
   IconCheck,
   IconHome,
   IconLock,
+  IconUnlock,
   IconReceipt,
   IconBadgeCheck,
   IconBot,
@@ -236,6 +239,11 @@ export default function App() {
   const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
+  const [link, setLink] = useState({ kind: '', lastOkAt: 0, retryAt: 0 });
+  const [health, setHealth] = useState(null);
+  const [, setClockTick] = useState(0);
+  const failures = useRef(0);
+  const reconnect = useRef(null);
   const [filter, setFilter] = useState('all');
   const [setupOpen, setSetupOpen] = useState(false);
   const [detail, setDetail] = useState(null);
@@ -246,6 +254,8 @@ export default function App() {
   const [overCap, setOverCap] = useState(null);
   const [overCapBusy, setOverCapBusy] = useState(false);
   const [controlBusy, setControlBusy] = useState('');
+  const [freezePhase, setFreezePhase] = useState('');
+  const [freezeError, setFreezeError] = useState('');
   const [announce, setAnnounce] = useState('');
   const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
   const [presenting, setPresenting] = useState(false);
@@ -266,16 +276,37 @@ export default function App() {
   async function load() {
     try {
       const next = await fetchSnapshot();
+      const recovered = failures.current > 0;
+      failures.current = 0;
       setSnapshot(next);
       setConnection('online');
-    } catch {
+      setLink({ kind: '', lastOkAt: Date.now(), retryAt: 0 });
+      if (recovered) {
+        fetchHealth().then(setHealth);
+        reconnect.current?.();
+      }
+      return true;
+    } catch (error) {
+      failures.current += 1;
       setConnection('offline');
+      setLink((current) => ({
+        ...current,
+        kind: failureKind(error),
+        retryAt: Date.now() + backoffDelay(failures.current - 1, { base: 3000, max: 30_000 }),
+      }));
       setSnapshot((current) => (
         current && !current.offlinePreview
           ? current
           : { ...sampleSnapshot, offlinePreview: true }
       ));
+      return false;
     }
+  }
+
+  function retryNow() {
+    reconnect.current?.();
+    fetchHealth().then(setHealth);
+    return load();
   }
 
   useEffect(() => {
@@ -314,12 +345,33 @@ export default function App() {
 
   useEffect(() => {
     let stop = false;
-    // The event stream drives updates while it is open. The 3s poll is the fallback.
-    const tick = () => {
-      if (!stop && !streamOpen.current) load();
+    let timer = 0;
+    // The event stream drives updates while it is open. Polling is the fallback:
+    // every 3s while the API answers, backing off to 30s while it does not.
+    const schedule = (ok) => {
+      if (stop) return;
+      const wait = ok ? 3000 : backoffDelay(failures.current - 1, { base: 3000, max: 30_000 });
+      timer = window.setTimeout(tick, wait);
     };
-    load();
-    const timer = window.setInterval(tick, 3000);
+    const tick = async () => {
+      if (stop) return;
+      if (streamOpen.current && failures.current === 0) return schedule(true);
+      schedule(await load());
+    };
+    load().then(schedule);
+    fetchHealth().then((body) => { if (!stop) setHealth(body); });
+    const healthTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') fetchHealth().then((body) => { if (!stop) setHealth(body); });
+    }, 30_000);
+    const onOnline = () => {
+      reconnect.current?.();
+      load();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && failures.current > 0) onOnline();
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
     const close = subscribeEvents({
       onOpen: () => {
         streamOpen.current = true;
@@ -334,12 +386,23 @@ export default function App() {
         if (!stop) dispatchPath({ type: 'stage', stage });
       },
     });
+    reconnect.current = close.reconnect;
     return () => {
       stop = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      window.clearInterval(healthTimer);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
       close();
     };
   }, []);
+
+  // While offline, re-render once a second so "Trying again in 8 seconds" counts down.
+  useEffect(() => {
+    if (connection !== 'offline') return undefined;
+    const ticker = window.setInterval(() => setClockTick((value) => value + 1), 1000);
+    return () => window.clearInterval(ticker);
+  }, [connection]);
 
   const view = useMemo(() => allowanceView(snapshot), [snapshot]);
 
@@ -453,18 +516,40 @@ export default function App() {
     }
   }
 
-  async function onFreeze() {
+  async function onFreeze(target) {
+    if (freezePhase || !snapshot || snapshot.offlinePreview) return;
+    const nextFrozen = typeof target === 'boolean' ? target : !snapshot.frozen;
+    const before = { frozen: snapshot.frozen, frozenAt: snapshot.frozenAt, channelClosed: snapshot.channelClosed, freezeDetail: snapshot.freezeDetail };
+    setFreezeError('');
+    setFreezePhase(nextFrozen ? 'freezing' : 'unfreezing');
     setControlBusy('freeze');
+    // Show the new state at once. The server answer, or a revert, follows.
+    setSnapshot((current) => (current ? {
+      ...current,
+      frozen: nextFrozen,
+      frozenAt: nextFrozen ? new Date().toISOString() : null,
+      ...(nextFrozen ? {} : { channelClosed: false, freezeDetail: null }),
+    } : current));
     try {
-      const nextFrozen = !snapshot?.frozen;
-      await setAgentFrozen(nextFrozen);
-      const line = nextFrozen ? 'Agent frozen. New signatures have stopped.' : 'Agent can pay inside the allowance again.';
+      const body = await setAgentFrozen(nextFrozen);
+      setSnapshot((current) => (current ? {
+        ...current,
+        frozen: Boolean(body.frozen ?? nextFrozen),
+        frozenAt: body.frozenAt ?? current.frozenAt,
+        channelClosed: Boolean(body.channelClosed),
+        freezeDetail: body.channelReason ?? null,
+      } : current));
+      const line = freezeResult(nextFrozen, body);
       setAnnounce(line);
       pushToast(line);
-      await load();
+      load();
     } catch (error) {
-      setRunNote(error.message || 'Could not change the freeze.');
+      // A freeze that timed out may still have stopped signing. Ask the server what is true.
+      setSnapshot((current) => (current ? { ...current, ...before } : current));
+      setFreezeError(error.message || (nextFrozen ? 'Could not freeze the agent.' : 'Could not unfreeze the agent.'));
+      load();
     } finally {
+      setFreezePhase('');
       setControlBusy('');
     }
   }
@@ -520,8 +605,20 @@ export default function App() {
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   const loading = connection === 'loading' && !snapshot;
+  const banner = describeConnection({
+    connection,
+    preview: Boolean(snapshot?.offlinePreview),
+    kind: link.kind,
+    lastOkAt: link.lastOkAt,
+    retryInMs: link.retryAt ? Math.max(0, link.retryAt - Date.now()) : 0,
+    health,
+    now: Date.now(),
+  });
   const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : '', snapshot?.frozen ? 'is-frozen' : ''].filter(Boolean).join(' ');
   const pendingCount = approvalCount(view.pending);
+  const freeze = freezeControl({ frozen: Boolean(snapshot?.frozen), phase: freezePhase });
+  const frozenNotice = freezeNotice(snapshot, { phase: freezePhase, error: freezeError });
+  const freezeDisabled = !snapshot || Boolean(freezePhase) || Boolean(snapshot?.offlinePreview);
   const routeItem = NAV.find((item) => item.id === route);
   const pageLede = route === 'approvals'
     ? (pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`)
@@ -608,14 +705,15 @@ export default function App() {
             <div className="top-tools">
               <button
                 type="button"
-                className={snapshot?.frozen ? 'chip is-on freeze-toggle' : 'chip freeze-toggle'}
-                aria-pressed={Boolean(snapshot?.frozen)}
-                onClick={onFreeze}
-                disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                className={snapshot?.frozen ? 'chip freeze-toggle is-unfreeze' : 'chip freeze-toggle'}
+                onClick={() => onFreeze(freeze.next)}
+                disabled={freezeDisabled}
+                aria-busy={freeze.busy}
+                aria-label={snapshot?.frozen ? 'Unfreeze the agent' : 'Freeze the agent'}
                 title={snapshot?.offlinePreview ? 'Freeze works when the allowance is online.' : undefined}
               >
-                <IconLock />
-                <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
+                {snapshot?.frozen ? <IconUnlock /> : <IconLock />}
+                <span>{freeze.label}</span>
               </button>
               <button type="button" className="chip setup-chip" onClick={() => setSetupOpen(true)}>{setupLabel}</button>
               {route === 'home' && snapshot && !presenting ? (
@@ -641,8 +739,8 @@ export default function App() {
                   theme={theme}
                   setTheme={setTheme}
                   frozen={Boolean(snapshot?.frozen)}
-                  freezeDisabled={!snapshot || controlBusy === 'freeze' || Boolean(snapshot?.offlinePreview)}
-                  onFreeze={onFreeze}
+                  freezeDisabled={freezeDisabled}
+                  onFreeze={() => onFreeze(freeze.next)}
                   setupLabel={setupLabel}
                   onSetup={() => setSetupOpen(true)}
                   demo={route === 'home' && snapshot ? {
@@ -668,6 +766,10 @@ export default function App() {
                 {pageLede ? <p>{pageLede}</p> : null}
               </div>
             )}
+            {banner ? <ConnectionBanner banner={banner} onRetry={retryNow} /> : null}
+            {frozenNotice ? (
+              <FreezeBanner notice={frozenNotice} onUnfreeze={() => onFreeze(false)} disabled={freezeDisabled} />
+            ) : null}
             {view.demo ? (
               <div className="demo-badge" role="status">
                 <span className="demo-tag">Demo</span>
@@ -676,9 +778,6 @@ export default function App() {
                     ? 'Offline. Example rows.'
                     : 'Example rows until the agent pays.'}
                 </span>
-                {snapshot?.offlinePreview ? (
-                  <button type="button" className="retry-pill" onClick={load}>Try again</button>
-                ) : null}
               </div>
             ) : null}
             {snapshot && route === 'home' ? (
@@ -706,14 +805,6 @@ export default function App() {
                       <button type="button" className="btn" onClick={dismissOnboarding}>Not now</button>
                     </div>
                   </section>
-                ) : null}
-                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen. New signatures have stopped.</p> : null}
-                {connection === 'offline' && !snapshot.offlinePreview ? (
-                  <div className="state-error" role="alert">
-                    <p className="state-error-title">Could not refresh</p>
-                    <p>Showing the last numbers.</p>
-                    <button type="button" className="btn" onClick={load}>Retry</button>
-                  </div>
                 ) : null}
                 <section className="card hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
@@ -913,9 +1004,9 @@ export default function App() {
                   }}
                   onAsk={(text) => setEveSeed({ text, id: Date.now() })}
                   onSetup={() => setSetupOpen(true)}
-                  onFreeze={onFreeze}
-                  busy={controlBusy === 'freeze'}
-                  disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                  onFreeze={() => onFreeze(freeze.next)}
+                  busy={Boolean(freezePhase)}
+                  disabled={freezeDisabled}
                 />
               </Suspense>
             ) : null}
@@ -994,6 +1085,51 @@ export default function App() {
             {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
           </details>
         </Sheet>
+      ) : null}
+    </div>
+  );
+}
+
+function FreezeBanner({ notice, onUnfreeze, disabled }) {
+  return (
+    <section className={`freeze-notice is-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
+      <span className="freeze-icon" aria-hidden="true">{notice.action ? <IconLock size={22} /> : <IconAlert size={22} />}</span>
+      <div className="freeze-copy">
+        <p className="freeze-title">{notice.title}</p>
+        <p>{notice.body}</p>
+        {notice.error ? <p className="freeze-error" role="alert">{notice.error}</p> : null}
+      </div>
+      {notice.action ? (
+        <button type="button" className="btn primary freeze-action" onClick={onUnfreeze} disabled={disabled}>
+          <IconUnlock size={18} />
+          <span>{notice.action}</span>
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ConnectionBanner({ banner, onRetry }) {
+  const [busy, setBusy] = useState(false);
+  async function retry() {
+    setBusy(true);
+    try {
+      await onRetry();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className={`conn-banner is-${banner.tone}`} role={banner.tone === 'danger' ? 'alert' : 'status'}>
+      <span className="conn-dot" aria-hidden="true" />
+      <div className="conn-copy">
+        <p className="conn-title">{banner.title}</p>
+        <p>{banner.body}</p>
+      </div>
+      {banner.action ? (
+        <button type="button" className="btn conn-action" onClick={retry} disabled={busy} aria-busy={busy}>
+          {busy ? 'Checking…' : banner.action}
+        </button>
       ) : null}
     </div>
   );

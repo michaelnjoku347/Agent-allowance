@@ -156,9 +156,11 @@ export function createApp(options = {}) {
       agentReady: Boolean(process.env.AGENT_PRIVATE_KEY?.trim() && process.env.TEAM_NAME?.trim() && merchantConfigured),
       message: rules !== 'ok'
         ? 'The allowance rules could not be read. Payments are refused until agent/rules.json is fixed.'
-        : merchant === 'down'
+        : merchant === 'down' && merchantConfigured
           ? 'The merchant is not answering. The agent cannot buy until it is running (npm run merchant).'
-          : 'Everything is answering.',
+          : merchantConfigured
+            ? 'Everything is answering.'
+            : 'The allowance is up. No merchant is configured yet, so the dashboard shows example rows.',
     });
   });
 
