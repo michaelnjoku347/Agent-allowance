@@ -67,6 +67,26 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
   const [status, setStatus] = useState({ listening: false, speaking: false });
   const [announcement, setAnnouncement] = useState('');
   modeRef.current = mode;
+  const [tucked, setTucked] = useState(false);
+
+  // On a phone the Eve bubble slides aside while the page scrolls, and comes back when it settles.
+  useEffect(() => {
+    if (mode !== 'min' || typeof window.matchMedia !== 'function') return undefined;
+    const phone = window.matchMedia('(max-width: 720px)');
+    let timer = 0;
+    function onScroll() {
+      if (!phone.matches) return;
+      setTucked(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setTucked(false), 700);
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.clearTimeout(timer);
+      setTucked(false);
+    };
+  }, [mode]);
 
   useEffect(() => {
     try {
@@ -187,7 +207,7 @@ export function EveDock({ seed, onSeedHandled, presenting = false }) {
         : 'Expand Eve';
 
   return (
-    <div className={`eve-dock is-${mode}`}>
+    <div className={`eve-dock is-${mode}${tucked ? ' is-tucked' : ''}`}>
       <section
         className={`eve-window is-${mode}`}
         id={panelId}

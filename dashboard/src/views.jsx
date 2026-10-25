@@ -47,11 +47,7 @@ export function RulesView({ snapshot, view, onAsk, onSetup }) {
     ['Expires', when(rules.expiresAt)],
   ];
   return (
-    <section className="card" aria-labelledby="rules-title">
-      <div className="section-head">
-        <h2 id="rules-title">Rules</h2>
-        <p>The agent pays on its own only inside these limits. A raise needs the Ledger.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       <dl className="stat-list">
         {rows.map(([label, value]) => (
           <div key={label}>
@@ -79,11 +75,7 @@ function merchantRows(allowed) {
 export function MerchantsView({ snapshot }) {
   const allowed = merchantRows(snapshot?.rules?.allowedMerchants);
   return (
-    <section className="card" aria-labelledby="merchants-title">
-      <div className="section-head">
-        <h2 id="merchants-title">Merchants</h2>
-        <p>The agent can pay only the merchants on this list.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       {allowed.length === 0 ? (
         <Empty title="No merchants yet" body="Add a merchant from the allowance setup. Until then, every quote waits." />
       ) : (
@@ -108,11 +100,7 @@ export function AgentsView({ snapshot }) {
   const bedrock = snapshot?.bedrockConfigured;
   const mandate = snapshot?.mandate;
   return (
-    <section className="card" aria-labelledby="agents-title">
-      <div className="section-head">
-        <h2 id="agents-title">Agents</h2>
-        <p>One agent spends inside this allowance. The model chooses. It does not hold the keys.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       <dl className="stat-list">
         <div>
           <dt>Status</dt>
@@ -134,11 +122,7 @@ export function AgentsView({ snapshot }) {
 export function SecurityView({ snapshot, onFreeze, busy, disabled }) {
   const audit = snapshot?.audit ?? [];
   return (
-    <section className="card" aria-labelledby="security-title">
-      <div className="section-head">
-        <h2 id="security-title">Security</h2>
-        <p>The Ledger approves exceptions. Freeze stops new signatures.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       <dl className="stat-list">
         <div>
           <dt>Ledger</dt>
@@ -154,7 +138,7 @@ export function SecurityView({ snapshot, onFreeze, busy, disabled }) {
           {snapshot?.frozen ? 'Unfreeze the agent' : 'Freeze the agent'}
         </button>
       </div>
-      <h3 className="subhead">Audit log</h3>
+      <h2 className="subhead">Audit log</h2>
       {audit.length === 0 ? (
         <Empty title="No decisions yet" body="Approvals, declines, and freezes show up here." />
       ) : (
@@ -173,11 +157,7 @@ export function SecurityView({ snapshot, onFreeze, busy, disabled }) {
 
 export function SettingsView({ theme, onTheme, voiceOn, onVoice }) {
   return (
-    <section className="card" aria-labelledby="settings-title">
-      <div className="section-head">
-        <h2 id="settings-title">Settings</h2>
-        <p>Appearance and spoken updates stay on this device.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       <div className="setting-list">
         <Switch label="Dark appearance" hint="Matches the theme menu in the header." on={theme === 'dark'} onToggle={onTheme} />
         <Switch label="Spoken updates" hint="Eve reads approvals and blocks aloud." on={Boolean(voiceOn)} onToggle={onVoice} />
@@ -188,11 +168,7 @@ export function SettingsView({ theme, onTheme, voiceOn, onVoice }) {
 
 export function HelpView({ onAsk }) {
   return (
-    <section className="card" aria-labelledby="help-title">
-      <div className="section-head">
-        <h2 id="help-title">Help</h2>
-        <p>The agent decides what to buy. It cannot decide what it is allowed to spend.</p>
-      </div>
+    <section className="card" aria-labelledby="page-title">
       <ul className="people">
         <li>
           <strong>Rules first</strong>

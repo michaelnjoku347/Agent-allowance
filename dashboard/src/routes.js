@@ -2,14 +2,14 @@
 
 export const NAV = [
   { id: 'home', label: 'Home', section: 'Spend', mobile: true },
-  { id: 'activity', label: 'Activity', section: 'Spend', mobile: true },
+  { id: 'activity', label: 'Activity', section: 'Spend', mobile: true, lede: 'Every purchase the agent tried, paid or blocked.' },
   { id: 'approvals', label: 'Approvals', section: 'Spend', mobile: true },
-  { id: 'rules', label: 'Rules', section: 'Controls' },
-  { id: 'merchants', label: 'Merchants', section: 'Controls' },
-  { id: 'agents', label: 'Agents', section: 'Controls' },
-  { id: 'security', label: 'Security', section: 'Trust', mobile: true },
-  { id: 'settings', label: 'Settings', section: 'Trust' },
-  { id: 'help', label: 'Help', section: 'Trust' },
+  { id: 'rules', label: 'Rules', section: 'Controls', lede: 'The agent pays on its own only inside these limits. A raise needs the Ledger.' },
+  { id: 'merchants', label: 'Merchants', section: 'Controls', lede: 'The agent can pay only the merchants on this list.' },
+  { id: 'agents', label: 'Agents', section: 'Controls', lede: 'One agent spends inside this allowance. The model chooses. It does not hold the keys.' },
+  { id: 'security', label: 'Security', section: 'Trust', mobile: true, lede: 'The Ledger approves exceptions. Freeze stops new signatures.' },
+  { id: 'settings', label: 'Settings', section: 'Trust', lede: 'Appearance and spoken updates stay on this device.' },
+  { id: 'help', label: 'Help', section: 'Trust', lede: 'The agent decides what to buy. It cannot decide what it is allowed to spend.' },
 ];
 
 const MORE = ['rules', 'merchants', 'agents', 'settings', 'help'];

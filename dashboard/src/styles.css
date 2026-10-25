@@ -340,7 +340,7 @@ p {
   min-width: 0;
 }
 
-.app.is-present h1 {
+.app.is-present .brand-name {
   font-size: clamp(1.6rem, 7vw, 2.1rem);
 }
 
@@ -356,18 +356,25 @@ p {
   flex: none;
 }
 
-.brand h1, .loading-brand, .loading-brand h1, .sidenav-brand h1 {
+.brand-name {
+  margin: 0;
+  font-size: var(--fs-4);
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+.brand .brand-name, .loading-brand, .loading-brand .brand-name, .sidenav-brand .brand-name {
   font-family: var(--display);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.loading-brand h1 {
+.loading-brand .brand-name {
   margin: 0;
   font-size: var(--fs-4);
 }
 
-.sidenav-brand h1 {
+.sidenav-brand .brand-name {
   font-size: var(--fs-3);
   line-height: 1.15;
   margin: 0;
@@ -3006,7 +3013,7 @@ input[type="range"] {
   opacity: 1;
   background: color-mix(in srgb, var(--disabled-bg) 55%, transparent);
   color: var(--disabled-ink);
-  border: 1px dashed color-mix(in srgb, var(--disabled-line) 55%, transparent);
+  border: 1px dashed var(--disabled-line);
   box-shadow: none;
 }
 
@@ -3137,7 +3144,7 @@ input[type="range"] {
     gap: 8px;
     padding: 0 8px 16px;
   }
-.sidenav-brand h1 {
+.sidenav-brand .brand-name {
     font-weight: 600;
     letter-spacing: -0.01em;
     line-height: 1.15;
@@ -3824,7 +3831,7 @@ html {
 }
 
 /* Design review pass: hierarchy, lockup balance, rows and toggles. */
-.sidenav-brand h1 {
+.sidenav-brand .brand-name {
   font-size: var(--fs-4);
 }
 
@@ -4031,5 +4038,180 @@ html {
     flex: none;
     width: 88px;
     height: 88px;
+  }
+}
+
+/* Third pass: page headings, phone app bar, Eve tuck, tabs, footer. */
+.page-head {
+  display: grid;
+  gap: 4px;
+}
+
+.page-head h1 {
+  font-family: var(--display);
+  font-size: var(--fs-5);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+}
+
+.page-head p {
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.tab-panel:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: var(--r-2);
+}
+
+.app-menu {
+  position: relative;
+  display: none;
+}
+
+.demo-pop button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.demo-pop button:hover:not(:disabled) {
+  background: var(--pine-soft);
+}
+
+.demo-pop button:disabled {
+  color: var(--disabled-ink);
+  cursor: not-allowed;
+}
+
+.menu-label {
+  margin: 8px 12px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.menu-note {
+  margin: -4px 12px 6px 40px;
+  color: var(--muted);
+  font-size: var(--fs-1);
+}
+
+.side-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.side-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #2F8A5B;
+}
+
+.side-status.is-frozen .side-dot {
+  background: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .top {
+    flex-wrap: nowrap;
+    min-height: 44px;
+  }
+  .top-tools {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .top .freeze-toggle,
+  .top .setup-chip,
+  .top .demo-menu,
+  .hero-tagline {
+    display: none;
+  }
+  .app-menu {
+    display: block;
+  }
+  .brand {
+    gap: 10px;
+  }
+  .brand .brand-name {
+    font-size: 19px;
+  }
+  .shell {
+    padding-top: 10px;
+  }
+  .page-head h1 {
+    font-size: 24px;
+  }
+  .eve-pill {
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 240ms ease;
+  }
+  .eve-dock.is-tucked .eve-pill {
+    transform: translateX(calc(100% + 24px));
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-main {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .hero .ring {
+    flex: none;
+  }
+}
+
+@media (max-width: 360px) {
+  .hero .figure {
+    font-size: 44px;
+  }
+  .hero .ring {
+    width: 76px;
+    height: 76px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eve-pill {
+    transition: none;
+  }
+}
+
+/* Desktop: the tools float top-right, so the page title owns the first row. */
+@media (min-width: 721px) {
+  .shell {
+    position: relative;
+  }
+  .top {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 5;
+  }
+  .top .brand-lockup {
+    display: none;
+  }
+  .page-head {
+    min-height: 44px;
+    align-content: center;
+    padding-right: 360px;
+  }
+}
+
+@media (min-width: 960px) {
+  .top {
+    top: 24px;
+    right: 0;
   }
 }

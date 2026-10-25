@@ -504,6 +504,25 @@ export default function App() {
   const loading = connection === 'loading' && !snapshot;
   const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : '', snapshot?.frozen ? 'is-frozen' : ''].filter(Boolean).join(' ');
   const pendingCount = approvalCount(view.pending);
+  const routeItem = NAV.find((item) => item.id === route);
+  const pageLede = route === 'approvals'
+    ? (pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`)
+    : routeItem?.lede;
+  const setupLabel = onboarded ? 'Edit allowance' : 'Set up allowance';
+
+  function onTabKey(event) {
+    const ids = ACTIVITY_VIEWS.map(([id]) => id);
+    const at = ids.indexOf(filter);
+    const next = event.key === 'ArrowRight' ? ids[(at + 1) % ids.length]
+      : event.key === 'ArrowLeft' ? ids[(at - 1 + ids.length) % ids.length]
+        : event.key === 'Home' ? ids[0]
+          : event.key === 'End' ? ids[ids.length - 1]
+            : null;
+    if (!next) return;
+    event.preventDefault();
+    setFilter(next);
+    document.getElementById(`tab-${next}`)?.focus();
+  }
 
   return (
     <div className={appClass}>
@@ -512,7 +531,7 @@ export default function App() {
       <aside className="sidenav">
         <div className="sidenav-brand">
           <BrandMark size={40} />
-          <h1>Agent Allowance</h1>
+          <p className="brand-name">Agent Allowance</p>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
           {navSections().map((section) => (
@@ -550,9 +569,12 @@ export default function App() {
           })}
         </nav>
         <div className="sidenav-foot">
-          <p className="side-balance"><strong>{money(view.left)}</strong> RLUSD left</p>
-          <p className="meta">{snapshot?.frozen ? 'Agent frozen' : 'Agent inside the rules'}</p>
-          <p className="meta">{snapshot?.simulatedLedger ? 'Demo signer' : 'Ledger approves exceptions'}</p>
+          <p className="side-balance"><strong>{money(view.left)}</strong> of {money(view.budget)} RLUSD left</p>
+          <p className={snapshot?.frozen ? 'side-status is-frozen' : 'side-status'}>
+            <span className="side-dot" aria-hidden="true" />
+            {snapshot?.frozen ? 'Agent frozen. Nothing can be signed.' : 'Agent can pay inside the rules'}
+          </p>
+          <p className="meta">{snapshot?.simulatedLedger ? 'Exceptions use the demo signer' : 'Exceptions need your Ledger'}</p>
         </div>
       </aside>
 
@@ -561,10 +583,9 @@ export default function App() {
           <header className="top">
             <div className="brand-lockup">
               <div className="brand">
-                <BrandMark size={48} />
-                <h1>Agent Allowance</h1>
+                <BrandMark size={32} />
+                <p className="brand-name">Agent Allowance</p>
               </div>
-              {route === 'home' ? <p className="hero-tagline">Spending power for AI, with a human key.</p> : null}
             </div>
             <div className="top-tools">
               <button
@@ -578,7 +599,7 @@ export default function App() {
                 <IconLock />
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
-              <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Edit allowance</button>
+              <button type="button" className="chip setup-chip" onClick={() => setSetupOpen(true)}>{setupLabel}</button>
               {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
@@ -596,10 +617,36 @@ export default function App() {
                 </button>
               ) : null}
               <ThemeControl theme={theme} setTheme={setTheme} />
+              {!presenting ? (
+                <AppMenu
+                  frozen={Boolean(snapshot?.frozen)}
+                  freezeDisabled={!snapshot || controlBusy === 'freeze' || Boolean(snapshot?.offlinePreview)}
+                  onFreeze={onFreeze}
+                  setupLabel={setupLabel}
+                  onSetup={() => setSetupOpen(true)}
+                  demo={route === 'home' && snapshot ? {
+                    onOverCap,
+                    onHeist: () => demoBridge.current.runHeist?.(),
+                    onRogue: () => demoBridge.current.runRogue?.(),
+                    onPresent: togglePresent,
+                  } : null}
+                />
+              ) : null}
             </div>
           </header>
           <main id="main" tabIndex={-1}>
             {loading ? <Skeletons /> : null}
+            {route === 'home' ? (
+              <div className="page-head is-home">
+                <h1 className="sr-only">Home</h1>
+                <p className="hero-tagline">Spending power for AI, with a human key.</p>
+              </div>
+            ) : (
+              <div className="page-head">
+                <h1 id="page-title">{routeItem?.label}</h1>
+                {pageLede ? <p>{pageLede}</p> : null}
+              </div>
+            )}
             {view.demo ? (
               <div className="demo-badge" role="status">
                 <span className="demo-tag">Demo</span>
@@ -757,11 +804,7 @@ export default function App() {
             ) : null}
 
             {snapshot && route === 'approvals' ? (
-              <section className="card needs-card" aria-labelledby="approvals-title">
-                <div className="section-head">
-                  <h2 id="approvals-title">Approvals</h2>
-                  <p>{pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`}</p>
-                </div>
+              <section className="card needs-card" aria-labelledby="page-title">
                 {view.pending.length === 0 ? (
                   <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
                 ) : (
@@ -792,22 +835,25 @@ export default function App() {
             ) : null}
 
             {snapshot && route === 'activity' ? (
-              <section className="card" aria-labelledby="activity-title">
-                <h2 id="activity-title">Activity</h2>
-                <div className="filters" role="tablist" aria-label="Activity views">
+              <section className="card" aria-labelledby="page-title">
+                <div className="filters" role="tablist" aria-label="Activity views" onKeyDown={onTabKey}>
                   {ACTIVITY_VIEWS.map(([id, label]) => (
                     <button
                       key={id}
+                      id={`tab-${id}`}
                       type="button"
                       role="tab"
                       className={filter === id ? 'chip is-on' : 'chip'}
                       aria-selected={filter === id}
+                      aria-controls="activity-panel"
+                      tabIndex={filter === id ? 0 : -1}
                       onClick={() => setFilter(id)}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
+                <div id="activity-panel" role="tabpanel" aria-labelledby={`tab-${filter}`} tabIndex={0} className="tab-panel">
                 {filter === 'audit' ? <AuditCard rows={snapshot.audit} onExport={exportAudit} /> : null}
                 {filter === 'chain' ? (feed.length ? <TxFeed rows={feed} /> : <p className="meta">Explorer links appear when a transaction hash is recorded.</p>) : null}
                 {filter === 'all' ? (
@@ -826,6 +872,7 @@ export default function App() {
                   )}
                 />
                 ) : null}
+                </div>
               </section>
             ) : null}
 
@@ -912,7 +959,7 @@ export default function App() {
         </Sheet>
       ) : null}
       {setupOpen ? (
-        <Sheet title="Edit allowance" onClose={() => setSetupOpen(false)}>
+        <Sheet title={setupLabel} onClose={() => setSetupOpen(false)}>
           <UseCaseCard
             selected={snapshot?.useCase?.id}
             busy={controlBusy}
@@ -1077,6 +1124,73 @@ function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBu
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onPresent(); }}>
             Present
           </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
+  useEffect(() => {
+    if (!open) return undefined;
+    ref.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+    function onDoc(event) {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    }
+    document.addEventListener('pointerdown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  function pick(action) {
+    setOpen(false);
+    action();
+  }
+  return (
+    <div className="app-menu" ref={ref}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="icon-btn"
+        aria-label="Allowance actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <IconMore />
+      </button>
+      {open ? (
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions">
+          <button type="button" role="menuitem" onClick={() => pick(onFreeze)} disabled={freezeDisabled}>
+            <IconLock size={18} />
+            <span>{frozen ? 'Unfreeze the agent' : 'Freeze the agent'}</span>
+          </button>
+          {freezeDisabled ? <p className="menu-note">Freeze works when the allowance is online.</p> : null}
+          <button type="button" role="menuitem" onClick={() => pick(onSetup)}>
+            <IconSliders size={18} />
+            <span>{setupLabel}</span>
+          </button>
+          {demo ? (
+            <>
+              <p className="menu-label">Demo</p>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onOverCap)}>Try an over-cap purchase</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onHeist)}>Show a blocked prompt</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onRogue)}>Run the three blocks</button>
+              <button type="button" role="menuitem" onClick={() => pick(demo.onPresent)}>Present</button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1336,7 +1450,7 @@ function Skeletons() {
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
         <BrandMark size={64} />
-        <h1>Agent Allowance</h1>
+        <p className="brand-name">Agent Allowance</p>
       </div>
       <div className="stack loading-skeleton">
       <div className="card hero-skeleton" aria-hidden="true">
