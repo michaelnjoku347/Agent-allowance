@@ -79,7 +79,8 @@ export function EveMark({ size = 28 }) {
   return (
     <svg className="eve-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="9" fill="#1B4D3E" />
-      <path d="M10.5 10.5h11M10.5 16h7.5M10.5 21.5h11" stroke="#F4F0E6" strokeWidth="2" strokeLinecap="round" />
+      <path d="M11 9.2v13.6M11 9.2h10.2M11 16h7.2M11 22.8h10.2" fill="none" stroke="#F7F4EC" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="22.4" cy="16" r="2.1" fill="#C6F36B" />
     </svg>
   );
 }

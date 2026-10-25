@@ -531,8 +531,8 @@ export default function App() {
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
-                  <p className="hero-tagline">Spending power for AI, with a human key.</p>
                 </section>
+                <p className="hero-tagline">Spending power for AI, with a human key.</p>
 
                 <section className="card needs-card" aria-labelledby="needs-title">
                     <h2 id="needs-title">Needs you</h2>
@@ -964,7 +964,7 @@ function ActivityList({ items, onOpen, empty, flashId = '' }) {
               <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
               <span className="amount">{money(item.amount)} RLUSD</span>
               <StatusPill status={status} />
-              {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Bedrock</span> : null}
+              {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Planned by Bedrock</span> : null}
             </button>
           </li>
         );
@@ -1114,12 +1114,13 @@ function Sheet({ title, onClose, children, variant = 'sheet' }) {
 
 function Skeletons() {
   return (
-    <div className="stack" aria-busy="true" aria-live="polite">
+    <div className="loading-splash" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
         <BrandMark size={40} />
         <h1>Agent Allowance</h1>
       </div>
+      <div className="stack loading-skeleton">
       <div className="card hero-skeleton" aria-hidden="true">
         <div className="sk-copy">
           <span className="sk sk-label" />
@@ -1139,6 +1140,7 @@ function Skeletons() {
           <RowSkeleton />
           <RowSkeleton />
         </div>
+      </div>
       </div>
     </div>
   );
