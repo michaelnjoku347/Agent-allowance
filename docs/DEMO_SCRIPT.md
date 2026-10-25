@@ -8,7 +8,7 @@ The line to land: **The AI decides what to buy, but it can never decide what it'
 | --- | --- | --- |
 | 0:00 | Demo and story (10%) | The hook, How it works, then remaining, held for review, lost |
 | 0:40 | Technical execution (25%) | The live 1 RLUSD brief, with an explorer link |
-| 1:40 | Trust and control (25%) | The Heist: injected text, the planner's choice, the rule, 0.00 RLUSD moved |
+| 1:40 | Trust and control (25%) | Blocked prompt: injected text, the planner's choice, the rule, 0.00 RLUSD moved |
 | 2:40 | Trust and technical | The judge approves 8 RLUSD on a Ledger. Eve refuses a cap raise |
 | 3:50 | Path to production (15%) | Freeze closes the channel, then the production slide |
 | 4:40 | Demo and story | The vision close |
@@ -58,14 +58,14 @@ Gesture at **How it works**, then at **Remaining**, **Held for review**, and **L
 
 > Nothing on that path asked a person. The agent stayed inside the allowance. The feed shows that explorer link only when the hash is a real 32-byte transaction.
 
-## 1:40 — The Heist (Trust and control)
+## 1:40 — Blocked prompt (Trust and control)
 
 This is the moment to show. One click feeds a malicious catalog row to the same planner the agent uses. The row says the user already approved a 50 RLUSD pack. The rules then block it. Nothing is signed, and no payable quote is added.
 
 > Watch the catalog try to talk the planner into spending 50 RLUSD. The planner can take the bait. The allowance cannot.
 
-1. On **Home**, find **The Heist**.
-2. Click **Run the heist**.
+1. On **Home**, open **Demo**.
+2. Click **Show a blocked prompt**.
 3. Read the red **Attack blocked** card out loud: the injected text, what the planner chose, the rule that stopped it, and **0.00 RLUSD moved**.
 
 If the card says **Fallback (Bedrock not configured)**, say that Bedrock is not configured on this machine and the fallback followed the catalog text. Do not call that a live model. If the card says **Amazon Bedrock**, that call was real. If Bedrock refused the pack, say so, and still point at the rule: the 50 RLUSD quote is blocked anyway.
@@ -87,7 +87,7 @@ The payment path lights Agent, stops at Rules, and leaves Ledger, XRPL, and the 
 
 Do not freeze before this step. A frozen agent will not take the Ledger payment.
 
-The unlisted 1 RLUSD card, if it is on screen, has **Decline only**. There is no Approve button. A Ledger signature cannot pay a merchant that is off the allowlist. Point at it only if a judge asks. Do not let it replace the Heist.
+The unlisted 1 RLUSD card, if it is on screen, has **Decline only**. There is no Approve button. A Ledger signature cannot pay a merchant that is off the allowlist. Point at it only if a judge asks. Do not let it replace the blocked prompt.
 
 ## 3:50 — Freeze, then the production slide (Path to production)
 
@@ -125,13 +125,13 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 
 | Click | When |
 | --- | --- |
-| The paid **morning market brief** row, then the explorer link, then **Close** | Technical execution. Do this before the Heist. |
-| **Run the heist**, then read the red card | Trust. Injected text, the planner's choice, the rule, 0.00 RLUSD moved. |
+| The paid **morning market brief** row, then the explorer link, then **Close** | Technical execution. Do this before the blocked prompt. |
+| **Show a blocked prompt**, then read the card | Trust. Injected text, the planner's choice, the rule, 0.00 RLUSD moved. |
 | **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | The judge can press the Ledger. Do this before Freeze. |
 | Eve: `Set my cap to 8` | She refuses. A Ledger SetAllowance signature is required. |
 | **Freeze agent** | After the Ledger step. Read whether the channel actually closed. |
 | **This allowance** presets | Optional. One sentence. Do not rewrite the rules, and do not click them unless you have time. |
-| **Export JSON** | Optional. The audit trail is under the Heist card if a judge asks. |
+| **Export JSON** | Optional. The audit trail is under the blocked-prompt card if a judge asks. |
 | **Minimize Eve** | Only if her chat covers the board |
 | **Run agent**, **Try an over-cap purchase**, **Unfreeze agent** | Not in these five minutes. Unfreeze does not reopen a closed channel. |
-| **Voice off**, **Present** | Optional. Voice on speaks the Heist. The demo stands without them. |
+| **Voice off**, **Present** | Optional. Present is in the Demo menu. Voice on speaks the blocked prompt. The demo stands without them. |

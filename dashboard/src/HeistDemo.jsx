@@ -53,7 +53,7 @@ function HeistCard({ report }) {
 function HeistError({ message, onRetry }) {
   return (
     <div className="state-error" role="alert">
-      <p className="state-error-title">Could not run the heist</p>
+      <p className="state-error-title">Could not show the blocked prompt</p>
       <p>{message}</p>
       <button type="button" className="btn" onClick={onRetry}>Retry</button>
     </div>
@@ -72,7 +72,7 @@ export default function HeistDemo({ onDone, onResult, children }) {
     try {
       const body = await runHeist();
       if (!body?.ok || body.paid || body.signed || body.lost !== '0' || body.moved !== '0.00') {
-        const failure = new Error('The heist did not stay blocked.');
+        const failure = new Error('The blocked prompt did not stay blocked.');
         failure.live = true;
         throw failure;
       }
@@ -81,7 +81,7 @@ export default function HeistDemo({ onDone, onResult, children }) {
       onDone?.();
     } catch (err) {
       if (err.live) {
-        setError(err.message || 'The heist did not stay blocked.');
+        setError(err.message || 'The blocked prompt did not stay blocked.');
       } else {
         const scripted = scriptedHeistReport();
         setReport(scripted);
@@ -111,9 +111,9 @@ export default function HeistDemo({ onDone, onResult, children }) {
 
   return (
     <section className="heist" aria-labelledby="heist-title">
-      <h2 id="heist-title">The Heist</h2>
+      <h2 id="heist-title">Blocked prompt</h2>
       <button type="button" className="btn" onClick={run} disabled={busy}>
-        {busy ? 'Running the heist…' : 'Run the heist'}
+        {busy ? 'Showing the blocked prompt…' : 'Show a blocked prompt'}
       </button>
       {stage}
     </section>

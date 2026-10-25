@@ -1,6 +1,6 @@
 # Agent Allowance
 
-<img src="dashboard/public/brand/lockup-horizontal.svg" alt="Agent Allowance" width="280" />
+<img src="dashboard/public/brand/lockup-readme.svg" alt="Agent Allowance" width="280" />
 
 Spending power for AI, with a human key.
 
@@ -20,7 +20,7 @@ Would you give an AI your credit card?
 
 Agent Allowance is a spending account for an AI agent. You fund **20 RLUSD**. The agent may pay a merchant on its own only when the quote is on your allowlist, at or under a **5 RLUSD** cap, before the allowance expires, and still inside the budget. Anything else is not paid. It is saved for a person.
 
-Built for the Mastercard × XRPL Hackathon, **Agentic Finance** track. An autonomous agent is an economic actor. The allowance is programmable. A Ledger is the hardware guard. The agent decides what to buy. It cannot decide what it is allowed to spend.
+Built for the Mastercard × XRPL Hackathon, **Agentic Finance** track. An autonomous agent is an economic actor. The allowance is programmable. A Ledger is the hardware guard.
 
 Payments are **AP4M x402** vouchers settling **RLUSD** on **XRPL EVM Testnet** (chain ID `1449000`).
 

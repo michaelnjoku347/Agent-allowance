@@ -424,14 +424,17 @@ export default function App() {
   const liveFlow = flowOverride || flowForItem(view.activity[0]);
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
+  const loading = connection === 'loading' && !snapshot;
+  const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
+
   return (
-    <div className={presenting ? 'app is-present' : 'app'}>
+    <div className={appClass}>
       <a className="skip" href="#main">Skip to content</a>
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
-        <div className="sidenav-brand" aria-hidden="true">
-          <img className="logo-mark" src="/brand/mark.svg" width="32" height="32" alt="" />
-          <p>Agent Allowance</p>
+        <div className="sidenav-brand">
+          <BrandMark size={32} />
+          <h1>Agent Allowance</h1>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
           {TABS.map(([id, label, Icon]) => (
@@ -453,11 +456,8 @@ export default function App() {
         <div className="shell">
           <header className="top">
             <div className="brand">
-              <img className="logo-mark" src="/brand/mark.svg" width="40" height="40" alt="" />
-              <div>
-                <h1>Agent Allowance</h1>
-                <p className="lede">The agent decides what to buy. It cannot decide what it is allowed to spend.</p>
-              </div>
+              <BrandMark size={40} />
+              <h1>Agent Allowance</h1>
             </div>
             <div className="top-tools">
               <button
@@ -471,14 +471,16 @@ export default function App() {
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
               <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
-              <button type="button" className={presenting ? 'chip is-on present-toggle' : 'chip present-toggle'} aria-pressed={presenting} onClick={togglePresent}>
-                {presenting ? 'Exit presentation' : 'Present'}
-              </button>
+              {presenting ? (
+                <button type="button" className="chip is-on present-toggle" aria-pressed="true" onClick={togglePresent}>
+                  Exit presentation
+                </button>
+              ) : null}
               <ThemeControl theme={theme} setTheme={setTheme} />
             </div>
           </header>
           <main id="main" tabIndex={-1}>
-            {connection === 'loading' && !snapshot ? <Skeletons /> : null}
+            {loading ? <Skeletons /> : null}
             {snapshot?.offlinePreview ? (
               <div className="offline-banner" role="status">
                 <p>Sample preview. These rows are examples, not payments.</p>
@@ -529,6 +531,7 @@ export default function App() {
                     <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
+                  <p className="hero-tagline">Spending power for AI, with a human key.</p>
                 </section>
 
                 <section className="card needs-card" aria-labelledby="needs-title">
@@ -586,6 +589,7 @@ export default function App() {
                     onOverCap={onOverCap}
                     onHeist={runHeist}
                     onRogue={runRogue}
+                    onPresent={togglePresent}
                     overCapBusy={overCapBusy}
                     heistBusy={heistBusy}
                     rogueBusy={rogueBusy}
@@ -773,11 +777,23 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
+function BrandMark({ size }) {
+  return (
+    <>
+      <img className="logo-mark mark-for-light" src="/brand/mark.svg" width={size} height={size} alt="" />
+      <img className="logo-mark mark-for-dark" src="/brand/mark-dark.svg" width={size} height={size} alt="" />
+    </>
+  );
+}
+
 function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, ratio));
   const percent = Math.round(clamped * 100);
+  const angle = clamped * Math.PI * 2;
+  const dotX = 60 + radius * Math.cos(angle);
+  const dotY = 60 + radius * Math.sin(angle);
   return (
     <div
       className={mood ? `ring is-${mood}` : 'ring'}
@@ -796,6 +812,7 @@ function SpendRing({ ratio, label, mood = '' }) {
           r={radius}
           strokeDasharray={`${circumference * clamped} ${circumference}`}
         />
+        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="6" /> : null}
       </svg>
       <div className="ring-label" aria-hidden="true">
         <strong>{percent}%</strong>
@@ -814,7 +831,7 @@ function StatusPill({ status }) {
   );
 }
 
-function DemoMenu({ onOverCap, onHeist, onRogue, overCapBusy, heistBusy, rogueBusy }) {
+function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBusy, rogueBusy }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -836,10 +853,13 @@ function DemoMenu({ onOverCap, onHeist, onRogue, overCapBusy, heistBusy, rogueBu
             {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
           </button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onHeist(); }} disabled={heistBusy}>
-            {heistBusy ? 'Running the heist…' : 'Run the heist'}
+            {heistBusy ? 'Showing the blocked prompt…' : 'Show a blocked prompt'}
           </button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onRogue(); }} disabled={rogueBusy}>
             {rogueBusy ? 'Running the three blocks…' : 'Run the three blocks'}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onPresent(); }}>
+            Present
           </button>
         </div>
       ) : null}
@@ -1097,8 +1117,8 @@ function Skeletons() {
     <div className="stack" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
-        <img className="logo-mark" src="/brand/mark.svg" width="40" height="40" alt="" />
-        <p>Agent Allowance</p>
+        <BrandMark size={40} />
+        <h1>Agent Allowance</h1>
       </div>
       <div className="card hero-skeleton" aria-hidden="true">
         <div className="sk-copy">

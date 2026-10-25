@@ -13,18 +13,6 @@ const pen = {
   strokeLinejoin: 'round',
 };
 
-/** Same drawing as dashboard/public/brand/mark.svg. The dot is the allowance still left. */
-export function LogoMark({ tone = 'pine', size = 36 }) {
-  const pine = tone !== 'cream';
-  return (
-    <svg className="logo-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill={pine ? '#1B4D3E' : '#F7F4EC'} />
-      <path d="M 22.96 7.67 A 10.40 10.40 0 1 1 14.19 5.16 L 14.99 9.69 A 5.80 5.80 0 1 0 19.88 11.09 Z" fill={pine ? '#F7F4EC' : '#1B4D3E'} />
-      <circle cx="17.88" cy="7.52" r="2.5" fill={pine ? '#C6F36B' : '#1A1814'} />
-    </svg>
-  );
-}
-
 export function IconHome() {
   return (
     <Stroke>

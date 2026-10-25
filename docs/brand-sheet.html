@@ -3,12 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <title>Agent Allowance brand sheet</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600&display=swap" rel="stylesheet" />
     <style>
+      @font-face { font-family: Inter; font-weight: 400; src: url("../dashboard/public/fonts/inter-400.woff2") format("woff2"); }
+      @font-face { font-family: Inter; font-weight: 600; src: url("../dashboard/public/fonts/inter-600.woff2") format("woff2"); }
+      @font-face { font-family: Outfit; font-weight: 600; src: url("../dashboard/public/fonts/outfit-600.woff2") format("woff2"); }
       body { margin: 0; font-family: Inter, sans-serif; background: #ECE8DE; color: #1A1814; }
       main { width: 1120px; margin: 0 auto; padding: 40px 36px 48px; display: grid; gap: 28px; }
-      h1 { font-family: Outfit, Inter, sans-serif; font-size: 40px; font-weight: 600; letter-spacing: -0.03em; margin: 0; }
+      h1 { font-family: Outfit, Inter, sans-serif; font-size: 40px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
       .tag { margin: 6px 0 0; font-size: 17px; }
       .row { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; }
       .tile { background: #fff; border: 1px solid #7C7468; border-radius: 16px; padding: 20px; }
@@ -16,9 +17,9 @@
       figcaption { font-size: 13px; font-weight: 600; color: #5A534A; margin-top: 12px; }
       .dark figcaption { color: #C9C2B4; }
       .sizes { display: flex; gap: 20px; align-items: end; }
-      .swatches { display: flex; gap: 16px; }
-      .swatch { width: 88px; }
-      .chip { height: 64px; border-radius: 12px; }
+      .swatches { display: flex; gap: 16px; flex-wrap: wrap; }
+      .swatch { width: 140px; }
+      .chip { height: 64px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; text-align: center; padding: 8px; }
       .swatch p { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
       .swatch span { display: block; font-weight: 400; color: #5A534A; }
     </style>
@@ -35,22 +36,38 @@
           <figcaption>Pine mark</figcaption>
         </figure>
         <figure class="tile">
-          <img src="../dashboard/public/brand/mark-light.svg" width="72" height="72" alt="Light mark" />
-          <figcaption>Light mark</figcaption>
+          <img src="../dashboard/public/brand/mark-light.svg" width="72" height="72" alt="Light mark, no tile" />
+          <figcaption>Light mark, no tile</figcaption>
         </figure>
         <figure class="tile dark">
-          <img src="../dashboard/public/brand/mark-dark.svg" width="72" height="72" alt="Dark mark" />
-          <figcaption>Dark mark</figcaption>
+          <img src="../dashboard/public/brand/mark-dark.svg" width="72" height="72" alt="Dark mark, no tile" />
+          <figcaption>Dark mark, no tile</figcaption>
         </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/favicon.svg" width="32" height="32" alt="Favicon at 32" />
+          <figcaption>Favicon, drawn for 16</figcaption>
+        </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/app-icon-512.png" width="72" height="72" alt="App icon" />
+          <figcaption>App icon, full bleed</figcaption>
+        </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/app-icon-light-512.png" width="72" height="72" alt="Light app icon" />
+          <figcaption>App icon, light</figcaption>
+        </figure>
+      </section>
+      <section class="row">
         <figure class="tile sizes">
           <img src="../dashboard/public/brand/mark.svg" width="16" height="16" alt="16 pixel mark" />
           <img src="../dashboard/public/brand/mark.svg" width="24" height="24" alt="24 pixel mark" />
           <img src="../dashboard/public/brand/mark.svg" width="32" height="32" alt="32 pixel mark" />
-          <figcaption>16, 24, 32</figcaption>
+          <figcaption>16, 24, 32 on the page</figcaption>
         </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/app-icon-512.png" width="72" height="72" alt="App icon" />
-          <figcaption>App icon</figcaption>
+        <figure class="tile dark sizes">
+          <img src="../dashboard/public/brand/mark-dark.svg" width="16" height="16" alt="16 pixel dark mark" />
+          <img src="../dashboard/public/brand/mark-dark.svg" width="24" height="24" alt="24 pixel dark mark" />
+          <img src="../dashboard/public/brand/mark-dark.svg" width="32" height="32" alt="32 pixel dark mark" />
+          <figcaption>16, 24, 32 on #121411</figcaption>
         </figure>
       </section>
       <section class="row">
@@ -61,6 +78,10 @@
         <figure class="tile">
           <img src="../dashboard/public/brand/lockup-stacked.svg" width="200" alt="Stacked lockup" />
           <figcaption>Stacked, light</figcaption>
+        </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/lockup-readme.svg" width="340" alt="README lockup on a cream plate" />
+          <figcaption>README, cream plate</figcaption>
         </figure>
       </section>
       <section class="row">
@@ -74,11 +95,12 @@
         </figure>
       </section>
       <section class="swatches">
-        <div class="swatch"><div class="chip" style="background:#1B4D3E"></div><p>Pine <span>#1B4D3E</span></p></div>
-        <div class="swatch"><div class="chip" style="background:#F7F4EC;border:1px solid #7C7468"></div><p>Cream <span>#F7F4EC</span></p></div>
-        <div class="swatch"><div class="chip" style="background:#C6F36B"></div><p>Accent <span>#C6F36B</span></p></div>
-        <div class="swatch"><div class="chip" style="background:#F8EFE4"></div><p>Amber <span>#8A4518</span></p></div>
-        <div class="swatch"><div class="chip" style="background:#F8E8E4"></div><p>Red <span>#8E2218</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#1B4D3E;color:#F7F4EC">Pine</div><p>Pine <span>#F7F4EC on #1B4D3E</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F7F4EC;border:1px solid #7C7468;color:#1A1814">Cream</div><p>Cream <span>#1A1814 on #F7F4EC</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#1B4D3E;color:#C6F36B">Left</div><p>Accent <span>#C6F36B on #1B4D3E</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F8EFE4;color:#8A4518">Needs you</div><p>Amber <span>#8A4518 on #F8EFE4</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F8E8E4;color:#8E2218">Blocked</div><p>Red <span>#8E2218 on #F8E8E4</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#10241C;color:#FFB4A8">Blocked</div><p>On pine <span>#FFB4A8 on #10241C</span></p></div>
       </section>
     </main>
   </body>
