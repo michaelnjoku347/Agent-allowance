@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
 import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
@@ -6,6 +6,9 @@ import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
 import RogueDemo from './RogueDemo.jsx';
+import { flowForItem, flowForRogue, narrationFor, narrationForRogue, toneKind, txFeed } from './present.js';
+import { MoneyFlow, TxFeed } from './Stage.jsx';
+import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
 import {
   IconActivity,
   IconAlert,
@@ -125,7 +128,13 @@ export default function App() {
   const [overCap, setOverCap] = useState(null);
   const [overCapBusy, setOverCapBusy] = useState(false);
   const [announce, setAnnounce] = useState('');
+  const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
+  const [presenting, setPresenting] = useState(false);
+  const [flowOverride, setFlowOverride] = useState(null);
+  const [flashId, setFlashId] = useState('');
+  const [ringMood, setRingMood] = useState('');
   const seen = useRef(null);
+  const moodTimer = useRef(0);
 
   async function load() {
     try {
@@ -167,9 +176,72 @@ export default function App() {
     for (const id of ids) seen.current.add(id);
     if (!added.length) return;
     const newest = added[0];
+    const spoken = narrationFor(newest);
     const status = pill(newest).label;
-    setAnnounce(`${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
-  }, [view.activity]);
+    setAnnounce(spoken || `${status}. ${newest.task || 'Purchase'} for ${money(newest.amount)} RLUSD.`);
+    setFlashId(newest.id);
+    const kind = toneKind(newest);
+    if (kind) pulseRing(kind === 'approve' ? 'ok' : 'block');
+    if (voiceOn && spoken) {
+      speakLine(spoken);
+      playTone(kind);
+    }
+  }, [view.activity, voiceOn]);
+
+  useEffect(() => () => {
+    window.clearTimeout(moodTimer.current);
+    stopSpeech();
+  }, []);
+
+  useEffect(() => {
+    function onFullscreen() {
+      if (!document.fullscreenElement) setPresenting(false);
+    }
+    document.addEventListener('fullscreenchange', onFullscreen);
+    return () => document.removeEventListener('fullscreenchange', onFullscreen);
+  }, []);
+
+  function pulseRing(mood) {
+    setRingMood(mood);
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
+  }
+
+  function toggleVoice() {
+    setVoiceOn((current) => {
+      const next = !current;
+      writeVoiceEnabled(next);
+      if (!next) stopSpeech();
+      return next;
+    });
+  }
+
+  async function togglePresent() {
+    const next = !presenting;
+    setPresenting(next);
+    try {
+      await setPresentation(next);
+    } catch {
+      /* Larger type still applies from the class on the page. */
+    }
+  }
+
+  const onRogueBeat = useCallback((card) => {
+    const flow = flowForRogue(card);
+    if (flow) setFlowOverride(flow);
+    if (!voiceOn || !card) return;
+    if (card.phase === 'blocked') {
+      const line = narrationForRogue(card);
+      if (line) speakLine(line);
+      const kind = card.route === 'ledger' ? 'wait' : 'block';
+      playTone(kind);
+      setRingMood(kind === 'wait' ? 'wait' : 'block');
+      window.clearTimeout(moodTimer.current);
+      moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
+    } else if (card.phase === 'summary' && card.attempt) {
+      speakLine(card.attempt);
+    }
+  }, [voiceOn]);
 
   async function decide(id) {
     setBusyId(id);
@@ -216,9 +288,11 @@ export default function App() {
   const latest = view.activity.slice(0, 5);
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
+  const liveFlow = flowOverride || flowForItem(view.activity[0]);
+  const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   return (
-    <div className="app">
+    <div className={presenting ? 'app is-present' : 'app'}>
       <a className="skip" href="#main">Skip to content</a>
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
@@ -255,7 +329,15 @@ export default function App() {
                 <h1>Agent Allowance</h1>
               </div>
             </div>
-            <ThemeControl theme={theme} setTheme={setTheme} />
+            <div className="top-tools">
+              <button type="button" className={voiceOn ? 'chip is-on' : 'chip'} aria-pressed={voiceOn} onClick={toggleVoice}>
+                {voiceOn ? 'Voice on' : 'Voice off'}
+              </button>
+              <button type="button" className={presenting ? 'chip is-on' : 'chip'} aria-pressed={presenting} onClick={togglePresent}>
+                {presenting ? 'Exit presentation' : 'Present'}
+              </button>
+              <ThemeControl theme={theme} setTheme={setTheme} />
+            </div>
           </header>
           <p className="lede">Each purchase is checked against your rules before it is paid.</p>
           {snapshot?.simulatedLedger ? (
@@ -305,7 +387,7 @@ export default function App() {
                       </p>
                       {view.chainWarning ? <p className="note warn" role="status">{view.chainWarning}</p> : null}
                     </div>
-                    <SpendRing ratio={view.ratio} label={balanceLabel} />
+                    <SpendRing ratio={view.ratio} label={balanceLabel} mood={ringMood} />
                   </div>
                   <dl className="rule-grid">
                     <div>
@@ -330,7 +412,10 @@ export default function App() {
                   </div>
                 </section>
 
-                <RogueDemo onDone={load} />
+                <MoneyFlow flow={liveFlow} />
+                <TxFeed rows={feed} />
+
+                <RogueDemo onDone={load} onBeat={onRogueBeat} />
 
                 {overCap ? (
                   <section className="card rejection" role="alert" aria-labelledby="over-cap-title">
@@ -410,6 +495,7 @@ export default function App() {
                     <ActivityList
                       items={latest}
                       explorer={snapshot.network?.explorerUrl}
+                      flashId={flashId}
                       onOpen={setDetail}
                       empty={(
                         <EmptyState
@@ -445,6 +531,7 @@ export default function App() {
                 <ActivityList
                   items={shown}
                   explorer={snapshot.network?.explorerUrl}
+                  flashId={flashId}
                   onOpen={setDetail}
                   empty={filter === 'all' ? (
                     <EmptyState
@@ -560,14 +647,14 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
-function SpendRing({ ratio, label }) {
+function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, ratio));
   const percent = Math.round(clamped * 100);
   return (
     <div
-      className="ring"
+      className={mood ? `ring is-${mood}` : 'ring'}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -576,15 +663,13 @@ function SpendRing({ ratio, label }) {
     >
       <svg viewBox="0 0 120 120" aria-hidden="true">
         <circle className="ring-track" cx="60" cy="60" r={radius} />
-        {clamped > 0 ? (
-          <circle
-            className="ring-value"
-            cx="60"
-            cy="60"
-            r={radius}
-            strokeDasharray={`${circumference * clamped} ${circumference}`}
-          />
-        ) : null}
+        <circle
+          className="ring-value"
+          cx="60"
+          cy="60"
+          r={radius}
+          strokeDasharray={`${circumference * clamped} ${circumference}`}
+        />
       </svg>
       <div className="ring-label" aria-hidden="true">
         <strong>{percent}%</strong>
@@ -661,7 +746,7 @@ function RowSkeleton() {
   );
 }
 
-function ActivityList({ items, onOpen, empty, explorer }) {
+function ActivityList({ items, onOpen, empty, explorer, flashId = '' }) {
   if (!items.length) return empty;
   return (
     <ul className="activity">
@@ -669,7 +754,7 @@ function ActivityList({ items, onOpen, empty, explorer }) {
         const status = pill(item);
         return (
           <li key={item.id}>
-            <button type="button" className="row" onClick={() => onOpen(item)}>
+            <button type="button" className={flashId === item.id ? 'row is-flash' : 'row'} onClick={() => onOpen(item)}>
               <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
               <span className="row-main">
                 <span className="row-title">{item.merchantLabel || 'Merchant'}</span>

@@ -9,7 +9,7 @@ function reduceMotion() {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export default function RogueDemo({ onDone }) {
+export default function RogueDemo({ onDone, onBeat }) {
   const [report, setReport] = useState(null);
   const [cursor, setCursor] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -20,6 +20,12 @@ export default function RogueDemo({ onDone }) {
   const frame = frames[cursor] ?? null;
 
   useEffect(() => () => window.clearInterval(timer.current), []);
+
+  useEffect(() => {
+    if (!frame || !report) return;
+    if (frame.summary) onBeat?.({ id: 'summary', phase: 'summary', attempt: report.summary?.line || '' });
+    else onBeat?.(frame.shown.at(-1));
+  }, [cursor, frame, onBeat, report]);
 
   async function run() {
     window.clearInterval(timer.current);

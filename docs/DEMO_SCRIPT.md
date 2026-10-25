@@ -55,6 +55,10 @@ The three cards, in order:
 
 > It can ask. It cannot raise its own limit, and it cannot pay past the cap or the list.
 
+The payment path under the hero lights Agent, then Rules, and stops. Ledger lights only when a signature could still pay. XRPL and the merchant stay dark, because nothing was signed.
+
+**Voice on** is the header default. Eve says “Waiting for Ledger” or “Blocked” as each card lands. Click **Voice off** to mute her and the soft tones. **Present** enlarges the type for a projector. If the browser refuses fullscreen, the larger type still applies. **On XRPL** shows an explorer link only after a real transaction hash is recorded.
+
 ## 0:35 — Purchase 1, in rule, paid (about 40 seconds)
 
 > First purchase. The morning market brief is 1 RLUSD, from a merchant on the allowlist, under the cap. The rules allow it. Jev does not flag it. The agent pays.
