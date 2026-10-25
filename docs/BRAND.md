@@ -34,7 +34,7 @@ The accent is one small place, not a fill. Amber and red are status, not decorat
 
 ## Type
 
-Inter 400, 500, 600, and 700 for the interface. Outfit 600 and 700 for the wordmark, the product name, and the balance. Labels are 13px, sentence case, with no tracking.
+Inter 400, 500, 600, and 700 for the interface. Outfit 600 and 700 for the wordmark, the product name, and the balance. Labels are 13px, sentence case, with no tracking. The lockup script reads the vendored Outfit variable font at `scripts/fonts/Outfit-wght.ttf` (SIL Open Font License 1.1, `scripts/fonts/OFL.txt`) and instantiates weight 600. The interface self-hosts `dashboard/public/fonts/outfit-600.woff2` and `outfit-700.woff2`.
 
 ## Logo
 

@@ -1052,6 +1052,7 @@ p {
   letter-spacing: 0;
   text-transform: none;
   max-width: 100%;
+  white-space: nowrap;
 }
 
 .activity li {
@@ -1940,6 +1941,13 @@ input[type="range"] {
 .flow-label, .flow-state {
   display: block;
   max-width: 100%;
+}
+
+.flow-label {
+  white-space: nowrap;
+}
+
+.flow-state {
   overflow-wrap: anywhere;
 }
 
@@ -2746,45 +2754,59 @@ input[type="range"] {
   max-width: 100%;
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(6ch, 1fr) auto auto;
+  grid-template-areas:
+    "avatar title amount pill"
+    "task task time tag";
   align-items: center;
-  gap: 4px;
+  column-gap: 8px;
+  row-gap: 4px;
   border-radius: var(--r-3);
   text-align: left;
 }
 
-.activity .row-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: 100%;
+.activity .row-line,
+.activity .row-end {
+  display: contents;
 }
 
-.activity .row-title,
+.activity .avatar {
+  grid-area: avatar;
+}
+
+.activity .row-title {
+  grid-area: title;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.activity .amount {
+  grid-area: amount;
+  white-space: nowrap;
+}
+
+.activity .pill {
+  grid-area: pill;
+}
+
 .activity .row-task {
+  grid-area: task;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.activity .row-title {
-  flex: 1;
-  font-weight: 600;
+.activity .row-time {
+  grid-area: time;
+  justify-self: end;
 }
 
-.activity .row-end {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  flex: none;
-  max-width: 70%;
-}
-
-.activity .row-sub .row-task {
-  flex: 1;
+.activity .bedrock-tag {
+  grid-area: tag;
 }
 
 .activity .row-task, .activity .row-time {
@@ -2794,7 +2816,6 @@ input[type="range"] {
 }
 
 .activity .row-time, .activity .bedrock-tag {
-  flex: none;
   white-space: nowrap;
 }
 
@@ -3167,27 +3188,21 @@ input[type="range"] {
 html {
     scroll-padding-bottom: 32px;
   }
-}
-
-@media (min-width: 960px) {
-  .app:has(.eve-dock.is-open) .shell, .app:has(.eve-dock.is-peek) .shell {
-      width: min(1180px, calc(100% - 424px));
-      margin-left: auto;
-      margin-right: 24px;
-}
-}
-
-@media (min-width: 960px) {
-  .eve-window {
-      left: auto;
-      right: 24px;
-      bottom: 24px;
-      width: 360px;
-      height: auto;
-      max-height: min(480px, calc(100vh - 48px));
-      border: 1px solid var(--line-strong);
-      border-radius: var(--r-3);
-}
+.app:has(.eve-dock.is-open) .shell, .app:has(.eve-dock.is-peek) .shell {
+    width: min(1180px, calc(100% - 424px));
+    margin-left: auto;
+    margin-right: 24px;
+  }
+.eve-window {
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+    height: auto;
+    max-height: min(480px, calc(100vh - 48px));
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-3);
+  }
 .eve-window .transcript {
     flex: 0 1 auto;
     max-height: 220px;
@@ -3195,6 +3210,26 @@ html {
 .eve-pill {
     right: 24px;
     bottom: 24px;
+  }
+.home-stack {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  }
+.home-stack > .hero {
+    grid-column: 1;
+    grid-row: 1;
+  }
+.home-stack .needs-card {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: stretch;
+  }
+.home-stack .activity-card, .home-stack .heist-stage, .home-stack .quiet, .home-stack > .freeze-banner, .home-stack > .rejection, .home-stack > .state-error {
+    grid-column: 1 / -1;
+  }
+.hero-tagline {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
   }
 }
 
@@ -3254,24 +3289,6 @@ html {
 }
 .ring-value, .ring-track {
     stroke: CanvasText;
-  }
-}
-
-@media (min-width: 960px) {
-  .home-stack {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-}
-.home-stack > .hero {
-    grid-column: 1;
-    grid-row: 1;
-  }
-.home-stack .needs-card {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: stretch;
-  }
-.home-stack .activity-card, .home-stack .heist-stage, .home-stack .quiet, .home-stack > .freeze-banner, .home-stack > .rejection, .home-stack > .state-error {
-    grid-column: 1 / -1;
   }
 }
 
@@ -3359,6 +3376,60 @@ html {
     width: 1px;
     height: 1px;
     overflow: hidden;
+  }
+}
+
+@media (max-width: 480px) {
+  .flow-track {
+    flex-wrap: nowrap;
+    overflow: visible;
+  }
+  .flow-item {
+    flex: 1 1 52px;
+    min-width: min-content;
+    max-width: none;
+  }
+  .flow-step {
+    flex: 0 1 52px;
+    width: auto;
+    min-width: max-content;
+    max-width: none;
+  }
+  .flow-line {
+    flex: 1 1 8px;
+    min-width: 8px;
+  }
+  .flow-state {
+    width: 0;
+    min-width: 100%;
+  }
+  .activity .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "line1 line1"
+      "line2 pill";
+  }
+  .activity .row-line {
+    display: grid;
+    grid-area: line1;
+    grid-template-columns: auto minmax(6ch, 1fr) auto;
+    grid-template-areas: "avatar title amount";
+    column-gap: 8px;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .activity .row-sub {
+    grid-area: line2;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "task time";
+  }
+  .activity .pill {
+    grid-area: pill;
+    justify-self: end;
+  }
+  .activity .bedrock-tag {
+    grid-column: 1 / -1;
   }
 }
 

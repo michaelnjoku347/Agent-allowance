@@ -989,16 +989,14 @@ function ActivityList({ items, onOpen, empty, flashId = '' }) {
               <span className="row-line">
                 <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
                 <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="row-end">
-                  <span className="amount">{money(item.amount)} RLUSD</span>
-                  <StatusPill status={status} />
-                </span>
+                <span className="amount">{money(item.amount)} RLUSD</span>
               </span>
               <span className="row-line row-sub">
                 <span className="row-task">{item.task || 'Purchase'}</span>
                 <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
                 {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Bedrock</span> : null}
               </span>
+              <StatusPill status={status} />
             </button>
           </li>
         );

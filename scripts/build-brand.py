@@ -18,7 +18,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dashboard" / "public" / "brand"
-FONT = Path("/tmp/brand-fonts/Outfit-wght.ttf")
+FONT = Path(__file__).resolve().parent / "fonts" / "Outfit-wght.ttf"
 
 PINE = "#1B4D3E"
 CREAM = "#F7F4EC"
@@ -379,8 +379,9 @@ def main():
     write_png("app-icon-light.svg", OUT / "app-icon-light-512.png", 512)
     code = measure()
     if not FONT.exists():
-        print("lockups skipped, font missing", FONT)
-        return code
+        print("Outfit variable font is required for lockups:", FONT, file=sys.stderr)
+        print("Vendor it at scripts/fonts/Outfit-wght.ttf (SIL OFL 1.1, see scripts/fonts/OFL.txt).", file=sys.stderr)
+        return 1
     for horizontal, dark, name in (
         (True, False, "lockup-horizontal.svg"),
         (True, True, "lockup-horizontal-dark.svg"),
