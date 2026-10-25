@@ -394,6 +394,9 @@ function intentInjection(lower, text, context) {
 }
 
 function intentGreeting(lower, text, context) {
+  if (/^(thanks|thank you|thx|cheers|great|perfect|nice|ok(ay)?|got it|cool)\b/.test(lower) && lower.split(/\s+/).length <= 6) {
+    return answer(`You're welcome. ${statusLine(context)}`, { kind: 'status', suggestions: suggestionsFor('status', context) });
+  }
   if (!/^(hi|hello|hey|hiya|good (morning|afternoon|evening)|yo|howdy)\b/.test(lower) || lower.split(/\s+/).length > 6) return null;
   return answer(`Hi. Here is where things stand: ${statusLine(context)} What would you like to know?`, { kind: 'status', suggestions: suggestionsFor('status', context) });
 }
@@ -672,6 +675,7 @@ function intentSpent(lower, text, context, now = Date.now()) {
 
 function intentBought(lower, text, context, now = Date.now()) {
   if (!/\b(buy|bought|purchases?|purchased|paid for|what did (it|the agent) get|recent|latest|last payment|last purchase)\b/.test(lower)) return null;
+  if (/\b(per[- ]purchase|cap|limit)\b/.test(lower)) return null;
   const period = periodIn(lower) || (/\b(recent|latest|last)\b/.test(lower) ? 'all' : 'today');
   const merchant = merchantIn(text, context);
   const rows = rowsFor(context, merchant).filter((item) => item.status === 'paid' && inPeriod(item, period, now));
@@ -724,11 +728,11 @@ function intentWaiting(lower, text, context) {
 }
 
 function intentRules(lower, text, context, now = Date.now()) {
-  if (!/\b(rules?|cap|limit|budget|expire|expires|expiry|expiration|end date|deadline|how long|allowance)\b/.test(lower)) return null;
+  if (!/\b(rules?|cap|limit|budget|expire|expires|expiry|expiration|end date|deadline|how long|allowance|how many days|days (are )?(left|remain\w*))\b/.test(lower)) return null;
   const r = context.rules ?? {};
   const days = daysUntil(r.expiresAt, now);
   const ends = `${shortDate(r.expiresAt)}${days != null ? ` (${days === 0 ? 'today' : `${plural(days, 'day')} from now`})` : ''}`;
-  if (/\b(expire|expires|expiry|expiration|end date|deadline|how long)\b/.test(lower)) {
+  if (/\b(expire|expires|expiry|expiration|end date|deadline|how long|how many days|days (are )?(left|remain\w*))\b/.test(lower)) {
     return answer(`The allowance ends ${ends}. After that, nothing is paid until you extend it with your Ledger.`, { kind: 'rules' });
   }
   if (/\bcap|per[- ]purchase|limit\b/.test(lower) && !/\bbudget\b/.test(lower)) {
@@ -870,6 +874,112 @@ function intentApprover(lower, text, context) {
   return answer(`Your approver is ${who}. It approves a purchase over your cap, one at a time, and signs any raise to the budget, the cap, the end date, or the merchant list. It cannot pay a merchant off the list or go over the budget.${change}${device}`, { kind: 'rules' });
 }
 
+/*
+ * How the product works, for an owner who asks. Each answer is a fact about
+ * this build; a few add the owner's own numbers or open the page to act on it.
+ */
+const EXPLAINERS = [
+  {
+    test: /\bx402\b|\bhttp 402\b|\bhow (do|does) (the )?(payments?|paying) work\b/,
+    reply: () => 'x402 is how the agent pays. It asks the merchant for the data, the merchant answers HTTP 402 with a price and a payee, your rules check that quote, and only then does the agent sign one voucher on its AP4M payment channel. The merchant redeems the voucher on XRPL EVM Testnet and sends the data. Each voucher carries the running total on the channel.',
+  },
+  {
+    test: /\b(what|which) (network|chain|blockchain)\b|\bchain id\b|\b(testnet|mainnet)\b/,
+    reply: () => 'Everything here runs on XRPL EVM Testnet, chain 1449000. Payments are testnet RLUSD and gas is testnet XRP. Nothing touches a mainnet.',
+  },
+  {
+    test: /\bwhat('s| is) rlusd\b|\bwhat does rlusd\b/,
+    reply: () => 'RLUSD is Ripple’s US dollar stablecoin. Here it is testnet RLUSD on XRPL EVM Testnet, so 0.01 RLUSD is a cent-sized test payment, not real money.',
+  },
+  {
+    test: /\brefunds?\b|\bmoney back\b|\b(undo|reverse|cancel) (a |the |that |my )?(paid )?(payment|purchase)\b/,
+    reply: () => 'A paid purchase is final: the merchant redeemed the voucher on XRPL, and no one here can undo it. A blocked or declined purchase was never paid. To stop it happening again, lower the cap or the budget on the Rules page, or freeze the agent.',
+  },
+  {
+    test: /\b(is|are) (my |the )?(private )?(keys?|wallets?|seed) (safe|secure)\b|\bwhere (is|are) (my |the )?(private )?keys?\b/,
+    reply: () => 'The agent’s key stays in .env on the computer that runs it. It is never committed, never logged, and never sent to the AP4M service or any API, and it can only sign what your rules allow, up to the channel cap. Your approver key never leaves your Ledger; the server only checks its signatures. I never see a key.',
+  },
+  {
+    test: /\b(lost|lose|stolen|broken|forgot)\b.*\bledger\b|\bledger\b.*\b(lost|stolen|broken)\b|\bwithout (my |a |the )?ledger\b/,
+    reply: () => 'If your Ledger is lost, freeze the agent if anything worries you; signing stops at once. Until you have an approver again, the agent still pays inside the rules, but nothing over the cap can be approved and no limit can be raised. Restore the same account from its recovery phrase to keep your approver. To use a different one, change APPROVER_ADDRESS or agent/rules.json on the server; the dashboard cannot replace it.',
+    ui: { type: 'navigate', route: 'security' },
+  },
+  {
+    test: /\b(can|could|will|would|might) (the |my )?agent (ever )?(spend|go|pay) (more than|over|past|beyond|above) (the |my )?(budget|limit|allowance)\b|\b(overspend|go over (the |my )?budget)\b/,
+    reply: (context) => `No. The budget is ${rl(totalsOf(context).budget)} and the payment channel's cap is the budget, so the agent cannot sign past it, and a purchase that would go over is refused even with your Ledger's signature. Above the ${rl(context.rules?.maxPerPurchase)} cap on one purchase, it stops and asks you.`,
+  },
+  {
+    test: /\bhow (do|can|should) i (add|allow|remove|delete) (a |another |the )?merchants?\b/,
+    reply: () => 'Open Rules and use the allowance editor: paste the merchant’s payout address under Merchants. Adding a merchant is a raise, so your Ledger signs it. Removing one applies as soon as you save.',
+    ui: { type: 'navigate', route: 'rules' },
+  },
+  {
+    test: /\bhow (do|can|should) i (raise|increase|change|lower|reduce|extend|edit) (my |the )?(budget|cap|limit|end date|expiry|allowance)\b/,
+    reply: () => 'Open Rules and change it in the allowance editor. Lowering the budget or the cap applies as soon as you save. Raising either, extending the end date, or adding a merchant needs your Ledger to sign the new allowance. You can also tell me a number, like “set my cap to 0.04”, and I will put it in the editor for you to check.',
+    ui: { type: 'navigate', route: 'rules' },
+  },
+  {
+    // "What is the channel?" is a concept; "what is the channel status?" is the live channel answer.
+    test: /\bwhat (is|'s) (a |the |my )?(payment )?channel\s*\??$|\bhow (does|do) (the |a )?(payment )?channels? work\b/,
+    reply: () => 'The payment channel is a prepaid AP4M channel the agent pays from. Each purchase is a voucher on it, and the merchant redeems vouchers on XRPL. Its cap is your budget, so the agent can never sign past it. Freeze closes the channel; the next run after you unfreeze opens a new one.',
+  },
+];
+
+function intentExplain(lower, text, context) {
+  const found = EXPLAINERS.find((item) => item.test.test(lower));
+  if (!found) return null;
+  return answer(found.reply(context), { kind: 'rules', ui: found.ui });
+}
+
+function intentAgentRole(lower, text, context) {
+  if (!/\bwhat (does|is) (the |my )?agent (do|doing|for)\b|\b(the agent'?s|its) (job|task|purpose)\b|\bwhat (job|task) (is|does) (it|the agent)\b/.test(lower)) return null;
+  const job = context.useCase;
+  const planner = context.bedrockConfigured ? 'Amazon Bedrock chooses what to buy' : 'the built-in planner chooses what to buy (Bedrock is not configured)';
+  return answer(`${job?.title ? `Its job: ${job.title}. ` : ''}${job?.summary ? `${job.summary} ` : ''}For each task, ${planner}, the merchant quotes a price over x402, and your rules decide before anything is signed. It holds no other key and cannot change its own limits.`, { kind: 'rules' });
+}
+
+function intentLastApprover(lower, text, context, now = Date.now()) {
+  if (!/\bwho (approved|signed|ok'?d|okayed)\b/.test(lower)) return null;
+  const row = (context.audit ?? []).find((item) => item.outcome === 'ledger-approved');
+  if (!row) return answer('No exception has been approved yet. A purchase over the cap waits under Approvals until your Ledger signs it.', { kind: 'waiting' });
+  const what = row.amount ? `${rl(row.amount)}${row.merchantLabel ? ` to ${row.merchantLabel}` : ''}` : 'the last exception';
+  return answer(`${row.signer ? `The approver ${shortAddress(row.signer)}` : 'Your approver'} signed ${what}${row.at ? `, ${ago(row.at, now)}` : ''}. It was paid once through x402.`, { kind: 'waiting', ui: { type: 'navigate', route: 'security' } });
+}
+
+function intentHealth(lower, text, context, now = Date.now()) {
+  if (!/\b(is (anything|something) (wrong|broken|off)|any (problems?|issues?|errors?)|anything (wrong|broken)|is everything (ok|okay|fine|alright|good|working)|everything ok|all good|health ?check)\b/.test(lower)) return null;
+  const t = totalsOf(context);
+  const issues = [];
+  if (context.frozen) issues.push('The agent is frozen, so nothing can be signed.');
+  const days = daysUntil(context.rules?.expiresAt, now);
+  if (days === 0) issues.push('The allowance has ended. Extend it on the Rules page with your Ledger.');
+  else if (days != null && days <= 7) issues.push(`The allowance ends in ${plural(days, 'day')}.`);
+  if (t.budget > 0n && t.left * 5n < t.budget) issues.push(`Only ${rl(t.left)} of ${rl(t.budget)} is left.`);
+  if (!context.rules?.approverAddress) issues.push('No approver is set, so a purchase over the cap can only be declined. Name one on Security.');
+  if (context.chain?.unavailable) issues.push('The payment channel cannot be read, so approvals are refused until it can.');
+  const open = waiting(context);
+  const clearable = blockedRows(context).filter((item) => item.status === 'pending');
+  const notes = [];
+  if (open.length) notes.push(`${plural(open.length, 'purchase')} ${open.length === 1 ? 'waits' : 'wait'} for your approval.`);
+  if (clearable.length) notes.push(`${plural(clearable.length, 'decline-only purchase')} can be cleared.`);
+  if (!issues.length) {
+    return answer(`Nothing looks wrong. The agent is live, ${rl(t.left)} is left${days != null ? `, and the allowance runs ${plural(days, 'more day')}` : ''}. ${notes.join(' ')}`.trim(), { kind: 'status', suggestions: suggestionsFor('status', context) });
+  }
+  return answer(`${plural(issues.length, 'thing needs', 'things need')} a look:\n${issues.map((line) => `• ${line}`).join('\n')}${notes.length ? `\n${notes.join(' ')}` : ''}`, { kind: 'status', suggestions: suggestionsFor('status', context) });
+}
+
+function intentRecap(lower, text, context, now = Date.now()) {
+  if (!/\b(while i was (away|gone|out)|what happened|what did i miss|recap|anything new|what'?s new|since (yesterday|this morning|last time|i left)|catch me up|lately)\b/.test(lower)) return null;
+  const events = [
+    ...paidRows(context).map((item) => ({ at: item.createdAt, line: `Paid ${rl(item.amount)} to ${merchantName(item)}${item.task ? ` for “${item.task}”` : ''}` })),
+    ...(context.pending ?? []).map((item) => ({ at: item.createdAt, line: `${isBlocked(item) ? 'Blocked' : 'Held for you'}: ${rl(item.amount)} to ${merchantName(item)} (${plainReason(item.reason || (isBlocked(item) ? 'merchant not allowed' : '')).replace(/\.$/, '').toLowerCase()})` })),
+    ...(context.audit ?? []).filter((row) => row.rule === 'freeze' || row.rule === 'unfreeze' || row.outcome === 'ledger-approved')
+      .map((row) => ({ at: row.at, line: row.rule === 'freeze' ? 'You froze the agent' : row.rule === 'unfreeze' ? 'You unfroze the agent' : `Your Ledger approved ${row.amount ? rl(row.amount) : 'an exception'}` })),
+  ].filter((item) => item.at).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 5);
+  if (!events.length) return answer(`Nothing has happened yet. ${statusLine(context)}`, { kind: 'status' });
+  return answer(`Lately:\n${events.map((item) => `• ${item.line}, ${ago(item.at, now)}.`).join('\n')}\nNow: ${statusLine(context)}`, { kind: 'status', suggestions: suggestionsFor('status', context) });
+}
+
 function intentLedger(lower) {
   if (!/\b(ledger|hardware wallet|how (do|does) (i )?approv\w*|how approvals? work|what does the ledger sign|signing)\b/.test(lower)) return null;
   return answer('When a purchase is over your cap, it waits under Approvals. Approving it asks your Ledger to sign one message for exactly that merchant, that amount, and a short validity window. The server checks the signature came from your approver, then pays that purchase once. A signature can pass the cap, but never an unlisted merchant, an expired allowance, or the budget. Raising a limit is signed the same way.', { kind: 'rules' });
@@ -891,6 +1001,9 @@ const INTENTS = [
   intentFreezeInfo,
   intentFreeze,
   intentApprover,
+  intentExplain,
+  intentAgentRole,
+  intentLastApprover,
   intentExport,
   intentChangeRules,
   intentApprove,
@@ -900,6 +1013,8 @@ const INTENTS = [
   intentAudit,
   intentNavigate,
   intentNext,
+  intentHealth,
+  intentRecap,
   intentLedger,
   intentWhy,
   intentPlanner,

@@ -275,6 +275,58 @@ describe('Eve never signs, spends, changes rules, or unfreezes', () => {
     assert.equal(ask('approve the 0.08 purchase', named).ui?.type, 'review');
   });
 
+  test('questions about how the product works get answers, not refusals', () => {
+    const cases = [
+      ['how many days are left?', /ends Dec 31, 2026 \(68 days from now\)/],
+      ['what is the per-purchase cap?', /The per-purchase cap is 0\.05 RLUSD/],
+      ['how does x402 work here?', /merchant answers HTTP 402 with a price and a payee/],
+      ['what network is this on?', /XRPL EVM Testnet, chain 1449000/],
+      ['what is rlusd?', /Ripple’s US dollar stablecoin/],
+      ['how do refunds work?', /A paid purchase is final/],
+      ['is my key safe?', /never sent to the AP4M service or any API/],
+      ['what if my ledger is lost?', /nothing over the cap can be approved and no limit can be raised/],
+      ['can the agent spend more than the budget?', /^No\. The budget is 0\.20 RLUSD/],
+      ['what is the payment channel?', /prepaid AP4M channel/],
+      ['what does the agent do?', /your rules decide before anything is signed/],
+      ['who approved the last exception?', /No exception has been approved yet/],
+      ['thanks', /^You're welcome\. 0\.125 RLUSD left/],
+    ];
+    for (const [question, expected] of cases) {
+      const result = ask(question);
+      assert.doesNotMatch(result.reply, /outside what I can do/, question);
+      assert.match(result.reply, expected, question);
+    }
+    assert.deepEqual(ask('how do I add a merchant?').ui, { type: 'navigate', route: 'rules' });
+    assert.deepEqual(ask('how do I raise my budget?').ui, { type: 'navigate', route: 'rules' });
+    assert.match(ask('how do I raise my budget?').reply, /needs your Ledger to sign/);
+    // A how-to question opens the page; it never changes anything.
+    assert.equal(ask('how do I raise my budget?').action, undefined);
+  });
+
+  test('a health check lists what needs a look, and a recap lists what happened', () => {
+    const named = { ...owner, rules: { ...owner.rules, approverAddress: '0xabab000000000000000000000000000000001234' } };
+    const fine = ask('is anything wrong?', named);
+    assert.match(fine.reply, /^Nothing looks wrong\. The agent is live, 0\.125 RLUSD is left/);
+    assert.match(fine.reply, /1 purchase waits for your approval/);
+    const worried = ask('everything ok?', { ...named, frozen: true, rules: { ...named.rules, approverAddress: null } });
+    assert.match(worried.reply, /2 things need a look/);
+    assert.match(worried.reply, /The agent is frozen/);
+    assert.match(worried.reply, /No approver is set/);
+
+    const recap = ask('what happened while I was away?');
+    assert.match(recap.reply, /^Lately:/);
+    assert.match(recap.reply, /Blocked: 0\.02 RLUSD to Unlisted Research API/);
+    assert.match(recap.reply, /Held for you: 0\.08 RLUSD to Field Weather Co/);
+    assert.match(recap.reply, /Paid 0\.04 RLUSD to Market Desk/);
+    assert.match(recap.reply, /Now: 0\.125 RLUSD left/);
+
+    const approved = {
+      ...named,
+      audit: [{ id: 'a3', outcome: 'ledger-approved', rule: 'ledger', reason: 'Approved.', signer: '0xabab000000000000000000000000000000001234', amount: '0.08', merchantLabel: 'Field Weather Co', at: '2026-10-25T15:55:00.000Z' }, ...owner.audit],
+    };
+    assert.match(ask('who approved the last exception?', approved).reply, /The approver 0xabab…1234 signed 0\.08 RLUSD to Field Weather Co, 5 min ago/);
+  });
+
   test('a question that merely says "download" does not start a download', () => {
     const size = ask('how big is the dashboard download?');
     assert.equal(size.ui, undefined);
