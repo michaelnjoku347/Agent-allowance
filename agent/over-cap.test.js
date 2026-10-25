@@ -27,7 +27,7 @@ async function close(server) {
 }
 
 describe('over-cap demo', { concurrency: false }, () => {
-test('a 6 RLUSD quote is rejected by the rules and nothing is signed', async () => {
+test('a 0.06 RLUSD quote is rejected by the rules and nothing is signed', async () => {
   const rules = loadRules();
   const quoteServer = await listen(createQuoteApp({ payout: rules.allowedMerchants[0] }));
   const { port } = quoteServer.address();
@@ -37,13 +37,13 @@ test('a 6 RLUSD quote is rejected by the rules and nothing is signed', async () 
       rules,
     });
     assert.equal(result.signed, false);
-    assert.equal(result.amount, '6');
-    assert.equal(result.cap, '5');
+    assert.equal(result.amount, '0.06');
+    assert.equal(result.cap, '0.05');
     assert.equal(result.reason, 'over per-purchase cap');
     assert.equal(result.decision, 'needs_approval');
     assert.equal(result.txHash ?? null, null);
     const pending = await listPending();
-    assert.equal(pending.some((item) => item.amount === '6' && item.reason === 'over per-purchase cap' && !item.sample), true);
+    assert.equal(pending.some((item) => item.amount === '0.06' && item.reason === 'over per-purchase cap' && !item.sample), true);
   } finally {
     await close(quoteServer);
   }
@@ -74,8 +74,8 @@ test('contract cap evidence is shown only when the simulation left redeemed stat
     merchantBalanceAfter: '4',
     channelId: `0x${'ab'.repeat(32)}`,
     blockNumber: 12,
-    capRlusd: '5',
-    rejectedCumulativeRlusd: '6',
+    capRlusd: '0.05',
+    rejectedCumulativeRlusd: '0.06',
   });
   assert.equal(clean.ran, true);
   assert.equal(clean.redeemedBefore, clean.redeemedAfter);
@@ -94,13 +94,13 @@ test('POST /api/demo/over-cap records the rules rejection and does not invent a 
     const body = await response.json();
     assert.equal(body.ok, true);
     assert.equal(body.signed, false);
-    assert.equal(body.amount, '6');
-    assert.equal(body.cap, '5');
+    assert.equal(body.amount, '0.06');
+    assert.equal(body.cap, '0.05');
     assert.equal(body.reason, 'over per-purchase cap');
     assert.equal(body.contract.ran, false);
     assert.equal(body.contract.rejectionData, undefined);
     const pending = await (await fetch(`http://127.0.0.1:${port}/api/pending`)).json();
-    assert.equal(pending.some((item) => item.amount === '6' && item.reason === 'over per-purchase cap'), true);
+    assert.equal(pending.some((item) => item.amount === '0.06' && item.reason === 'over per-purchase cap'), true);
   } finally {
     await close(server);
     rmSync(dir, { recursive: true, force: true });

@@ -72,6 +72,12 @@ export const sampleSnapshot = {
       address,
       label: rules.merchantLabels?.[address] ?? null,
     })),
+    deniedMerchants: (rules.deniedMerchants ?? []).map((item) => ({
+      address: String(item.address ?? item).toLowerCase(),
+      label: item.label ?? null,
+      reason: item.reason ?? 'This merchant is decline-only. A Ledger signature cannot pay it.',
+    })),
+    approverAddress: rules.approverAddress ?? null,
   },
   network: {
     name: network.name,
@@ -134,7 +140,7 @@ export async function runRogueDemo() {
   return body;
 }
 
-/** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
+/** Read a 0.06 RLUSD quote and let the rules reject it before anything is signed. */
 export async function runOverCap() {
   return postJson('/api/demo/over-cap', undefined, 'The over-cap demo did not run.', 60_000);
 }

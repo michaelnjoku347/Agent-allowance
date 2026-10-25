@@ -3,6 +3,10 @@ import { ethers } from 'ethers';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
+
+/** Channel caps the channel-cap test opens: the per-purchase cap, at the old and the new scale. */
+const CAP_TEST_SIZES = ['5', '0.05', DEMO_AMOUNTS.cap];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export function buildConfiguration({ current = {}, source = {}, settings = {}, rules, useAgentAsSubmitter = false }) {
@@ -29,8 +33,11 @@ export function buildConfiguration({ current = {}, source = {}, settings = {}, r
   env.RESOURCE_URL ||= 'http://127.0.0.1:4308/resource';
   env.MERCHANT_PORT ||= '4308';
   env.PORT ||= '8787';
-  const budgetCap = String(rules.budget ?? '20');
-  if (!env.CHANNEL_CAP || env.CHANNEL_CAP === '5') env.CHANNEL_CAP = budgetCap;
+  // The channel cap defaults to the whole budget. A cap left over from the
+  // channel-cap test (the per-purchase cap size, old or new scale) is replaced
+  // too, so the demo never opens a channel smaller than its budget.
+  const budgetCap = String(rules.budget ?? DEMO_AMOUNTS.budget);
+  if (!env.CHANNEL_CAP || CAP_TEST_SIZES.includes(env.CHANNEL_CAP)) env.CHANNEL_CAP = budgetCap;
   if (env.CHANNEL_ID) throw new Error('Clear CHANNEL_ID locally before setup; the integrated agent selects an open channel.');
   const payout = env.MERCHANT_PAYOUT_ADDRESS.toLowerCase();
   const localRules = structuredClone(rules);
@@ -63,7 +70,7 @@ export function main(argv = process.argv.slice(2), projectRoot = root) {
   const serialized = Object.entries(configured.env).map(([key, value]) => key + '=' + JSON.stringify(value)).join('\n') + '\n';
   writeFileSync(join(root, '.env'), serialized, { mode: 0o600 });
   console.log('Configured local .env and wrote the payout address into agent/rules.json. No payment sent.');
-  console.log('Next: npm run server; npm run merchant; npm run dashboard; npm run demo (one 1 RLUSD purchase).');
+  console.log(`Next: npm run server; npm run merchant; npm run dashboard; npm run demo (one ${DEMO_AMOUNTS.brief} RLUSD purchase).`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }

@@ -34,11 +34,11 @@ function challenge({ amount, payTo }) {
 
 test('reads the price and payout out of a 402 PAYMENT-REQUIRED header', () => {
   const header = challenge({
-    amount: '2500000000000000000',
+    amount: '25000000000000000',
     payTo: rules.allowedMerchants[0],
   });
   const quote = quoteFromPaymentRequired(header);
-  assert.equal(quote.amount, '2.5');
+  assert.equal(quote.amount, '0.025');
   assert.equal(quote.merchant.toLowerCase(), rules.allowedMerchants[0]);
   assert.equal(quote.network, 'eip155:1449000');
   assert.equal(quote.description, 'Morning weather brief');
@@ -51,7 +51,7 @@ test('reads the price and payout out of a 402 PAYMENT-REQUIRED header', () => {
 
 test('requestQuote stops at HTTP 402 and does not send a payment signature', async () => {
   const header = challenge({
-    amount: '1000000000000000000',
+    amount: '10000000000000000',
     payTo: rules.allowedMerchants[0],
   });
   let sawPayment = false;
@@ -68,7 +68,7 @@ test('requestQuote stops at HTTP 402 and does not send a payment signature', asy
   try {
     const { port } = server.address();
     const quote = await requestQuote(`http://127.0.0.1:${port}/resource`, channelId);
-    assert.equal(quote.amount, '1');
+    assert.equal(quote.amount, '0.01');
     assert.equal(sawPayment, false);
   } finally {
     server.closeAllConnections?.();
@@ -78,12 +78,12 @@ test('requestQuote stops at HTTP 402 and does not send a payment signature', asy
 
 test('a direct purchase quote is the price and payout the rules check', () => {
   const quote = buildPurchaseQuote({
-    amount: '1.0',
+    amount: '0.010',
     merchant: '0xA11CEA11CEA11CEA11CEA11CEA11CEA11CEA11CE',
     task: 'Buy the morning weather brief',
   });
-  assert.equal(quote.amount, '1');
-  assert.equal(quote.amountWei, `${10n ** 18n}`);
+  assert.equal(quote.amount, '0.01');
+  assert.equal(quote.amountWei, `${10n ** 16n}`);
   assert.equal(quote.merchant, '0xa11cea11cea11cea11cea11cea11cea11cea11ce');
   assert.equal(quote.task, 'Buy the morning weather brief');
   assert.equal(checkRules({ merchant: quote.merchant, amount: quote.amount, spent: '0' }).decision, 'allow');

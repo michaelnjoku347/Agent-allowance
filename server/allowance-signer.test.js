@@ -31,7 +31,7 @@ test('the backup allowance challenge and verification use the same approver', as
     const challenge = await fetch(`${base}/api/allowance/challenge`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ maxPerPurchase: '8' }),
+      body: JSON.stringify({ maxPerPurchase: '0.08' }),
     });
     const prepared = await challenge.json();
     assert.equal(challenge.status, 200);
@@ -45,7 +45,7 @@ test('the backup allowance challenge and verification use the same approver', as
     const body = await accepted.json();
     assert.equal(accepted.status, 200, body.message || body.error);
     const rules = JSON.parse(readFileSync(process.env.ALLOWANCE_RULES, 'utf8'));
-    assert.equal(rules.maxPerPurchase, '8');
+    assert.equal(rules.maxPerPurchase, '0.08');
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));

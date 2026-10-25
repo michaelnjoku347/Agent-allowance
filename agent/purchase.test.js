@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { ethers } from 'ethers';
 
 const dir = mkdtempSync(join(tmpdir(), 'allowance-purchase-'));
 process.env.ALLOWANCE_STORE = join(dir, 'store.json');
@@ -32,7 +33,7 @@ const receiptUrl = 'https://hackathon.ap4m.build/public/evidence/claims/claim-1.
 function quote(amount, merchant) {
   return {
     amount,
-    amountWei: `${BigInt(amount) * 10n ** 18n}`,
+    amountWei: ethers.parseUnits(amount, 18).toString(),
     merchant,
     description: `Quoted ${amount} RLUSD.`,
     resourceUrl: 'http://127.0.0.1:4308/resource',
@@ -42,24 +43,24 @@ function quote(amount, merchant) {
 test('a paid result names the tx, claim, receipt, and explorer', () => {
   const line = resultLine({
     decision: 'allow',
-    amount: '1',
+    amount: '0.01',
     txHash,
     claimId: 'claim-1',
     receiptUrl,
     explorerUrl: `https://explorer.testnet.xrplevm.org/tx/${txHash}`,
   });
-  assert.match(line, /^paid 1 RLUSD — tx 0xab/);
+  assert.match(line, /^paid 0.01 RLUSD — tx 0xab/);
   assert.match(line, /claim claim-1/);
   assert.match(line, new RegExp(`receipt ${receiptUrl.replace(/[.]/g, '\\.')}`));
   assert.match(line, /https:\/\/explorer\.testnet\.xrplevm\.org\/tx\/0xab/);
 });
 
-test('an allowed 1 RLUSD quote is paid and replaces the sample rows', async () => {
+test('an allowed 0.01 RLUSD quote is paid and replaces the sample rows', async () => {
   let calls = 0;
   const result = await finishQuote({
     task: 'Buy the morning market brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     channelId: `0x${'cd'.repeat(32)}`,
     rules,
     spent: '0',
@@ -80,12 +81,12 @@ test('an allowed 1 RLUSD quote is paid and replaces the sample rows', async () =
 
   assert.equal(calls, 1);
   assert.equal(result.decision, 'allow');
-  assert.equal(result.amount, '1');
+  assert.equal(result.amount, '0.01');
   assert.equal(result.txHash, txHash);
   assert.equal(result.claimId, 'claim-1');
   assert.equal(result.receiptUrl, receiptUrl);
   assert.equal(result.explorerUrl, `https://explorer.testnet.xrplevm.org/tx/${txHash}`);
-  assert.match(result.line, /^paid 1 RLUSD /);
+  assert.match(result.line, /^paid 0.01 RLUSD /);
 
   const payments = await listPayments();
   assert.equal(payments.length, 1);
@@ -97,14 +98,14 @@ test('an allowed 1 RLUSD quote is paid and replaces the sample rows', async () =
   assert.equal(pending.every((item) => item.sample === false), true);
 });
 
-test('8 RLUSD is blocked for the per-purchase cap and nothing is paid', async () => {
+test('0.08 RLUSD is blocked for the per-purchase cap and nothing is paid', async () => {
   let calls = 0;
   const result = await finishQuote({
     task: 'Buy the extended market history',
     resourceUrl: 'http://127.0.0.1:4308/demo/over-cap',
-    quote: quote('8', allowed),
+    quote: quote('0.08', allowed),
     rules,
-    spent: '1',
+    spent: '0.01',
     pay: async () => {
       calls += 1;
       throw new Error('must not pay');
@@ -116,7 +117,7 @@ test('8 RLUSD is blocked for the per-purchase cap and nothing is paid', async ()
   assert.equal(result.txHash, null);
   assert.equal(result.line, 'blocked over per-purchase cap — saved for approval');
   const pending = await listPending();
-  assert.equal(pending.some((item) => item.reason === 'over per-purchase cap' && item.amount === '8' && !item.sample), true);
+  assert.equal(pending.some((item) => item.reason === 'over per-purchase cap' && item.amount === '0.08' && !item.sample), true);
 });
 
 test('a merchant outside the allowlist is blocked and nothing is paid', async () => {
@@ -124,9 +125,9 @@ test('a merchant outside the allowlist is blocked and nothing is paid', async ()
   const result = await finishQuote({
     task: 'Buy a quote from an outside desk',
     resourceUrl: 'http://127.0.0.1:4308/demo/unlisted',
-    quote: quote('1', unlisted),
+    quote: quote('0.01', unlisted),
     rules,
-    spent: '1',
+    spent: '0.01',
     pay: async () => {
       calls += 1;
       throw new Error('must not pay');
@@ -147,7 +148,7 @@ test('a lost settlement response still leaves the redeemed spend recorded', asyn
   await assert.rejects(finishQuote({
     task: 'Buy before service disconnects',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     rules,
     spent: '0',
     pay: async () => ({ transactionHash: txHash, claimId: 'claim-recovery' }),

@@ -6,7 +6,7 @@ const rules = loadRules();
 const merchant = rules.allowedMerchants[0];
 
 function decide(purchase) {
-  return checkRules({ merchant, amount: '1', spent: '0', ...purchase }, rules);
+  return checkRules({ merchant, amount: '0.01', spent: '0', ...purchase }, rules);
 }
 
 test('allows a purchase inside the allowance', () => {
@@ -15,8 +15,8 @@ test('allows a purchase inside the allowance', () => {
 });
 
 test('allows a purchase that lands exactly on the cap and the budget', () => {
-  assert.equal(decide({ amount: rules.maxPerPurchase === 0n ? '0' : '5', spent: '15' }).decision, 'allow');
-  assert.equal(decide({ amount: '5.000', spent: '15.000' }).reason, 'within allowance');
+  assert.equal(decide({ amount: rules.maxPerPurchase === 0n ? '0' : '0.05', spent: '0.15' }).decision, 'allow');
+  assert.equal(decide({ amount: '0.05000', spent: '0.15000' }).reason, 'within allowance');
 });
 
 test('needs approval when the allowance is expired', () => {
@@ -34,40 +34,40 @@ test('needs approval when the merchant is not on the list', () => {
 });
 
 test('a Ledger approval still stops at expiry and the budget', () => {
-  const overCap = checkApprovalHardRules({ merchant, amount: '8', spent: '0' }, rules);
+  const overCap = checkApprovalHardRules({ merchant, amount: '0.08', spent: '0' }, rules);
   assert.equal(overCap.decision, 'allow');
   const unlisted = checkApprovalHardRules({
     merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad',
-    amount: '1',
+    amount: '0.01',
     spent: '0',
   }, rules);
   assert.equal(unlisted.reason, 'merchant not allowed');
   const other = checkApprovalHardRules({
     merchant: '0x2222222222222222222222222222222222222222',
-    amount: '1',
+    amount: '0.01',
     spent: '0',
   }, rules);
   assert.equal(other.reason, 'merchant not allowed');
-  assert.equal(checkApprovalHardRules({ merchant, amount: '8', spent: '16' }, rules).reason, 'over budget');
-  assert.equal(checkApprovalHardRules({ merchant, amount: '1', spent: '0', at: rules.expiresAt }, rules).reason, 'expired');
+  assert.equal(checkApprovalHardRules({ merchant, amount: '0.08', spent: '0.16' }, rules).reason, 'over budget');
+  assert.equal(checkApprovalHardRules({ merchant, amount: '0.01', spent: '0', at: rules.expiresAt }, rules).reason, 'expired');
 });
 
 test('needs approval over the per-purchase cap', () => {
-  assert.equal(decide({ amount: '5.01' }).reason, 'over per-purchase cap');
-  assert.equal(decide({ amount: '8' }).reason, 'over per-purchase cap');
+  assert.equal(decide({ amount: '0.0501' }).reason, 'over per-purchase cap');
+  assert.equal(decide({ amount: '0.08' }).reason, 'over per-purchase cap');
 });
 
 test('needs approval when the quote would exceed the budget', () => {
-  // 3 RLUSD is under the 5 RLUSD cap, but 18 + 3 is over the 20 RLUSD budget.
-  assert.equal(decide({ amount: '3', spent: '18' }).reason, 'over budget');
-  assert.equal(decide({ amount: '2', spent: '18' }).decision, 'allow');
+  // 0.03 RLUSD is under the 0.05 RLUSD cap, but 18 + 3 is over the 0.2 RLUSD budget.
+  assert.equal(decide({ amount: '0.03', spent: '0.18' }).reason, 'over budget');
+  assert.equal(decide({ amount: '0.02', spent: '0.18' }).decision, 'allow');
 });
 
 test('expired wins when several rules fail at once', () => {
   const result = decide({
     merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad',
-    amount: '9',
-    spent: '19',
+    amount: '0.09',
+    spent: '0.19',
     at: rules.expiresAt,
   });
   assert.equal(result.reason, 'expired');

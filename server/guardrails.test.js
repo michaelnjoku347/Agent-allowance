@@ -148,32 +148,32 @@ describe('API guardrails', { concurrency: false }, () => {
 
   test('preview says whether a change needs the Ledger, and lower refuses any raise', async () => {
     await serve(createApp(), async (base) => {
-      const lowerPreview = await (await post(base, '/api/allowance/preview', { maxPerPurchase: '3' })).json();
+      const lowerPreview = await (await post(base, '/api/allowance/preview', { maxPerPurchase: '0.03' })).json();
       assert.equal(lowerPreview.needsLedger, false);
-      assert.equal(lowerPreview.next.maxPerPurchase, '3');
-      assert.equal(lowerPreview.current.maxPerPurchase, '5');
+      assert.equal(lowerPreview.next.maxPerPurchase, '0.03');
+      assert.equal(lowerPreview.current.maxPerPurchase, '0.05');
 
-      const raisePreview = await (await post(base, '/api/allowance/preview', { budget: '500' })).json();
+      const raisePreview = await (await post(base, '/api/allowance/preview', { budget: '5' })).json();
       assert.equal(raisePreview.needsLedger, true);
       assert.match(raisePreview.message, /Ledger must sign/);
 
-      const refused = await post(base, '/api/allowance/lower', { budget: '500' });
+      const refused = await post(base, '/api/allowance/lower', { budget: '5' });
       assert.equal(refused.status, 403);
       assert.equal((await refused.json()).error, 'needs_ledger');
-      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).budget, '20');
+      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).budget, '0.20');
 
-      const capOverBudget = await post(base, '/api/allowance/lower', { maxPerPurchase: '19', budget: '10' });
+      const capOverBudget = await post(base, '/api/allowance/lower', { maxPerPurchase: '0.19', budget: '0.1' });
       assert.equal(capOverBudget.status, 400);
 
-      const lowered = await post(base, '/api/allowance/lower', { maxPerPurchase: '3' });
+      const lowered = await post(base, '/api/allowance/lower', { maxPerPurchase: '0.03' });
       assert.equal(lowered.status, 200);
-      assert.equal((await lowered.json()).rules.maxPerPurchase, '3');
-      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).maxPerPurchase, '3');
+      assert.equal((await lowered.json()).rules.maxPerPurchase, '0.03');
+      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).maxPerPurchase, '0.03');
 
       const noOrigin = await fetch(`${base}/api/allowance/lower`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxPerPurchase: '1' }),
+        body: JSON.stringify({ maxPerPurchase: '0.01' }),
       });
       assert.equal(noOrigin.status, 403);
     });

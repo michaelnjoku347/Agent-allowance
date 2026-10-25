@@ -8,7 +8,7 @@ const CHIPS = [
   'What did my agent spend today?',
   'Why was the last one blocked?',
   'What is waiting for approval?',
-  'Set my cap to 3',
+  'Set my cap to 0.03',
 ];
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;

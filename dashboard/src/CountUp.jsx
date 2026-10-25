@@ -22,8 +22,9 @@ function usePrefersReducedMotion() {
 
 /**
  * The first paint is the real total. A later change can count from the
- * previous total. Starting at 0 made a reload show 5.60 or 3.39 while the
- * caption already read "0.00 of 20.00 RLUSD spent".
+ * previous total. Starting at 0 made a reload show 0.056 or 0.0339 while the
+ * caption already read "0.00 of 0.20 RLUSD spent". In-between frames use the
+ * same 2 to 4 decimals as money(), so the number does not jump in width.
  */
 export default function CountUp({ value, className }) {
   const target = Number(value);
@@ -67,7 +68,7 @@ export default function CountUp({ value, className }) {
     ? String(value ?? '')
     : (settled
       ? money(target)
-      : shown.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      : shown.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: target % 0.01 === 0 ? 2 : 4 }));
 
   return <span className={className}>{text}</span>;
 }

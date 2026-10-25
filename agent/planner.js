@@ -9,6 +9,7 @@
 import { heistCatalog, liveCatalog } from '../shared/catalog.js';
 import { converse, parseModelJson, readBedrockSettings } from '../server/bedrock.js';
 import { formatRlusd } from './rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
 export const PLANNER_INSTRUCTIONS = `
 You select one data resource for a user's task.
@@ -109,7 +110,7 @@ export async function selectResource(task, catalog, options = {}) {
   }
 }
 
-const FALLBACK_REASON = 'Deterministic fallback. Bedrock is not configured, so the 1 RLUSD morning brief is selected.';
+const FALLBACK_REASON = `Deterministic fallback. Bedrock is not configured, so the ${DEMO_AMOUNTS.brief} RLUSD morning brief is selected.`;
 
 /**
  * Pick one of the three live resources.

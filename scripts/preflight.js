@@ -13,6 +13,7 @@ import { devSignerEnabled } from '../server/backup-demo.js';
 import { readBedrockSettings } from '../server/bedrock.js';
 import { spentRlusd } from '../server/store.js';
 import { historyResourceUrl, merchantOrigin } from '../shared/catalog.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -40,8 +41,8 @@ export function evaluatePreflight(facts = {}) {
       problems.push(`On-chain redeemed ${facts.redeemed} RLUSD does not match local spent ${facts.localSpent} RLUSD.`);
     }
   }
-  if (!facts.briefUp) problems.push(`The 1 RLUSD merchant is not answering at ${facts.briefUrl || 'the brief URL'}.`);
-  if (!facts.historyUp) problems.push(`The 8 RLUSD history merchant is not answering at ${facts.historyUrl || 'the history URL'}.`);
+  if (!facts.briefUp) problems.push(`The ${DEMO_AMOUNTS.brief} RLUSD merchant is not answering at ${facts.briefUrl || 'the brief URL'}.`);
+  if (!facts.historyUp) problems.push(`The ${DEMO_AMOUNTS.history} RLUSD history merchant is not answering at ${facts.historyUrl || 'the history URL'}.`);
   const mode = facts.bedrockConfigured ? 'Amazon Bedrock' : 'Fallback (Bedrock not configured)';
   return { ok: problems.length === 0, problems, mode };
 }

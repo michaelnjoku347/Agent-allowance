@@ -1,11 +1,4 @@
-export function money(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return String(value ?? '');
-  return amount.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  });
-}
+export { money } from '../../shared/money.js';
 
 export function when(iso) {
   if (!iso) return '';

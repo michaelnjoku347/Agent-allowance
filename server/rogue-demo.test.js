@@ -89,7 +89,7 @@ test('a raise the engine accepts is refused by the demo', async () => {
     /Ledger signature/,
   );
   const rules = readFileSync(process.env.ALLOWANCE_RULES, 'utf8');
-  assert.match(rules, /"maxPerPurchase": "5"/);
+  assert.match(rules, /"maxPerPurchase": "0.05"/);
 });
 
 test('POST /api/demo/rogue returns the three blocks and does not pay', async () => {

@@ -4,6 +4,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { money } from '../shared/money.js';
 import { describeAllowanceChange, loadRules, presentRules, updateAllowance } from '../agent/rules.js';
 import { explainJev, plainReason, jevSourceLabel } from '../shared/words.js';
 import { converse, parseModelJson, readBedrockSettings } from './bedrock.js';
@@ -64,7 +65,7 @@ export async function loadEveContext() {
     payments,
     pending,
     rules,
-    spent: spentNumber.toFixed(2),
+    spent: money(spentNumber),
     demo: showSamples,
   };
 }
@@ -98,7 +99,7 @@ function findPending(text, context) {
 function moneyLine(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0.00';
-  return number.toFixed(2);
+  return money(number);
 }
 
 function wantsFreeze(lower) {
@@ -289,7 +290,7 @@ function ruleAnswerOne(message, context) {
     }
     const noun = rows.length === 1 ? 'payment' : 'payments';
     return {
-      reply: `Today the agent spent ${total.toFixed(2)} RLUSD across ${rows.length} ${noun}. ${context.spent} RLUSD is spent in total.`,
+      reply: `Today the agent spent ${money(total)} RLUSD across ${rows.length} ${noun}. ${context.spent} RLUSD is spent in total.`,
     };
   }
 

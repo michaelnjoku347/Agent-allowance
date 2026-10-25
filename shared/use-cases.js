@@ -10,8 +10,8 @@ export const USE_CASES = [
     title: 'Research desk',
     summary: 'The agent buys briefs from desks you listed. The live demo uses this job.',
     jobs: [
-      'A 1 RLUSD morning brief from a listed desk is inside the cap, so the agent pays.',
-      'An 8 RLUSD history pack is over the cap, so it waits for a Ledger.',
+      'A 0.01 RLUSD morning brief from a listed desk is inside the cap, so the agent pays.',
+      'A 0.08 RLUSD history pack is over the cap, so it waits for a Ledger.',
       'The unlisted research desk is decline-only. A signature cannot pay it.',
     ],
   },

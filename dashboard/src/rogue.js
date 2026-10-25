@@ -27,7 +27,7 @@ export function scriptedRogueReport() {
     {
       id: 'over-cap',
       title: 'Over the cap',
-      attempt: 'The agent tries to buy 8 RLUSD. The cap is 5 RLUSD.',
+      attempt: 'The agent tries to buy 0.08 RLUSD. The cap is 0.05 RLUSD.',
       rule: 'over per-purchase cap',
       ruleText: plainReason('over per-purchase cap'),
       outcome: 'Blocked',

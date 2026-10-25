@@ -18,7 +18,7 @@ const {
 
 const merchant = loadRules().allowedMerchants[0];
 
-async function quote(amount = '8') {
+async function quote(amount = '0.08') {
   return recordPending({
     task: 'Hold a quote',
     merchant,
@@ -30,42 +30,42 @@ async function quote(amount = '8') {
 
 describe('reservations', { concurrency: false }, () => {
 test('two spends that together pass the budget cannot both reserve', async () => {
-  const [first, second] = await Promise.all([reserveSpend('15'), reserveSpend('15')]);
+  const [first, second] = await Promise.all([reserveSpend('0.15'), reserveSpend('0.15')]);
   const held = [first, second].filter((row) => row.ok);
   const refused = [first, second].filter((row) => row.ok === false);
   assert.equal(held.length, 1);
   assert.equal(refused.length, 1);
   assert.equal(refused[0].reason, 'over budget');
-  assert.equal(await spentRlusd(), '15');
+  assert.equal(await spentRlusd(), '0.15');
   await releaseReservation(held[0].id);
-  const again = await reserveSpend('15');
+  const again = await reserveSpend('0.15');
   assert.equal(again.ok, true);
-  assert.equal(await spentRlusd(), '15');
+  assert.equal(await spentRlusd(), '0.15');
   await releaseReservation(again.id);
 });
 
 test('a signature claim reserves in the same lock and does not keep a refused signature', async () => {
-  const held = await reserveSpend('15');
+  const held = await reserveSpend('0.15');
   assert.equal(held.ok, true);
-  const pending = await quote('8');
+  const pending = await quote('0.08');
   const signature = `0x${'ab'.repeat(65)}`;
-  const blocked = await claimApprovalSignature(pending.id, signature, Date.now(), { amount: '8' });
+  const blocked = await claimApprovalSignature(pending.id, signature, Date.now(), { amount: '0.08' });
   assert.equal(blocked.error, 'over_budget');
-  assert.equal(await spentRlusd(), '15');
+  assert.equal(await spentRlusd(), '0.15');
   await releaseReservation(held.id);
 
   const [claimed, raced] = await Promise.all([
-    claimApprovalSignature(pending.id, signature, Date.now(), { amount: '8' }),
-    reserveSpend('15'),
+    claimApprovalSignature(pending.id, signature, Date.now(), { amount: '0.08' }),
+    reserveSpend('0.15'),
   ]);
   const claimWon = claimed.ok === true;
   const raceWon = raced.ok === true;
   assert.equal(Number(claimWon) + Number(raceWon), 1);
   if (claimWon) {
-    assert.equal(await spentRlusd(), '8');
-    const again = await claimApprovalSignature(pending.id, signature, Date.now(), { amount: '8' });
+    assert.equal(await spentRlusd(), '0.08');
+    const again = await claimApprovalSignature(pending.id, signature, Date.now(), { amount: '0.08' });
     assert.equal(again.inFlight, true);
-    assert.equal(await spentRlusd(), '8');
+    assert.equal(await spentRlusd(), '0.08');
   }
   rmSync(dir, { recursive: true, force: true });
 });

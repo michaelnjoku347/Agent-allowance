@@ -42,7 +42,7 @@ async function post(base, path, body) {
   return { status: response.status, body: await response.json().catch(() => ({})) };
 }
 
-async function hold(amount = '8') {
+async function hold(amount = '0.08') {
   return recordPending({
     task: 'Buy the extended market history',
     merchant,
@@ -73,7 +73,7 @@ test('a channel that cannot be read or cannot cover the quote is not paid', asyn
   }
 
   const short = await listen(createApp({
-    channelState: async () => ({ cap: '5', redeemed: '0' }),
+    channelState: async () => ({ cap: '0.05', redeemed: '0' }),
     payApproved: async () => { paid += 1; },
   }));
   try {
@@ -81,8 +81,8 @@ test('a channel that cannot be read or cannot cover the quote is not paid', asyn
     const blocked = await post(`http://127.0.0.1:${short.address().port}`, `/api/approve/${pending.id}/challenge`);
     assert.equal(blocked.status, 409);
     assert.equal(blocked.body.error, 'channel_short');
-    assert.match(blocked.body.message, /5 RLUSD left/);
-    assert.match(blocked.body.message, /quote is 8 RLUSD/);
+    assert.match(blocked.body.message, /0.05 RLUSD left/);
+    assert.match(blocked.body.message, /quote is 0.08 RLUSD/);
     assert.match(blocked.body.message, /Nothing was signed/);
     assert.equal(paid, 0);
   } finally {
@@ -90,11 +90,11 @@ test('a channel that cannot be read or cannot cover the quote is not paid', asyn
   }
 
   const over = await listen(createApp({
-    channelState: async () => ({ cap: '30', redeemed: '21' }),
+    channelState: async () => ({ cap: '0.3', redeemed: '0.21' }),
     payApproved: async () => { paid += 1; },
   }));
   try {
-    const pending = await hold('1');
+    const pending = await hold('0.01');
     const blocked = await post(`http://127.0.0.1:${over.address().port}`, `/api/approve/${pending.id}/challenge`);
     assert.equal(blocked.status, 409);
     assert.equal(blocked.body.error, 'chain_over_budget');
@@ -113,7 +113,7 @@ test('a signature is not paid when the channel read fails after the challenge, a
   await recordAgentPayment({
     task: 'Morning brief',
     merchant,
-    amount: '1',
+    amount: '0.01',
     txHash: `0x${'11'.repeat(32)}`,
   });
   const pending = await hold();
@@ -121,7 +121,7 @@ test('a signature is not paid when the channel read fails after the challenge, a
     channelState: async () => {
       reads += 1;
       if (reads > 1) throw new Error('rpc down');
-      return { cap: '20', redeemed: '4' };
+      return { cap: '0.2', redeemed: '0.04' };
     },
     payApproved: async (quote) => {
       paid += 1;
@@ -152,7 +152,7 @@ test('a signature is not paid when the channel read fails after the challenge, a
 
   reads = 0;
   const covered = await listen(createApp({
-    channelState: async () => ({ cap: '20', redeemed: '4' }),
+    channelState: async () => ({ cap: '0.2', redeemed: '0.04' }),
     payApproved: async (quote) => {
       paid += 1;
       seen = quote.spentBasis;
@@ -174,7 +174,7 @@ test('a signature is not paid when the channel read fails after the challenge, a
       message: challenge.body.typedData.message,
     });
     assert.equal(ok.status, 200);
-    assert.equal(seen, '4');
+    assert.equal(seen, '0.04');
     assert.equal(paid, 1);
   } finally {
     await close(covered);
@@ -190,7 +190,7 @@ test('a second approval while one is paying returns that attempt', async () => {
   const startedGate = new Promise((resolve) => { started = resolve; });
   const pending = await hold();
   const server = await listen(createApp({
-    channelState: async () => ({ cap: '20', redeemed: '0' }),
+    channelState: async () => ({ cap: '0.2', redeemed: '0' }),
     payApproved: async (quote) => {
       calls += 1;
       started();
@@ -215,7 +215,7 @@ test('a second approval while one is paying returns that attempt', async () => {
     assert.equal(second.status, 202);
     assert.equal(second.body.inFlight, true);
     assert.equal(calls, 1);
-    assert.equal(await spentRlusd(), '8');
+    assert.equal(await spentRlusd(), '0.08');
     const progress = await fetch(`${base}/api/approve/${pending.id}/progress`);
     assert.equal(progress.status, 200);
     const body = await progress.json();

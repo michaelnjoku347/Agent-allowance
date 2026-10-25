@@ -8,6 +8,7 @@
 import { decodeX402PaymentRequired } from '@ap4m/sdk';
 import { ethers } from 'ethers';
 import { canonicalAddress, formatRlusd, toUnits } from './rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
 const TESTNET = 'eip155:1449000';
 
@@ -73,7 +74,7 @@ export async function requestQuote(resourceUrl, channelId, fetchImpl = fetch) {
  * A local quote used by tests. The payer itself reads the price from the
  * merchant's HTTP 402, not from this helper. Nothing here signs or pays.
  */
-export function buildPurchaseQuote({ amount = '1', merchant, task = '' } = {}) {
+export function buildPurchaseQuote({ amount = DEMO_AMOUNTS.brief, merchant, task = '' } = {}) {
   const units = toUnits(amount);
   const price = formatRlusd(units);
   return {

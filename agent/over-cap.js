@@ -1,7 +1,7 @@
 /**
  * Over-cap demo.
  *
- * The rules half reads a real HTTP 402 for 6 RLUSD and runs finishQuote.
+ * The rules half reads a real HTTP 402 for 0.06 RLUSD and runs finishQuote.
  * pay() is not called, so nothing is signed.
  *
  * The contract half only reports a simulation that already happened:
@@ -15,8 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { finishQuote } from './agent.js';
 import { requestQuote } from './quote.js';
 import { formatRlusd, loadRules } from './rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
-export const OVER_CAP_RLUSD = '6';
+export const OVER_CAP_RLUSD = DEMO_AMOUNTS.overCap;
 
 export async function demonstrateOverCap({
   resourceUrl,

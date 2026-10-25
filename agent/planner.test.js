@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { ethers } from 'ethers';
 
 const dir = mkdtempSync(join(tmpdir(), 'allowance-plan-'));
 process.env.ALLOWANCE_STORE = join(dir, 'store.json');
@@ -35,13 +36,13 @@ const catalog = [
   {
     id: 'weather-basic',
     description: 'Morning weather brief',
-    price: '3',
+    price: '0.03',
     merchant: allowed,
   },
   {
     id: 'market-basic',
     description: 'Market pricing report',
-    price: '8',
+    price: '0.08',
     merchant: '0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0',
   },
 ];
@@ -67,7 +68,7 @@ test('selectResource keeps prices and merchants in code and returns the catalog 
   const result = await selectResource('Buy the morning weather brief', catalog, { env, client });
   assert.equal(result.answered, true);
   assert.equal(result.resource.id, 'weather-basic');
-  assert.equal(result.resource.price, '3');
+  assert.equal(result.resource.price, '0.03');
   assert.equal(result.resource.merchant, allowed);
   const sent = userPayload(client.calls[0]);
   assert.deepEqual(sent.catalog, [
@@ -124,14 +125,14 @@ test('planPurchase sends allowance figures and keeps the merchant address local'
   const client = mockClient('{"resourceId":"quoted-resource","reason":"The brief matches the task."}');
   const plan = await planPurchase({
     task: 'Buy the morning weather brief',
-    quote: { description: 'Morning weather brief', amount: '1', merchant: allowed },
+    quote: { description: 'Morning weather brief', amount: '0.01', merchant: allowed },
     rules,
   }, { env, client });
   assert.equal(plan.source, 'bedrock');
   assert.equal(plan.resourceId, 'quoted-resource');
   const sent = userPayload(client.calls[0]);
-  assert.equal(sent.rules.budget, '20');
-  assert.equal(sent.rules.maxPerPurchase, '5');
+  assert.equal(sent.rules.budget, '0.2');
+  assert.equal(sent.rules.maxPerPurchase, '0.05');
   assert.equal(sent.catalog[0].description, 'Morning weather brief');
   assert.equal(JSON.stringify(sent).includes(allowed), false);
   assert.equal(JSON.stringify(sent).includes('"price"'), false);
@@ -146,13 +147,13 @@ test('missing credentials skip the model', async () => {
   assert.equal(called, false);
   assert.equal(result.answered, false);
   assert.match(result.reason, /missing/);
-  assert.equal(await planPurchase({ task: 'Buy the weather', quote: { description: 'Brief', amount: '1' } }, { env: {} }), null);
+  assert.equal(await planPurchase({ task: 'Buy the weather', quote: { description: 'Brief', amount: '0.01' } }, { env: {} }), null);
 });
 
 function quote(amount, merchant) {
   return {
     amount,
-    amountWei: `${BigInt(amount) * 10n ** 18n}`,
+    amountWei: ethers.parseUnits(amount, 18).toString(),
     merchant,
     description: 'Morning weather brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
@@ -164,7 +165,7 @@ test('a Bedrock plan is saved and cannot block a quote the rules allow', async (
   const result = await finishQuote({
     task: 'Buy the morning weather brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     rules,
     spent: '0',
     plan: async () => ({
@@ -186,13 +187,13 @@ test('a Bedrock plan is saved and cannot block a quote the rules allow', async (
   assert.equal(row.plan.reason, 'The quoted brief matches the task.');
 });
 
-test('rules still block an 8 RLUSD quote after Bedrock says to buy it', async () => {
+test('rules still block a 0.08 RLUSD quote after Bedrock says to buy it', async () => {
   let reviewed = false;
   let paid = 0;
   const result = await finishQuote({
     task: 'Buy the extended market history',
     resourceUrl: 'http://127.0.0.1:4308/demo/over-cap',
-    quote: quote('8', allowed),
+    quote: quote('0.08', allowed),
     rules,
     spent: '0',
     plan: async () => ({ source: 'bedrock', resourceId: 'quoted-resource', reason: 'Buy it.' }),
@@ -204,7 +205,7 @@ test('rules still block an 8 RLUSD quote after Bedrock says to buy it', async ()
   assert.equal(result.decision, 'needs_approval');
   assert.equal(result.reason, 'over per-purchase cap');
   const pending = await listPending();
-  const row = pending.find((item) => item.amount === '8' && item.task === 'Buy the extended market history');
+  const row = pending.find((item) => item.amount === '0.08' && item.task === 'Buy the extended market history');
   assert.equal(row.plan.reason, 'Buy it.');
   assert.equal(row.plan.source, 'bedrock');
 });
@@ -214,7 +215,7 @@ test('Jev can still hold an allowed quote that Bedrock planned', async () => {
   const result = await finishQuote({
     task: 'Buy the morning weather brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     rules,
     spent: '0',
     plan: async () => ({ source: 'bedrock', resourceId: 'quoted-resource', reason: 'It fits.' }),
@@ -322,13 +323,13 @@ test('a deterministic fallback plan is saved on the activity row', async () => {
   const result = await finishQuote({
     task: 'Buy the morning market brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     rules,
     spent: '0',
     plan: async () => ({
       source: 'fallback',
       resourceId: 'brief',
-      reason: 'Deterministic fallback. Bedrock is not configured, so the 1 RLUSD morning brief is selected.',
+      reason: 'Deterministic fallback. Bedrock is not configured, so the 0.01 RLUSD morning brief is selected.',
       fallback: true,
     }),
     pay: async () => ({ transactionHash: `0x${'ef'.repeat(32)}` }),
@@ -346,7 +347,7 @@ test('a plan failure leaves the rules decision unchanged', async () => {
   const result = await finishQuote({
     task: 'Buy the morning weather brief',
     resourceUrl: 'http://127.0.0.1:4308/resource',
-    quote: quote('1', allowed),
+    quote: quote('0.01', allowed),
     rules,
     spent: '0',
     plan: async () => { throw new Error('planner-test-token'); },

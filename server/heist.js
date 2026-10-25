@@ -1,7 +1,7 @@
 /**
  * One-click prompt-injection demo.
  * The catalog row is fed to the same planner the agent uses.
- * The rules and the Ledger gate then block the 50 RLUSD quote.
+ * The rules and the Ledger gate then block the 0.50 RLUSD quote.
  * Nothing is signed, and no payable quote is saved.
  */
 
