@@ -2,6 +2,8 @@
 
 <img src="dashboard/public/brand/lockup-horizontal.svg" alt="Agent Allowance" width="280" />
 
+Spending power for AI, with a human key.
+
 [![Tests](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml/badge.svg)](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml)
 
 ## Run it

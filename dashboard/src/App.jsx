@@ -19,7 +19,6 @@ import {
   IconLock,
   IconReceipt,
   IconSettings,
-  LogoMark,
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
@@ -431,7 +430,7 @@ export default function App() {
       <div className="sr-only" aria-live="polite">{announce}</div>
       <aside className="sidenav">
         <div className="sidenav-brand" aria-hidden="true">
-          <LogoMark size={32} />
+          <img className="logo-mark" src="/brand/mark.svg" width="32" height="32" alt="" />
           <p>Agent Allowance</p>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
@@ -454,7 +453,7 @@ export default function App() {
         <div className="shell">
           <header className="top">
             <div className="brand">
-              <LogoMark size={40} />
+              <img className="logo-mark" src="/brand/mark.svg" width="40" height="40" alt="" />
               <div>
                 <h1>Agent Allowance</h1>
                 <p className="lede">The agent decides what to buy. It cannot decide what it is allowed to spend.</p>
@@ -1098,7 +1097,7 @@ function Skeletons() {
     <div className="stack" aria-busy="true" aria-live="polite">
       <p className="sr-only">Loading the allowance</p>
       <div className="loading-brand">
-        <LogoMark size={40} />
+        <img className="logo-mark" src="/brand/mark.svg" width="40" height="40" alt="" />
         <p>Agent Allowance</p>
       </div>
       <div className="card hero-skeleton" aria-hidden="true">

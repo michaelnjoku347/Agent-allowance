@@ -177,6 +177,7 @@ p { margin: 0; }
 .app.is-present h1 { font-size: clamp(1.6rem, 7vw, 2.1rem); }
 .brand { display: flex; gap: 12px; align-items: center; min-width: 0; }
 .logo-mark { display: block; flex: none; }
+.brand h1, .loading-brand, .sidenav-brand p { font-family: var(--display); font-weight: 600; letter-spacing: -0.03em; }
 
 .sidenav { display: none; }
 

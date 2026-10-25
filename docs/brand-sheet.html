@@ -4,64 +4,81 @@
     <meta charset="utf-8" />
     <title>Agent Allowance brand sheet</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600&display=swap" rel="stylesheet" />
     <style>
-      body { margin: 0; font-family: "IBM Plex Sans", sans-serif; background: #EFECE4; color: #1A1814; }
-      main { width: 1100px; margin: 0 auto; padding: 32px; display: grid; gap: 24px; }
-      h1 { font-size: 32px; font-weight: 600; margin: 0; }
-      p { margin: 0; }
-      .row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
-      .tile { background: #FBF9F4; border-radius: 16px; padding: 24px; }
-      .dark { background: #121411; color: #F4F0E6; }
-      .sizes { display: flex; gap: 16px; align-items: end; }
-      .swatch { width: 72px; height: 72px; border-radius: 12px; }
-      figcaption { font-size: 13px; color: #5A534A; margin-top: 8px; }
+      body { margin: 0; font-family: Inter, sans-serif; background: #ECE8DE; color: #1A1814; }
+      main { width: 1120px; margin: 0 auto; padding: 40px 36px 48px; display: grid; gap: 28px; }
+      h1 { font-family: Outfit, Inter, sans-serif; font-size: 40px; font-weight: 600; letter-spacing: -0.03em; margin: 0; }
+      .tag { margin: 6px 0 0; font-size: 17px; }
+      .row { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; }
+      .tile { background: #fff; border: 1px solid #7C7468; border-radius: 16px; padding: 20px; }
+      .dark { background: #121411; color: #F7F4EC; }
+      figcaption { font-size: 13px; font-weight: 600; color: #5A534A; margin-top: 12px; }
+      .dark figcaption { color: #C9C2B4; }
+      .sizes { display: flex; gap: 20px; align-items: end; }
+      .swatches { display: flex; gap: 16px; }
+      .swatch { width: 88px; }
+      .chip { height: 64px; border-radius: 12px; }
+      .swatch p { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+      .swatch span { display: block; font-weight: 400; color: #5A534A; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Agent Allowance</h1>
-      <p>Spending power for AI, with a human key.</p>
+      <header>
+        <h1>Agent Allowance</h1>
+        <p class="tag">Spending power for AI, with a human key.</p>
+      </header>
       <section class="row">
         <figure class="tile">
-          <img src="../dashboard/public/brand/mark.svg" width="64" height="64" alt="Pine mark" />
+          <img src="../dashboard/public/brand/mark.svg" width="72" height="72" alt="Pine mark" />
           <figcaption>Pine mark</figcaption>
         </figure>
         <figure class="tile">
-          <img src="../dashboard/public/brand/mark-light.svg" width="64" height="64" alt="Light mark" />
+          <img src="../dashboard/public/brand/mark-light.svg" width="72" height="72" alt="Light mark" />
           <figcaption>Light mark</figcaption>
         </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/lockup-horizontal.svg" width="280" alt="Horizontal lockup" />
-          <figcaption>Horizontal lockup</figcaption>
-        </figure>
-        <figure class="tile">
-          <img src="../dashboard/public/brand/lockup-stacked.svg" width="180" alt="Stacked lockup" />
-          <figcaption>Stacked lockup</figcaption>
-        </figure>
-      </section>
-      <section class="row">
         <figure class="tile dark">
-          <img src="../dashboard/public/brand/lockup-horizontal-dark.svg" width="280" alt="Dark horizontal lockup" />
-          <figcaption style="color:#C9C2B4">Dark lockup</figcaption>
+          <img src="../dashboard/public/brand/mark-dark.svg" width="72" height="72" alt="Dark mark" />
+          <figcaption>Dark mark</figcaption>
         </figure>
-        <figure class="tile dark">
-          <img src="../dashboard/public/brand/app-icon-512.png" width="96" height="96" alt="App icon" />
-          <figcaption style="color:#C9C2B4">App icon</figcaption>
-        </figure>
-        <div class="sizes tile">
+        <figure class="tile sizes">
           <img src="../dashboard/public/brand/mark.svg" width="16" height="16" alt="16 pixel mark" />
           <img src="../dashboard/public/brand/mark.svg" width="24" height="24" alt="24 pixel mark" />
           <img src="../dashboard/public/brand/mark.svg" width="32" height="32" alt="32 pixel mark" />
-          <figcaption>16, 24, and 32</figcaption>
-        </div>
+          <figcaption>16, 24, 32</figcaption>
+        </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/app-icon-512.png" width="72" height="72" alt="App icon" />
+          <figcaption>App icon</figcaption>
+        </figure>
       </section>
       <section class="row">
-        <div class="swatch" style="background:#1B4D3E"></div>
-        <div class="swatch" style="background:#F7F4EC;border:1px solid #E3DCD0"></div>
-        <div class="swatch" style="background:#C6F36B"></div>
-        <div class="swatch" style="background:#8A4518"></div>
-        <div class="swatch" style="background:#8E2218"></div>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/lockup-horizontal.svg" width="340" alt="Horizontal lockup" />
+          <figcaption>Horizontal, light</figcaption>
+        </figure>
+        <figure class="tile">
+          <img src="../dashboard/public/brand/lockup-stacked.svg" width="200" alt="Stacked lockup" />
+          <figcaption>Stacked, light</figcaption>
+        </figure>
+      </section>
+      <section class="row">
+        <figure class="tile dark">
+          <img src="../dashboard/public/brand/lockup-horizontal-dark.svg" width="340" alt="Dark horizontal lockup" />
+          <figcaption>Horizontal, dark</figcaption>
+        </figure>
+        <figure class="tile dark">
+          <img src="../dashboard/public/brand/lockup-stacked-dark.svg" width="200" alt="Dark stacked lockup" />
+          <figcaption>Stacked, dark</figcaption>
+        </figure>
+      </section>
+      <section class="swatches">
+        <div class="swatch"><div class="chip" style="background:#1B4D3E"></div><p>Pine <span>#1B4D3E</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F7F4EC;border:1px solid #7C7468"></div><p>Cream <span>#F7F4EC</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#C6F36B"></div><p>Accent <span>#C6F36B</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F8EFE4"></div><p>Amber <span>#8A4518</span></p></div>
+        <div class="swatch"><div class="chip" style="background:#F8E8E4"></div><p>Red <span>#8E2218</span></p></div>
       </section>
     </main>
   </body>
