@@ -217,6 +217,13 @@ export default function App() {
   const [announce, setAnnounce] = useState('');
   const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
   const [presenting, setPresenting] = useState(false);
+  const demoBridge = useRef({ runHeist: null, runRogue: null });
+  const [demoBusy, setDemoBusy] = useState({ heist: false, rogue: false });
+  const syncDemoBusy = useCallback((next) => {
+    setDemoBusy((current) => (
+      current.heist === next.heist && current.rogue === next.rogue ? current : next
+    ));
+  }, []);
   const [flowOverride, setFlowOverride] = useState(null);
   const [flashId, setFlashId] = useState('');
   const [ringMood, setRingMood] = useState('');
@@ -455,9 +462,12 @@ export default function App() {
       <div className="frame">
         <div className="shell">
           <header className="top">
-            <div className="brand">
-              <BrandMark size={40} />
-              <h1>Agent Allowance</h1>
+            <div className="brand-lockup">
+              <div className="brand">
+                <BrandMark size={40} />
+                <h1>Agent Allowance</h1>
+              </div>
+              <p className="hero-tagline">Spending power for AI, with a human key.</p>
             </div>
             <div className="top-tools">
               <button
@@ -471,6 +481,17 @@ export default function App() {
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
               <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
+              {tab === 'home' && snapshot && !presenting ? (
+                <DemoMenu
+                  onOverCap={onOverCap}
+                  onHeist={() => demoBridge.current.runHeist?.()}
+                  onRogue={() => demoBridge.current.runRogue?.()}
+                  onPresent={togglePresent}
+                  overCapBusy={overCapBusy}
+                  heistBusy={demoBusy.heist}
+                  rogueBusy={demoBusy.rogue}
+                />
+              ) : null}
               {presenting ? (
                 <button type="button" className="chip is-on present-toggle" aria-pressed="true" onClick={togglePresent}>
                   Exit presentation
@@ -492,6 +513,15 @@ export default function App() {
                 {({ stage: heistStage, run: runHeist, busy: heistBusy }) => (
               <RogueDemo onBeat={onRogueBeat}>
                 {({ stage: rogueStage, run: runRogue, busy: rogueBusy }) => (
+              <>
+              <DemoBridge
+                bridge={demoBridge}
+                onBusy={syncDemoBusy}
+                runHeist={runHeist}
+                runRogue={runRogue}
+                heistBusy={heistBusy}
+                rogueBusy={rogueBusy}
+              />
               <div className="home-grid">
                 <div className="home-main">
                 {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen</p> : null}
@@ -532,7 +562,6 @@ export default function App() {
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
-                <p className="hero-tagline">Spending power for AI, with a human key.</p>
 
                 <section className="card needs-card" aria-labelledby="needs-title">
                     <h2 id="needs-title">Needs you</h2>
@@ -585,15 +614,6 @@ export default function App() {
                   </section>
                 </div>
                 <div className="home-side">
-                  <DemoMenu
-                    onOverCap={onOverCap}
-                    onHeist={runHeist}
-                    onRogue={runRogue}
-                    onPresent={togglePresent}
-                    overCapBusy={overCapBusy}
-                    heistBusy={heistBusy}
-                    rogueBusy={rogueBusy}
-                  />
                   <div className="heist-stage">{heistStage}{rogueStage}</div>
                   <section className="card activity-card" aria-labelledby="latest-title">
                     <h2 id="latest-title">Latest activity</h2>
@@ -614,6 +634,7 @@ export default function App() {
                   </section>
                 </div>
               </div>
+              </>
                 )}
               </RogueDemo>
                 )}
@@ -780,7 +801,7 @@ function ThemeControl({ theme, setTheme }) {
 function BrandMark({ size }) {
   return (
     <>
-      <img className="logo-mark mark-for-light" src="/brand/mark.svg" width={size} height={size} alt="" />
+      <img className="logo-mark mark-for-light" src="/brand/mark-light.svg" width={size} height={size} alt="" />
       <img className="logo-mark mark-for-dark" src="/brand/mark-dark.svg" width={size} height={size} alt="" />
     </>
   );
@@ -829,6 +850,15 @@ function StatusPill({ status }) {
       {status.label}
     </span>
   );
+}
+
+function DemoBridge({ bridge, onBusy, runHeist, runRogue, heistBusy, rogueBusy }) {
+  bridge.current.runHeist = runHeist;
+  bridge.current.runRogue = runRogue;
+  useEffect(() => {
+    onBusy({ heist: heistBusy, rogue: rogueBusy });
+  }, [heistBusy, rogueBusy, onBusy]);
+  return null;
 }
 
 function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBusy, rogueBusy }) {
@@ -956,15 +986,19 @@ function ActivityList({ items, onOpen, empty, flashId = '' }) {
                 aria-label={`${item.merchantLabel || 'Merchant'}, ${money(item.amount)} RLUSD, ${status.label}, ${when(item.createdAt)}`}
                 onClick={() => onOpen(item)}
               >
-              <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
-              <span className="row-main">
+              <span className="row-line">
+                <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
                 <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="row-task">{item.task || 'Purchase'}</span>
+                <span className="row-end">
+                  <span className="amount">{money(item.amount)} RLUSD</span>
+                  <StatusPill status={status} />
+                </span>
               </span>
-              <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
-              <span className="amount">{money(item.amount)} RLUSD</span>
-              <StatusPill status={status} />
-              {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Planned by Bedrock</span> : null}
+              <span className="row-line row-sub">
+                <span className="row-task">{item.task || 'Purchase'}</span>
+                <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
+                {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Bedrock</span> : null}
+              </span>
             </button>
           </li>
         );

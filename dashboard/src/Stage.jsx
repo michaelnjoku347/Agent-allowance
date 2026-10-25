@@ -4,7 +4,7 @@ const STATE_WORD = {
   off: 'not reached',
   on: 'reached',
   wait: 'waiting',
-  stop: 'stopped here',
+  stop: 'Stopped here',
 };
 
 export function MoneyFlow({ flow, embedded = false, alert = false }) {
@@ -21,7 +21,7 @@ export function MoneyFlow({ flow, embedded = false, alert = false }) {
             <span className={`flow-step is-${step.state}${step.id === 'rules' ? ' is-rules' : ''}`} role="img" aria-label={`${step.label}, ${state}`}>
               <span className="flow-dot" />
               <span className="flow-label">{step.label}</span>
-              <span className="flow-state">{state}</span>
+              {step.state === 'stop' ? <span className="flow-state">Stopped here</span> : null}
             </span>
           </li>
         );
