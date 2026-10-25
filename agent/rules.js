@@ -152,6 +152,11 @@ export function presentRules(rules) {
       address,
       label: rules.merchantLabels[address] ?? null,
     })),
+    deniedMerchants: (rules.deniedMerchants ?? []).map((item) => ({
+      address: item.address,
+      label: item.label,
+      reason: item.reason,
+    })),
     approverAddress: readApprover(rules),
   };
 }

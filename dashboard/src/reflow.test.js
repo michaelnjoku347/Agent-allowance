@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const WINDOWS = process.platform === 'win32';
+const programFiles = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
 
 const CANDIDATES = [
   '/usr/local/bin/google-chrome',
@@ -9,6 +15,11 @@ const CANDIDATES = [
   '/usr/bin/google-chrome-stable',
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
+  // Playwright's bundled Chromium, present on many CI and cloud images.
+  '/opt/pw-browsers/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ...programFiles.map((dir) => join(dir, 'Google', 'Chrome', 'Application', 'chrome.exe')),
 ];
 
 function resolveChrome() {
@@ -53,6 +64,10 @@ async function waitUntilUp(url, deadlineMs) {
 
 function stop(child) {
   if (!child || child.exitCode !== null) return;
+  if (WINDOWS) {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
   try {
     // npm starts sh, node, and esbuild. Kill the whole group so nothing outlives the test.
     process.kill(-child.pid, 'SIGKILL');
@@ -61,19 +76,24 @@ function stop(child) {
   }
 }
 
-test('phone pages do not scroll sideways at 320 and 390', { timeout: 60_000 }, async () => {
+// A cold Vite pre-bundles React and the Ledger kit on first start. On a slow
+// laptop or a shared CI runner that alone can take most of a minute.
+test('phone pages do not scroll sideways at 320 and 390', { timeout: 150_000 }, async () => {
   const chromeBin = resolveChrome();
+  const profile = mkdtempSync(join(tmpdir(), 'chrome-reflow-'));
   let vite = null;
   let chrome = null;
   try {
     if (!(await up(DASHBOARD))) {
-      vite = spawn('npm', ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
-        cwd: new URL('../..', import.meta.url).pathname,
+      vite = spawn(WINDOWS ? 'npm.cmd' : 'npm', ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
+        cwd: fileURLToPath(new URL('../..', import.meta.url)),
         stdio: 'ignore',
-        detached: true,
+        detached: !WINDOWS,
+        shell: WINDOWS,
+        windowsHide: true,
       });
     }
-    assert.equal(await waitUntilUp(DASHBOARD, 30_000), true, 'dashboard dev server');
+    assert.equal(await waitUntilUp(DASHBOARD, 90_000), true, 'dashboard dev server');
     // Warm the module graph so the first Chrome load is not the one paying for it.
     assert.equal(await up(new URL('/src/main.jsx', DASHBOARD).href, 15_000), true, 'dashboard entry module');
 
@@ -82,7 +102,7 @@ test('phone pages do not scroll sideways at 320 and 390', { timeout: 60_000 }, a
       '--no-sandbox',
       '--disable-gpu',
       '--remote-debugging-port=9225',
-      '--user-data-dir=/tmp/chrome-reflow',
+      `--user-data-dir=${profile}`,
       'about:blank',
     ], { stdio: 'ignore' });
 
@@ -218,5 +238,6 @@ test('phone pages do not scroll sideways at 320 and 390', { timeout: 60_000 }, a
   } finally {
     if (chrome) chrome.kill('SIGKILL');
     stop(vite);
+    rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
   }
 });

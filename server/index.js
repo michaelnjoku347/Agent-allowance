@@ -8,8 +8,13 @@
  *   POST /api/approve/:id/challenge   EIP-712 payload for the Ledger
  *   POST /api/approve/:id             verify the device signature and pay once
  *   POST /api/run-agent       start agent/agent.js for the live demo
+ *   GET  /api/health          API, rules, and merchant reachability in plain words
+ *   POST /api/allowance/preview   what a change would do, and whether it needs the Ledger
+ *   POST /api/allowance/lower     apply a change that only lowers limits
  *
- * Data lives in server/data/store.json. Bind to localhost only.
+ * Data lives in server/data/store.json. Bind to localhost only. Every route
+ * is rate limited, every :id and body is shape-checked, and an unreadable
+ * rules file refuses to report or pay rather than guessing.
  */
 
 import dotenv from 'dotenv';
@@ -20,7 +25,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
-import { formatRlusd, loadRules, toUnits } from '../agent/rules.js';
+import { describeAllowanceChange, formatRlusd, loadRules, presentRules, toUnits, updateAllowance } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
 import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
@@ -35,6 +40,19 @@ import { freezeAgent } from './freeze-channel.js';
 import { runHeist } from './heist.js';
 import { runRogueDemo } from './rogue-demo.js';
 import { createStoreEvents } from './events.js';
+import {
+  LIMITS,
+  bodyErrors,
+  createRateLimiter,
+  logError,
+  optionalString,
+  parseAllowancePatch,
+  rateLimitSettings,
+  requireId,
+  requireJsonBody,
+  securityHeaders,
+} from './guardrails.js';
+import { merchantOrigin } from '../shared/catalog.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -71,9 +89,42 @@ function stopAgentProcess() {
   }
 }
 
+/** Rules that cannot be read mean nothing may be reported as safe to spend. */
+function rulesOrRefuse(res) {
+  try {
+    return loadRules();
+  } catch (error) {
+    logError(error);
+    res.status(503).json({
+      error: 'rules_unavailable',
+      message: 'The allowance rules could not be read, so the agent cannot pay. Check agent/rules.json.',
+    });
+    return null;
+  }
+}
+
+async function probe(url, timeoutMs = 1500, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return response.status < 500 ? 'up' : 'down';
+  } catch {
+    return 'down';
+  }
+}
+
 export function createApp(options = {}) {
   const app = express();
-  app.use(express.json({ limit: '16kb' }));
+  const limits = options.rateLimits ?? rateLimitSettings(options.env ?? process.env);
+  const readLimiter = createRateLimiter({ bucket: 'read', max: limits.reads, now: options.clock });
+  const writeLimiter = createRateLimiter({ bucket: 'write', max: limits.writes, now: options.clock });
+  const eveLimiter = createRateLimiter({ bucket: 'eve', max: limits.eve, now: options.clock });
+  app.disable('x-powered-by');
+  app.set('trust proxy', false);
+  app.use(securityHeaders({ dashboard: process.env.SERVE_DASHBOARD === '1' }));
+  app.use('/api', (req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? readLimiter : writeLimiter)(req, res, next));
+  app.use('/api', requireJsonBody);
+  app.use(express.json({ limit: '16kb', strict: true }));
+  app.use(bodyErrors);
   app.use('/api', (req, res, next) => {
     if (!allowedHost(req.headers.host)) {
       return res.status(403).json({ error: 'This API only answers on localhost.' });
@@ -84,9 +135,39 @@ export function createApp(options = {}) {
     next();
   });
 
+  app.get('/api/health', async (req, res) => {
+    let rules = 'ok';
+    try {
+      loadRules();
+    } catch {
+      rules = 'unreadable';
+    }
+    const merchantConfigured = Boolean(process.env.RESOURCE_URL?.trim());
+    const merchantUrl = options.merchantHealthUrl
+      ?? `${merchantConfigured ? new URL(process.env.RESOURCE_URL).origin : merchantOrigin(process.env)}/health`;
+    const merchant = await probe(merchantUrl, 1500, options.fetch);
+    const ready = rules === 'ok';
+    res.status(ready ? 200 : 503).json({
+      ok: ready,
+      api: 'up',
+      rules,
+      merchant,
+      merchantConfigured,
+      agentReady: Boolean(process.env.AGENT_PRIVATE_KEY?.trim() && process.env.TEAM_NAME?.trim() && merchantConfigured),
+      message: rules !== 'ok'
+        ? 'The allowance rules could not be read. Payments are refused until agent/rules.json is fixed.'
+        : merchant === 'down' && merchantConfigured
+          ? 'The merchant is not answering. The agent cannot buy until it is running (npm run merchant).'
+          : merchantConfigured
+            ? 'Everything is answering.'
+            : 'The allowance is up. No merchant is configured yet, so the dashboard shows example rows.',
+    });
+  });
+
   app.get('/api/status', async (req, res, next) => {
     try {
-      const rules = loadRules();
+      const rules = rulesOrRefuse(res);
+      if (!rules) return;
       const summary = summarize(await readStore(), rules);
       const localSpent = await spentRlusd();
       let chain = null;
@@ -184,7 +265,7 @@ export function createApp(options = {}) {
     return res.status(result.status).json(payload);
   }
 
-  app.post('/api/approve/:id/challenge', async (req, res, next) => {
+  app.post('/api/approve/:id/challenge', requireId, async (req, res, next) => {
     try {
       const env = backupChallengeEnv(ledgerOptions.env ?? process.env);
       sendLedger(res, await createApprovalChallenge(req.params.id, { ...ledgerOptions, env }));
@@ -193,7 +274,7 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/approve/:id', async (req, res, next) => {
+  app.post('/api/approve/:id', requireId, async (req, res, next) => {
     try {
       sendLedger(res, await acceptLedgerApproval(req.params.id, req.body ?? {}, ledgerOptions));
     } catch (error) {
@@ -201,7 +282,7 @@ export function createApp(options = {}) {
     }
   });
 
-  app.get('/api/approve/:id/progress', async (req, res, next) => {
+  app.get('/api/approve/:id/progress', requireId, async (req, res, next) => {
     try {
       const found = await readPendingRecord(req.params.id);
       if (found.error === 'invalid') return res.status(400).json({ error: 'invalid' });
@@ -219,7 +300,7 @@ export function createApp(options = {}) {
   });
 
   // Backup demo only. Off unless ALLOWANCE_DEV_SIGNER=1. Does not broadcast a voucher.
-  app.post('/api/demo/simulated-ledger/:id', async (req, res, next) => {
+  app.post('/api/demo/simulated-ledger/:id', requireId, async (req, res, next) => {
     try {
       if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
       sendLedger(res, await simulateLedgerApproval(req.params.id));
@@ -259,10 +340,63 @@ export function createApp(options = {}) {
     }
   });
 
+  app.post('/api/allowance/preview', async (req, res, next) => {
+    try {
+      const parsed = parseAllowancePatch(req.body);
+      if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+      if (!rulesOrRefuse(res)) return;
+      const described = describeAllowanceChange(parsed.patch);
+      if (described.error) return res.status(400).json({ error: 'invalid', message: described.error });
+      const current = presentRules(described.current);
+      const next = {
+        budget: formatRlusd(described.next.budget),
+        maxPerPurchase: formatRlusd(described.next.maxPerPurchase),
+        expiresAt: described.next.expiresAt,
+        allowedMerchants: described.next.allowedMerchants,
+      };
+      res.json({
+        ok: true,
+        raises: described.raises,
+        needsLedger: described.raises,
+        current: {
+          budget: current.budget,
+          maxPerPurchase: current.maxPerPurchase,
+          expiresAt: current.expiresAt,
+          allowedMerchants: current.allowedMerchants.map((item) => item.address),
+        },
+        next,
+        message: described.raises
+          ? 'This raises a limit or adds a merchant. Your Ledger must sign it.'
+          : 'This only lowers limits. It applies as soon as you save.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/allowance/lower', async (req, res, next) => {
+    try {
+      const parsed = parseAllowancePatch(req.body);
+      if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+      if (!rulesOrRefuse(res)) return;
+      // updateAllowance refuses any raise without a Ledger flag, and this route never sets it.
+      const applied = updateAllowance(parsed.patch);
+      if (applied.error) {
+        const status = applied.code === 'needs_ledger' ? 403 : 400;
+        return res.status(status).json({ error: applied.code || 'invalid', message: applied.error });
+      }
+      res.json({ ok: true, rules: applied.rules, note: 'Allowance lowered. Nothing was signed or paid.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/allowance/challenge', async (req, res, next) => {
     try {
+      const parsed = parseAllowancePatch(req.body);
+      if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
       const env = backupChallengeEnv(ledgerOptions.env ?? process.env);
-      sendLedger(res, await createAllowanceChallenge(req.body ?? {}, { ...ledgerOptions, env }));
+      sendLedger(res, await createAllowanceChallenge(parsed.patch, { ...ledgerOptions, env }));
     } catch (error) {
       next(error);
     }
@@ -277,7 +411,7 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/decline/:id', async (req, res, next) => {
+  app.post('/api/decline/:id', requireId, async (req, res, next) => {
     try {
       const result = await declinePending(req.params.id);
       if (result.error === 'invalid') {
@@ -296,9 +430,11 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/eve', async (req, res, next) => {
+  app.post('/api/eve', eveLimiter, async (req, res, next) => {
     try {
-      const message = typeof req.body?.message === 'string' ? req.body.message.slice(0, 2000) : '';
+      const parsed = optionalString(req.body?.message, LIMITS.eveChars);
+      if (parsed.error) return res.status(400).json({ error: 'Send Eve a question as text.' });
+      const message = parsed.value;
       const context = await loadEveContext();
       const result = await answerEve(message, context);
       if (result.action?.type === 'freeze') {
@@ -337,7 +473,7 @@ export function createApp(options = {}) {
 
   app.post('/api/eve/confirm', async (req, res, next) => {
     try {
-      const token = typeof req.body?.token === 'string' ? req.body.token : '';
+      const token = typeof req.body?.token === 'string' ? req.body.token.slice(0, LIMITS.tokenChars) : '';
       const action = confirmations.take(token);
       if (!action) {
         return res.status(400).json({ error: 'That confirmation expired. Ask Eve again.' });
@@ -375,7 +511,8 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/demo/over-cap', async (req, res, next) => {
-    const rules = loadRules();
+    const rules = rulesOrRefuse(res);
+    if (!rules) return;
     const payout = rules.allowedMerchants[0];
     if (!payout) return res.status(500).json({ error: 'The allowance has no merchant to quote.' });
     const quoteServer = createQuoteApp({ payout }).listen(0, '127.0.0.1');
@@ -408,6 +545,10 @@ export function createApp(options = {}) {
 
   app.post('/api/freeze', async (req, res, next) => {
     try {
+      if (req.body?.frozen !== undefined && typeof req.body.frozen !== 'boolean') {
+        return res.status(400).json({ error: 'frozen must be true or false.' });
+      }
+      // Anything other than an explicit false freezes. Unsure means stop.
       const frozen = req.body?.frozen !== false;
       if (!frozen) {
         const state = await setFreeze(false);
@@ -423,7 +564,7 @@ export function createApp(options = {}) {
 
   app.post('/api/use-case', async (req, res, next) => {
     try {
-      const id = typeof req.body?.id === 'string' ? req.body.id : '';
+      const id = typeof req.body?.id === 'string' ? req.body.id.slice(0, 64) : '';
       const result = await setUseCase(id);
       if (result.error) return res.status(400).json({ error: 'That use case is not one of the presets.' });
       res.json({ ok: true, useCase: result.useCase });
@@ -443,8 +584,11 @@ export function createApp(options = {}) {
     } catch (error) {
       return next(error);
     }
-    const raw = typeof req.body?.task === 'string' ? req.body.task : '';
-    const task = raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Buy the morning weather brief';
+    const parsed = optionalString(req.body?.task, 2000);
+    if (parsed.error) return res.status(400).json({ ok: false, error: 'The task must be text.' });
+    // Control characters never reach the agent's prompt or the console.
+    const task = parsed.value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, LIMITS.taskChars)
+      || 'Buy the morning weather brief';
     const ready = Boolean(
       process.env.AGENT_PRIVATE_KEY?.trim()
       && process.env.TEAM_NAME?.trim()
@@ -492,8 +636,9 @@ export function createApp(options = {}) {
   }
 
   app.use((error, req, res, next) => {
-    console.error(error.message ?? error);
-    res.status(500).json({ error: 'The allowance server hit an unexpected error.' });
+    logError(error);
+    if (res.headersSent) return res.end();
+    res.status(500).json({ error: 'The allowance server hit an unexpected error. Try again in a moment.' });
   });
 
   return app;

@@ -8,6 +8,46 @@ import rules from '../../agent/rules.json';
 import network from '../../shared/network.json';
 import sample from '../../shared/sample-data.json';
 import { presentUseCase } from '../../shared/use-cases.js';
+import { createReconnectingStream } from './connection.js';
+
+const UNREACHABLE = 'Can’t reach the allowance server. Check that npm start is still running, then try again.';
+
+/**
+ * fetch with a timeout and a sentence a person can act on. A dropped
+ * connection becomes kind "unreachable"; a 429 carries the server's wait.
+ */
+export async function call(path, { method = 'GET', body, timeoutMs = 15_000, fetchImpl = fetch } = {}) {
+  const init = { method, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) };
+  if (body !== undefined) {
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify(body);
+  }
+  let response;
+  try {
+    response = await fetchImpl(path, init);
+  } catch (error) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    const wrapped = new Error(timedOut ? 'The allowance server took too long to answer. Try again.' : UNREACHABLE);
+    wrapped.kind = timedOut ? 'timeout' : 'unreachable';
+    throw wrapped;
+  }
+  const parsed = await response.json().catch(() => ({}));
+  return { response, body: parsed && typeof parsed === 'object' ? parsed : {} };
+}
+
+function failure(response, body, fallback) {
+  const error = new Error(body.message || body.error || fallback);
+  error.status = response.status;
+  error.code = body.error;
+  if (response.status === 429) error.kind = 'busy';
+  return error;
+}
+
+async function postJson(path, payload, fallback, timeoutMs = 15_000) {
+  const { response, body } = await call(path, { method: 'POST', body: payload, timeoutMs });
+  if (!response.ok) throw failure(response, body, fallback);
+  return body;
+}
 
 const budget = Number(rules.budget);
 const spent = sample.payments
@@ -52,117 +92,82 @@ export const sampleSnapshot = {
   audit: [],
 };
 
-export async function fetchSnapshot() {
-  const [statusRes, paymentsRes, pendingRes] = await Promise.all([
-    fetch('/api/status', { cache: 'no-store' }),
-    fetch('/api/payments', { cache: 'no-store' }),
-    fetch('/api/pending', { cache: 'no-store' }),
+export async function fetchSnapshot(fetchImpl = fetch) {
+  const [status, payments, pending] = await Promise.all([
+    call('/api/status', { timeoutMs: 10_000, fetchImpl }),
+    call('/api/payments', { timeoutMs: 10_000, fetchImpl }),
+    call('/api/pending', { timeoutMs: 10_000, fetchImpl }),
   ]);
-  if (!statusRes.ok || !paymentsRes.ok || !pendingRes.ok) {
-    throw new Error('Allowance API did not answer.');
+  for (const part of [status, payments, pending]) {
+    if (!part.response.ok) throw failure(part.response, part.body, 'The allowance server did not answer.');
   }
-  const status = await statusRes.json();
-  const payments = await paymentsRes.json();
-  const pending = await pendingRes.json();
-  if (!Array.isArray(payments) || !Array.isArray(pending)) {
-    throw new Error('Allowance API returned an unexpected payload.');
+  const rows = payments.body;
+  if (!Array.isArray(rows) || !Array.isArray(pending.body)) {
+    const error = new Error('The allowance server sent something unexpected.');
+    error.kind = 'server';
+    throw error;
   }
-  return { ...status, payments, pending };
+  return { ...status.body, payments: rows, pending: pending.body };
+}
+
+/** API, rules, and merchant reachability. Never throws; a silent API reads as down. */
+export async function fetchHealth(fetchImpl = fetch) {
+  try {
+    const { body } = await call('/api/health', { timeoutMs: 5_000, fetchImpl });
+    return body;
+  } catch {
+    return { ok: false, api: 'down' };
+  }
 }
 
 /** One injected catalog row. The planner runs. The rules block it. Nothing is signed. */
 export async function runHeist() {
-  const response = await fetch('/api/demo/heist', { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.ok) throw new Error(body.error || 'The heist did not run.');
+  const body = await postJson('/api/demo/heist', undefined, 'The heist did not run.', 60_000);
+  if (!body.ok) throw new Error(body.error || 'The heist did not run.');
   return body;
 }
 
 /** Three scripted attacks. The server runs the rules. Nothing is signed. */
 export async function runRogueDemo() {
-  const response = await fetch('/api/demo/rogue', { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.ok) throw new Error(body.error || 'The rogue demo did not run.');
+  const body = await postJson('/api/demo/rogue', undefined, 'The rogue demo did not run.', 60_000);
+  if (!body.ok) throw new Error(body.error || 'The rogue demo did not run.');
   return body;
 }
 
 /** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
 export async function runOverCap() {
-  const response = await fetch('/api/demo/over-cap', { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'The over-cap demo did not run.');
-  return body;
+  return postJson('/api/demo/over-cap', undefined, 'The over-cap demo did not run.', 60_000);
 }
 
 export async function requestAllowanceChallenge(proposal) {
-  const response = await fetch('/api/allowance/challenge', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(proposal ?? {}),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that allowance change.');
-  return body;
+  return postJson('/api/allowance/challenge', proposal ?? {}, 'Could not prepare that allowance change.');
 }
 
 export async function submitAllowance(payload) {
-  const response = await fetch('/api/allowance', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not change the allowance.');
-  return body;
+  return postJson('/api/allowance', payload, 'Could not change the allowance.', 60_000);
 }
 
 export async function requestMandateChallenge() {
-  const response = await fetch('/api/mandate/challenge', { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare the agent mandate.');
-  return body;
+  return postJson('/api/mandate/challenge', undefined, 'Could not prepare the agent mandate.');
 }
 
 export async function submitMandate(payload) {
-  const response = await fetch('/api/mandate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'The agent mandate was not accepted.');
-  return body;
+  return postJson('/api/mandate', payload, 'The agent mandate was not accepted.');
 }
 
 export async function anchorDecisions() {
-  const response = await fetch('/api/anchor', { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'The decision was not anchored.');
-  return body;
+  return postJson('/api/anchor', undefined, 'The decision was not anchored.', 120_000);
 }
 
 /** Kill switch. Frozen refuses new payments until the dashboard unfreezes it. */
 export async function setAgentFrozen(frozen) {
-  const response = await fetch('/api/freeze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ frozen }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Could not change the freeze.');
-  return body;
+  // Freezing closes the payment channel on-chain, which can take a minute on testnet.
+  return postJson('/api/freeze', { frozen }, frozen ? 'Could not freeze the agent.' : 'Could not unfreeze the agent.', 180_000);
 }
 
 /** Name the job. The server does not rewrite the allowance file. */
 export async function selectUseCase(id) {
-  const response = await fetch('/api/use-case', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Could not select that job.');
-  return body;
+  return postJson('/api/use-case', { id }, 'Could not select that job.');
 }
 
 /** Ask the API to start the agent. A missing wallet still returns 200 with an error the page can show. */
@@ -180,15 +185,7 @@ export async function runAgent(task) {
 }
 
 export async function requestApprovalChallenge(id) {
-  const response = await fetch(`/api/approve/${encodeURIComponent(id)}/challenge`, { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(body.message || body.error || 'Could not prepare that approval.');
-    error.status = response.status;
-    error.code = body.error;
-    throw error;
-  }
-  return body;
+  return postJson(`/api/approve/${encodeURIComponent(id)}/challenge`, undefined, 'Could not prepare that approval.');
 }
 
 export async function fetchApprovalProgress(id) {
@@ -200,10 +197,7 @@ export async function fetchApprovalProgress(id) {
 
 /** Backup demo only. The server rejects this unless ALLOWANCE_DEV_SIGNER=1. */
 export async function simulateLedgerApproval(id) {
-  const response = await fetch(`/api/demo/simulated-ledger/${encodeURIComponent(id)}`, { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
-  return body;
+  return postJson(`/api/demo/simulated-ledger/${encodeURIComponent(id)}`, undefined, 'Could not approve that purchase.');
 }
 
 export async function submitLedgerApproval(id, payload) {
@@ -219,55 +213,45 @@ export async function submitLedgerApproval(id, payload) {
 }
 
 export async function declinePurchase(id) {
-  const response = await fetch(`/api/decline/${encodeURIComponent(id)}`, { method: 'POST' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Could not decline that purchase.');
-  return body;
+  return postJson(`/api/decline/${encodeURIComponent(id)}`, undefined, 'Could not decline that purchase.');
 }
 
 export async function askEve(message) {
-  const response = await fetch('/api/eve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Eve could not answer.');
-  return body;
+  return postJson('/api/eve', { message }, 'Eve could not answer.', 180_000);
 }
 
 export async function confirmEve(token) {
-  const response = await fetch('/api/eve/confirm', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'That confirmation did not go through.');
-  return body;
+  return postJson('/api/eve/confirm', { token }, 'That confirmation did not go through.', 120_000);
+}
+
+/** What an allowance change would do, and whether the Ledger must sign it. Writes nothing. */
+export async function previewAllowance(patch) {
+  return postJson('/api/allowance/preview', patch, 'Could not check that change.');
+}
+
+/** Apply a change that only lowers limits. The server refuses any raise with 403. */
+export async function lowerAllowance(patch) {
+  return postJson('/api/allowance/lower', patch, 'Could not save that change.');
 }
 
 /**
  * Live store changes and payment stages from GET /api/events. Returns a
  * function that closes the stream. onOpen and onDown tell the caller when to
- * lean on the stream and when to fall back to polling.
+ * lean on the stream and when to fall back to polling. A dropped stream
+ * reconnects with exponential backoff; `reconnect` on the returned function
+ * skips the wait, for example when the browser comes back online.
  */
 export function subscribeEvents({ onChange, onStage, onOpen, onDown } = {}) {
-  if (typeof EventSource !== 'function') {
-    onDown?.();
-    return () => {};
-  }
-  const source = new EventSource('/api/events');
-  const parse = (event) => {
-    try {
-      return JSON.parse(event.data);
-    } catch {
-      return null;
-    }
-  };
-  source.addEventListener('open', () => onOpen?.());
-  source.addEventListener('error', () => onDown?.());
-  source.addEventListener('change', (event) => onChange?.(parse(event)));
-  source.addEventListener('stage', (event) => onStage?.(parse(event)));
-  return () => source.close();
+  const stream = createReconnectingStream({
+    url: '/api/events',
+    onOpen,
+    onDown,
+    handlers: {
+      change: (data) => onChange?.(data),
+      stage: (data) => onStage?.(data),
+    },
+  });
+  const close = () => stream.close();
+  close.reconnect = () => stream.reconnectNow();
+  return close;
 }

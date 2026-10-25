@@ -6,10 +6,12 @@ import {
   dashboardInstall,
   dashboardLaunch,
   envFileNotice,
+  installStaleness,
   lanAddresses,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
+  npmSpawnOptions,
   optionalKeyNotices,
   phoneRequested,
   phoneUrls,
@@ -40,16 +42,38 @@ test('missing Jev and Bedrock keys are one-line notices, and set keys stay quiet
   ]);
 });
 
-test('install steps run only when a node_modules folder is missing', () => {
+test('install steps run only when a node_modules folder is missing or stale', () => {
   assert.deepEqual(missingInstalls(true), []);
-  assert.equal(dashboardInstall(true), null);
+  assert.equal(dashboardInstall(null), null);
   assert.deepEqual(missingInstalls(false), [
     { label: 'Installing dependencies…', args: ['install'] },
   ]);
-  assert.deepEqual(dashboardInstall(false), {
+  assert.deepEqual(dashboardInstall('missing'), {
     label: 'Installing dashboard dependencies…',
     args: ['install', '--prefix', 'dashboard'],
   });
+  assert.deepEqual(dashboardInstall('package files changed'), {
+    label: 'Installing dashboard dependencies… (package files changed)',
+    args: ['install', '--prefix', 'dashboard'],
+  });
+});
+
+test('a dashboard install is stale when it is missing, older than the lockfile, or lacks a dependency', () => {
+  const current = { modulesExists: true, installedAt: 10_000, manifestAt: 9_000, dependencies: ['react', 'vite'], hasDependency: () => true };
+  assert.equal(installStaleness(current), null);
+  assert.equal(installStaleness({ ...current, modulesExists: false }), 'missing');
+  assert.equal(installStaleness({ ...current, installedAt: null }), 'unknown install');
+  assert.equal(installStaleness({ ...current, manifestAt: 20_000 }), 'package files changed');
+  // A checkout that writes both files in the same second is not stale.
+  assert.equal(installStaleness({ ...current, manifestAt: 10_500 }), null);
+  assert.equal(installStaleness({ ...current, hasDependency: (name) => name !== 'vite' }), 'vite is missing');
+  assert.equal(installStaleness({ ...current, manifestAt: null }), null);
+});
+
+test('npm is spawned through a shell on Windows only', () => {
+  assert.deepEqual(npmSpawnOptions('win32'), { shell: true });
+  assert.deepEqual(npmSpawnOptions('linux'), {});
+  assert.deepEqual(npmSpawnOptions('darwin'), {});
 });
 
 test('phone mode is opt-in and prints only private LAN addresses', () => {

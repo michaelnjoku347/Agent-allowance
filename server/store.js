@@ -396,6 +396,11 @@ export async function setFreeze(frozen) {
   return updateStore((store) => {
     store.frozen = on;
     store.frozenAt = on ? new Date().toISOString() : null;
+    if (!on) {
+      // The closed channel stays closed on-chain. The next run opens a new one.
+      delete store.channelClosed;
+      delete store.freezeDetail;
+    }
     pushAudit(store, {
       outcome: on ? 'blocked' : 'allowed',
       rule: on ? 'freeze' : 'unfreeze',

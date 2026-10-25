@@ -1,6 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { declinePurchase, fetchHealth, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { backoffDelay, describeConnection, failureKind } from './connection.js';
+import { freezeControl, freezeNotice, freezeResult } from './freeze.js';
+import { daysLabel, daysLeft, outcomeCounts, spendByMerchant } from './insights.js';
 import BedrockMark from './BedrockMark.jsx';
 import BrandMark from './BrandMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
@@ -19,6 +22,7 @@ import {
   IconCheck,
   IconHome,
   IconLock,
+  IconUnlock,
   IconReceipt,
   IconBadgeCheck,
   IconBot,
@@ -32,6 +36,11 @@ import {
   IconStore,
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
+import HistoryView from './HistoryView.jsx';
+import ApprovalWhy from './ApprovalWhy.jsx';
+import { explainApproval } from './approvalWhy.js';
+import { EMPTY_FILTERS, normalizeFilters } from './history.js';
+import { ActivityList, EmptyState, StatusPill, cannotApprove, initial, pill, planDetail, planLabel, reasonChip } from './rows.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { USE_CASES } from '../../shared/use-cases.js';
@@ -64,8 +73,8 @@ function readFlag(key) {
 const EXPLORER = 'https://explorer.testnet.xrplevm.org';
 
 const ACTIVITY_VIEWS = [
-  ['all', 'All'],
-  ['audit', 'Audit'],
+  ['all', 'History'],
+  ['audit', 'Audit trail'],
   ['chain', 'On-chain'],
 ];
 
@@ -79,41 +88,6 @@ function expiresOn(iso) {
     day: 'numeric',
     year: 'numeric',
   }).format(date);
-}
-
-function pill(item) {
-  const ledgerPaid = item.approvedBy === 'ledger' || item.simulatedLedger || item.reason === 'ledger approved';
-  if (item.status === 'paid' && ledgerPaid) return { label: 'Paid · Ledger', tone: 'ok' };
-  if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
-  if (item.declineOnly || item.reason === 'merchant not allowed' || item.status === 'declined' || item.status === 'skipped') {
-    return { label: 'Blocked', tone: 'danger' };
-  }
-  return { label: 'Needs you', tone: 'warn' };
-}
-
-function cannotApprove(item) {
-  return Boolean(item.declineOnly) || item.reason === 'merchant not allowed';
-}
-
-function reasonChip(item, cap) {
-  if (item.reason === 'over per-purchase cap') {
-    const over = Number(item.amount) - Number(cap);
-    if (Number.isFinite(over) && over > 0) return `Over cap by ${money(over)}`;
-  }
-  return plainReason(item.reason);
-}
-
-function planLabel(plan) {
-  if (plan?.source === 'bedrock') return 'Amazon Bedrock';
-  if (plan?.source === 'fallback') return 'Fallback (Bedrock not configured)';
-  return '';
-}
-
-function planDetail(plan) {
-  const label = planLabel(plan);
-  const reason = String(plan?.reason ?? '').trim();
-  if (!label || !reason || reason.replace(/\.$/, '') === label) return '';
-  return reason;
 }
 
 function ruleRows(item) {
@@ -213,11 +187,6 @@ function AuditCard({ rows, onExport }) {
   );
 }
 
-function initial(label) {
-  const text = (label || 'M').trim();
-  return text.slice(0, 1).toUpperCase();
-}
-
 function txUrl(explorer, hash) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash || '')) return null;
   return `${String(explorer || EXPLORER).replace(/\/$/, '')}/tx/${hash}`;
@@ -236,8 +205,14 @@ export default function App() {
   const [eveSeed, setEveSeed] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [connection, setConnection] = useState('loading');
+  const [link, setLink] = useState({ kind: '', lastOkAt: 0, retryAt: 0 });
+  const [health, setHealth] = useState(null);
+  const [, setClockTick] = useState(0);
+  const failures = useRef(0);
+  const reconnect = useRef(null);
   const [filter, setFilter] = useState('all');
-  const [setupOpen, setSetupOpen] = useState(false);
+  const [historyFilters, setHistoryFilters] = useState(EMPTY_FILTERS);
+  const [editorSeed, setEditorSeed] = useState(null);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -246,6 +221,8 @@ export default function App() {
   const [overCap, setOverCap] = useState(null);
   const [overCapBusy, setOverCapBusy] = useState(false);
   const [controlBusy, setControlBusy] = useState('');
+  const [freezePhase, setFreezePhase] = useState('');
+  const [freezeError, setFreezeError] = useState('');
   const [announce, setAnnounce] = useState('');
   const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
   const [presenting, setPresenting] = useState(false);
@@ -266,16 +243,37 @@ export default function App() {
   async function load() {
     try {
       const next = await fetchSnapshot();
+      const recovered = failures.current > 0;
+      failures.current = 0;
       setSnapshot(next);
       setConnection('online');
-    } catch {
+      setLink({ kind: '', lastOkAt: Date.now(), retryAt: 0 });
+      if (recovered) {
+        fetchHealth().then(setHealth);
+        reconnect.current?.();
+      }
+      return true;
+    } catch (error) {
+      failures.current += 1;
       setConnection('offline');
+      setLink((current) => ({
+        ...current,
+        kind: failureKind(error),
+        retryAt: Date.now() + backoffDelay(failures.current - 1, { base: 3000, max: 30_000 }),
+      }));
       setSnapshot((current) => (
         current && !current.offlinePreview
           ? current
           : { ...sampleSnapshot, offlinePreview: true }
       ));
+      return false;
     }
+  }
+
+  function retryNow() {
+    reconnect.current?.();
+    fetchHealth().then(setHealth);
+    return load();
   }
 
   useEffect(() => {
@@ -314,12 +312,33 @@ export default function App() {
 
   useEffect(() => {
     let stop = false;
-    // The event stream drives updates while it is open. The 3s poll is the fallback.
-    const tick = () => {
-      if (!stop && !streamOpen.current) load();
+    let timer = 0;
+    // The event stream drives updates while it is open. Polling is the fallback:
+    // every 3s while the API answers, backing off to 30s while it does not.
+    const schedule = (ok) => {
+      if (stop) return;
+      const wait = ok ? 3000 : backoffDelay(failures.current - 1, { base: 3000, max: 30_000 });
+      timer = window.setTimeout(tick, wait);
     };
-    load();
-    const timer = window.setInterval(tick, 3000);
+    const tick = async () => {
+      if (stop) return;
+      if (streamOpen.current && failures.current === 0) return schedule(true);
+      schedule(await load());
+    };
+    load().then(schedule);
+    fetchHealth().then((body) => { if (!stop) setHealth(body); });
+    const healthTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') fetchHealth().then((body) => { if (!stop) setHealth(body); });
+    }, 30_000);
+    const onOnline = () => {
+      reconnect.current?.();
+      load();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && failures.current > 0) onOnline();
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
     const close = subscribeEvents({
       onOpen: () => {
         streamOpen.current = true;
@@ -334,12 +353,23 @@ export default function App() {
         if (!stop) dispatchPath({ type: 'stage', stage });
       },
     });
+    reconnect.current = close.reconnect;
     return () => {
       stop = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      window.clearInterval(healthTimer);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
       close();
     };
   }, []);
+
+  // While offline, re-render once a second so "Trying again in 8 seconds" counts down.
+  useEffect(() => {
+    if (connection !== 'offline') return undefined;
+    const ticker = window.setInterval(() => setClockTick((value) => value + 1), 1000);
+    return () => window.clearInterval(ticker);
+  }, [connection]);
 
   const view = useMemo(() => allowanceView(snapshot), [snapshot]);
 
@@ -453,18 +483,40 @@ export default function App() {
     }
   }
 
-  async function onFreeze() {
+  async function onFreeze(target) {
+    if (freezePhase || !snapshot || snapshot.offlinePreview) return;
+    const nextFrozen = typeof target === 'boolean' ? target : !snapshot.frozen;
+    const before = { frozen: snapshot.frozen, frozenAt: snapshot.frozenAt, channelClosed: snapshot.channelClosed, freezeDetail: snapshot.freezeDetail };
+    setFreezeError('');
+    setFreezePhase(nextFrozen ? 'freezing' : 'unfreezing');
     setControlBusy('freeze');
+    // Show the new state at once. The server answer, or a revert, follows.
+    setSnapshot((current) => (current ? {
+      ...current,
+      frozen: nextFrozen,
+      frozenAt: nextFrozen ? new Date().toISOString() : null,
+      ...(nextFrozen ? {} : { channelClosed: false, freezeDetail: null }),
+    } : current));
     try {
-      const nextFrozen = !snapshot?.frozen;
-      await setAgentFrozen(nextFrozen);
-      const line = nextFrozen ? 'Agent frozen. New signatures have stopped.' : 'Agent can pay inside the allowance again.';
+      const body = await setAgentFrozen(nextFrozen);
+      setSnapshot((current) => (current ? {
+        ...current,
+        frozen: Boolean(body.frozen ?? nextFrozen),
+        frozenAt: body.frozenAt ?? current.frozenAt,
+        channelClosed: Boolean(body.channelClosed),
+        freezeDetail: body.channelReason ?? null,
+      } : current));
+      const line = freezeResult(nextFrozen, body);
       setAnnounce(line);
       pushToast(line);
-      await load();
+      load();
     } catch (error) {
-      setRunNote(error.message || 'Could not change the freeze.');
+      // A freeze that timed out may still have stopped signing. Ask the server what is true.
+      setSnapshot((current) => (current ? { ...current, ...before } : current));
+      setFreezeError(error.message || (nextFrozen ? 'Could not freeze the agent.' : 'Could not unfreeze the agent.'));
+      load();
     } finally {
+      setFreezePhase('');
       setControlBusy('');
     }
   }
@@ -512,7 +564,15 @@ export default function App() {
   }
 
   const shown = view.activity;
-  const latest = view.activity.slice(0, 3);
+  const latest = view.activity.slice(0, 6);
+  const breakdown = useMemo(() => spendByMerchant(view.payments), [view.payments]);
+  const counts = outcomeCounts(view.activity);
+  const whyContext = {
+    cap: snapshot?.rules?.maxPerPurchase,
+    budget: view.budget,
+    spent: view.spent,
+    expiresAt: snapshot?.rules?.expiresAt,
+  };
   const leftRatio = view.budgetNumber > 0 ? Math.max(0, view.leftNumber / view.budgetNumber) : 0;
   const merchantCount = snapshot?.rules?.allowedMerchants?.length ?? 0;
   const balanceLabel = `${money(view.spent)} of ${money(view.budget)} RLUSD spent. ${money(view.left)} RLUSD left.`;
@@ -520,8 +580,20 @@ export default function App() {
   const feed = txFeed(view.payments, snapshot?.network?.explorerUrl);
 
   const loading = connection === 'loading' && !snapshot;
+  const banner = describeConnection({
+    connection,
+    preview: Boolean(snapshot?.offlinePreview),
+    kind: link.kind,
+    lastOkAt: link.lastOkAt,
+    retryInMs: link.retryAt ? Math.max(0, link.retryAt - Date.now()) : 0,
+    health,
+    now: Date.now(),
+  });
   const appClass = ['app', presenting ? 'is-present' : '', loading ? 'is-loading' : '', snapshot?.frozen ? 'is-frozen' : ''].filter(Boolean).join(' ');
   const pendingCount = approvalCount(view.pending);
+  const freeze = freezeControl({ frozen: Boolean(snapshot?.frozen), phase: freezePhase });
+  const frozenNotice = freezeNotice(snapshot, { phase: freezePhase, error: freezeError });
+  const freezeDisabled = !snapshot || Boolean(freezePhase) || Boolean(snapshot?.offlinePreview);
   const routeItem = NAV.find((item) => item.id === route);
   const pageLede = route === 'approvals'
     ? (pendingCount === 0 ? 'Nothing is waiting.' : `${pendingCount} waiting for a person.`)
@@ -608,16 +680,17 @@ export default function App() {
             <div className="top-tools">
               <button
                 type="button"
-                className={snapshot?.frozen ? 'chip is-on freeze-toggle' : 'chip freeze-toggle'}
-                aria-pressed={Boolean(snapshot?.frozen)}
-                onClick={onFreeze}
-                disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                className={snapshot?.frozen ? 'chip freeze-toggle is-unfreeze' : 'chip freeze-toggle'}
+                onClick={() => onFreeze(freeze.next)}
+                disabled={freezeDisabled}
+                aria-busy={freeze.busy}
+                aria-label={snapshot?.frozen ? 'Unfreeze the agent' : 'Freeze the agent'}
                 title={snapshot?.offlinePreview ? 'Freeze works when the allowance is online.' : undefined}
               >
-                <IconLock />
-                <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
+                {snapshot?.frozen ? <IconUnlock /> : <IconLock />}
+                <span>{freeze.label}</span>
               </button>
-              <button type="button" className="chip setup-chip" onClick={() => setSetupOpen(true)}>{setupLabel}</button>
+              <button type="button" className="chip setup-chip" onClick={() => go('rules')}>{setupLabel}</button>
               {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
@@ -641,10 +714,10 @@ export default function App() {
                   theme={theme}
                   setTheme={setTheme}
                   frozen={Boolean(snapshot?.frozen)}
-                  freezeDisabled={!snapshot || controlBusy === 'freeze' || Boolean(snapshot?.offlinePreview)}
-                  onFreeze={onFreeze}
+                  freezeDisabled={freezeDisabled}
+                  onFreeze={() => onFreeze(freeze.next)}
                   setupLabel={setupLabel}
-                  onSetup={() => setSetupOpen(true)}
+                  onSetup={() => go('rules')}
                   demo={route === 'home' && snapshot ? {
                     onOverCap,
                     onHeist: () => demoBridge.current.runHeist?.(),
@@ -668,6 +741,10 @@ export default function App() {
                 {pageLede ? <p>{pageLede}</p> : null}
               </div>
             )}
+            {banner ? <ConnectionBanner banner={banner} onRetry={retryNow} /> : null}
+            {frozenNotice ? (
+              <FreezeBanner notice={frozenNotice} onUnfreeze={() => onFreeze(false)} disabled={freezeDisabled} />
+            ) : null}
             {view.demo ? (
               <div className="demo-badge" role="status">
                 <span className="demo-tag">Demo</span>
@@ -676,9 +753,6 @@ export default function App() {
                     ? 'Offline. Example rows.'
                     : 'Example rows until the agent pays.'}
                 </span>
-                {snapshot?.offlinePreview ? (
-                  <button type="button" className="retry-pill" onClick={load}>Try again</button>
-                ) : null}
               </div>
             ) : null}
             {snapshot && route === 'home' ? (
@@ -695,10 +769,9 @@ export default function App() {
                 heistBusy={heistBusy}
                 rogueBusy={rogueBusy}
               />
-              <div className="home-grid">
-                <div className="home-main">
+              <div className="home-board">
                 {!onboarded && !presenting ? (
-                  <section className="card setup-card" aria-labelledby="setup-title">
+                  <section className="card setup-card board-setup" aria-labelledby="setup-title">
                     <h2 id="setup-title">Set up this allowance</h2>
                     <p>The budget, the cap, and the merchant list are already in place. Review them before the agent pays.</p>
                     <div className="how-actions">
@@ -707,15 +780,7 @@ export default function App() {
                     </div>
                   </section>
                 ) : null}
-                {snapshot.frozen ? <p className="freeze-banner" role="status">Agent frozen. New signatures have stopped.</p> : null}
-                {connection === 'offline' && !snapshot.offlinePreview ? (
-                  <div className="state-error" role="alert">
-                    <p className="state-error-title">Could not refresh</p>
-                    <p>Showing the last numbers.</p>
-                    <button type="button" className="btn" onClick={load}>Retry</button>
-                  </div>
-                ) : null}
-                <section className="card hero" aria-labelledby="allowance-title">
+                <section className="card hero board-hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
                     <div className="hero-copy">
                       <h2 id="allowance-title" className="eyebrow">Left to spend</h2>
@@ -729,25 +794,27 @@ export default function App() {
                     </div>
                     <SpendRing ratio={leftRatio} label={`${Math.round(leftRatio * 100)} percent left. ${balanceLabel}`} mood={ringMood} />
                   </div>
-                  {view.chainWarning ? (
-                    <p className="chain-chip is-warn">Check reconciliation</p>
-                  ) : view.chainRedeemed != null ? (
-                    <p className="chain-chip">Matches on-chain</p>
-                  ) : null}
-                  <ul className="rule-chips">
-                    <li>Per purchase {money(snapshot.rules.maxPerPurchase)} RLUSD</li>
-                    <li>Expires {expiresOn(snapshot.rules.expiresAt) || 'No date'}</li>
-                    <li>{merchantCount} merchants</li>
-                  </ul>
-                  <MoneyFlow flow={liveFlow} embedded alert={path.alert} live={Boolean(path.flow?.live)} />
                   <div className="hero-actions">
-                    <button type="button" className="btn primary" onClick={onRun}>Run agent</button>
+                    <button type="button" className="btn primary" onClick={onRun} disabled={Boolean(snapshot.frozen)}>
+                      {snapshot.frozen ? 'Agent frozen' : 'Run agent'}
+                    </button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
 
-                <section className="card needs-card" aria-labelledby="needs-title">
-                    <h2 id="needs-title">Needs you</h2>
+                <ul className="stat-tiles board-tiles" aria-label="Allowance limits">
+                  <StatTile label="Per purchase" value={money(snapshot.rules.maxPerPurchase)} unit="RLUSD" hint="Above this needs your Ledger" />
+                  <StatTile label="Budget" value={money(view.budget)} unit="RLUSD" hint={`${money(view.spent)} spent`} />
+                  <StatTile label="Held for you" value={money(view.held)} unit="RLUSD" hint={`${pendingCount} waiting`} tone={pendingCount ? 'warn' : ''} />
+                  <StatTile label="Expires" value={expiresOn(snapshot.rules.expiresAt) || 'No date'} hint={daysLabel(daysLeft(snapshot.rules.expiresAt))} />
+                  <StatTile label="Merchants" value={String(merchantCount)} hint="On the allowlist" />
+                </ul>
+
+                <section className="card needs-card board-needs" aria-labelledby="needs-title">
+                    <div className="card-head">
+                      <h2 id="needs-title">Needs you</h2>
+                      {pendingCount ? <span className="count-badge">{pendingCount}</span> : null}
+                    </div>
                     {view.pending.length === 0 ? (
                       <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
                     ) : (
@@ -769,7 +836,7 @@ export default function App() {
                                   <p className="meta">Agent frozen</p>
                                 ) : (
                                   <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
-                                    Approve with Ledger
+                                    Review and approve
                                   </button>
                                 )}
                                 <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
@@ -794,28 +861,63 @@ export default function App() {
                         <p>{actionError}</p>
                       </div>
                     ) : null}
-                  </section>
-                </div>
-                <div className="home-side">
-                  <div className="heist-stage">{heistStage}{rogueStage}</div>
-                  <section className="card activity-card" aria-labelledby="latest-title">
+                </section>
+
+                <section className="card path-card board-path" aria-label="Payment path">
+                  <MoneyFlow flow={liveFlow} embedded alert={path.alert} live={Boolean(path.flow?.live)} />
+                  {view.activity[0] ? (
+                    <button type="button" className="path-latest" onClick={() => setDetail(view.activity[0])}>
+                      <span className="path-latest-label">Latest decision</span>
+                      <span className="path-latest-row">
+                        <StatusPill status={pill(view.activity[0])} />
+                        <span className="path-latest-name">{view.activity[0].merchantLabel || 'Merchant'}</span>
+                        <span className="amount">{money(view.activity[0].amount)} RLUSD</span>
+                        <span className="meta">{relativeTime(view.activity[0].createdAt)}</span>
+                      </span>
+                      <span className="path-latest-why">{view.activity[0].status === 'paid'
+                          ? (view.activity[0].approvedBy === 'ledger' ? 'Approved on your Ledger and paid once.' : 'Inside every rule, so the agent paid without asking you.')
+                          : plainReason(view.activity[0].reason)}</span>
+                    </button>
+                  ) : null}
+                  {view.chainWarning ? (
+                    <p className="chain-chip is-warn">Check reconciliation</p>
+                  ) : view.chainRedeemed != null ? (
+                    <p className="chain-chip">Matches on-chain</p>
+                  ) : null}
+                </section>
+
+                <section className="card breakdown-card board-breakdown" aria-labelledby="breakdown-title">
+                  <div className="card-head">
+                    <h2 id="breakdown-title">Where it went</h2>
+                    <p className="meta">{counts.paid} paid · {counts.waiting} waiting · {counts.blocked} blocked</p>
+                  </div>
+                  <SpendBars rows={breakdown} />
+                </section>
+
+                {heistStage || rogueStage ? <div className="heist-stage board-stage">{heistStage}{rogueStage}</div> : null}
+
+                <section className="card activity-card board-activity" aria-labelledby="latest-title">
+                  <div className="card-head">
                     <h2 id="latest-title">Latest activity</h2>
-                    <ActivityList
-                      items={latest}
-                      flashId={flashId}
-                      onOpen={setDetail}
-                      empty={(
-                        <EmptyState
-                          icon={<IconReceipt />}
-                          title="No payments yet"
-                          action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
-                        >
-                          Paid and blocked quotes will show up here.
-                        </EmptyState>
-                      )}
-                    />
-                  </section>
-                </div>
+                    {view.activity.length > latest.length ? (
+                      <button type="button" className="btn text" onClick={() => go('activity')}>View all {view.activity.length}</button>
+                    ) : null}
+                  </div>
+                  <ActivityList
+                    items={latest}
+                    flashId={flashId}
+                    onOpen={setDetail}
+                    empty={(
+                      <EmptyState
+                        icon={<IconReceipt />}
+                        title="No payments yet"
+                        action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
+                      >
+                        Paid and blocked quotes will show up here.
+                      </EmptyState>
+                    )}
+                  />
+                </section>
               </div>
               </>
                 )}
@@ -825,38 +927,60 @@ export default function App() {
             ) : null}
 
             {snapshot && route === 'approvals' ? (
-              <section className="card needs-card" aria-labelledby="page-title">
+              <section className="approvals-page" aria-labelledby="page-title">
                 {view.pending.length === 0 ? (
-                  <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you." />
+                  <div className="card">
+                    <EmptyState icon={<IconCheck />} title="All clear. Nothing needs you.">
+                      When the agent finds a price over your cap, or Jev asks for a review, it waits here for you.
+                    </EmptyState>
+                  </div>
                 ) : (
-                  <ul className="needs">
-                    {view.pending.map((item) => (
-                      <li key={item.id} className={cannotApprove(item) ? 'need is-neutral' : 'need'}>
-                        <div className="need-top">
-                          <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
-                          <h3>{item.merchantLabel || 'Merchant'}</h3>
-                          <p className="amount">{money(item.amount)} RLUSD</p>
-                        </div>
-                        {cannotApprove(item) ? null : <p className="reason-chip">{reasonChip(item, snapshot.rules?.maxPerPurchase)}</p>}
-                        {cannotApprove(item) ? (
-                          <p className="need-lock"><IconLock /> Not on your merchant list. Can't be approved.</p>
-                        ) : (
-                          <button type="button" className="btn primary need-approve" onClick={() => setApproval(item)}>
-                            Approve with Ledger
-                          </button>
-                        )}
-                        <button type="button" className="btn text" disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
-                          Decline
-                        </button>
-                      </li>
-                    ))}
+                  <ul className="approval-list">
+                    {[...view.pending].sort((a, b) => Number(cannotApprove(a)) - Number(cannotApprove(b))).map((item) => {
+                      const why = explainApproval(item, whyContext);
+                      return (
+                        <li key={item.id} className={why.canApprove ? 'card approval-card' : 'card approval-card is-locked'}>
+                          <div className="approval-head">
+                            <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
+                            <div className="approval-id">
+                              <h2>{item.merchantLabel || 'Merchant'}</h2>
+                              <p className="meta">{item.task || 'Purchase'} · <span title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span></p>
+                            </div>
+                            <p className="approval-amount">{money(item.amount)} <span>RLUSD</span></p>
+                          </div>
+                          <ApprovalWhy why={why} />
+                          <JevCard jev={item.jev} merchant={item.merchantLabel} />
+                          <div className="approval-actions">
+                            {why.canApprove ? (
+                              snapshot.frozen && !item.sample && !snapshot.offlinePreview ? (
+                                <p className="meta">Unfreeze the agent to approve this.</p>
+                              ) : (
+                                <button type="button" className="btn primary" onClick={() => setApproval(item)}>
+                                  Review and approve {money(item.amount)} RLUSD
+                                </button>
+                              )
+                            ) : null}
+                            <button type="button" className={why.canApprove ? 'btn text' : 'btn'} disabled={busyId === item.id || item.sample || snapshot.offlinePreview} onClick={() => decide(item.id)}>
+                              {busyId === item.id ? 'Declining…' : 'Decline'}
+                            </button>
+                            {item.sample || snapshot.offlinePreview ? <p className="meta">Example row. Decline works on real purchases.</p> : null}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
+                {actionError ? (
+                  <div className="state-error" role="alert">
+                    <p className="state-error-title">That did not finish</p>
+                    <p>{actionError}</p>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
             {snapshot && route === 'activity' ? (
-              <section className="card" aria-labelledby="page-title">
+              <section className="activity-page" aria-labelledby="page-title">
                 <div className="filters" role="tablist" aria-label="Activity views" onKeyDown={onTabKey}>
                   {ACTIVITY_VIEWS.map(([id, label]) => (
                     <button
@@ -878,20 +1002,15 @@ export default function App() {
                 {filter === 'audit' ? <AuditCard rows={snapshot.audit} onExport={exportAudit} /> : null}
                 {filter === 'chain' ? (feed.length ? <TxFeed rows={feed} /> : <p className="meta">Explorer links appear when a transaction hash is recorded.</p>) : null}
                 {filter === 'all' ? (
-                <ActivityList
-                  items={shown}
-                  flashId={flashId}
-                  onOpen={setDetail}
-                  empty={(
-                    <EmptyState
-                      icon={<IconReceipt />}
-                      title="No payments yet"
-                      action={<button type="button" className="btn" onClick={onRun}>Run agent</button>}
-                    >
-                      Run the agent, or ask Eve what to do next.
-                    </EmptyState>
-                  )}
-                />
+                  <HistoryView
+                    items={shown}
+                    filters={historyFilters}
+                    onFilters={(next) => setHistoryFilters(normalizeFilters(next))}
+                    onOpen={setDetail}
+                    flashId={flashId}
+                    onRun={onRun}
+                    onExported={(line) => { pushToast(line); setAnnounce(line); }}
+                  />
                 ) : null}
                 </div>
               </section>
@@ -904,6 +1023,7 @@ export default function App() {
                   snapshot={snapshot}
                   view={view}
                   theme={theme}
+                  setTheme={setTheme}
                   voiceOn={voiceOn}
                   onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                   onVoice={() => {
@@ -912,10 +1032,33 @@ export default function App() {
                     writeVoiceEnabled(next);
                   }}
                   onAsk={(text) => setEveSeed({ text, id: Date.now() })}
-                  onSetup={() => setSetupOpen(true)}
-                  onFreeze={onFreeze}
-                  busy={controlBusy === 'freeze'}
-                  disabled={!snapshot || controlBusy === 'freeze' || snapshot.offlinePreview}
+                  onSetup={() => go('rules')}
+                  onLoad={load}
+                  agentPanels={(
+                    <>
+                      <UseCaseCard
+                        selected={snapshot?.useCase?.id}
+                        busy={controlBusy}
+                        disabled={Boolean(snapshot?.offlinePreview)}
+                        onSelect={onUseCase}
+                      />
+                      <HowItWorks snapshot={snapshot} onChange={load} />
+                      <details className="device-more card">
+                        <summary>Technical details</summary>
+                        <p>{snapshot?.network?.name || 'XRPL EVM Testnet'}. Chain {snapshot?.network?.chainId || '1449000'}.</p>
+                        {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
+                      </details>
+                    </>
+                  )}
+                  onNotice={(line) => { pushToast(line); setAnnounce(line); }}
+                  onGo={go}
+                  onOpen={setDetail}
+                  onExportAudit={exportAudit}
+                  onReplayIntro={() => window.dispatchEvent(new Event('intro:open'))}
+                  editorSeed={editorSeed}
+                  onFreeze={() => onFreeze(freeze.next)}
+                  busy={Boolean(freezePhase)}
+                  disabled={freezeDisabled}
                 />
               </Suspense>
             ) : null}
@@ -965,6 +1108,7 @@ export default function App() {
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
       {approval ? (
         <Sheet variant="ceremony" title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
+          <ApprovalWhy why={explainApproval(approval, whyContext)} headingLevel={3} />
           <LedgerApproval
             item={approval}
             onPaid={load}
@@ -979,21 +1123,85 @@ export default function App() {
           <Detail item={detail} currency={snapshot?.currency || 'RLUSD'} />
         </Sheet>
       ) : null}
-      {setupOpen ? (
-        <Sheet title={setupLabel} onClose={() => setSetupOpen(false)}>
-          <UseCaseCard
-            selected={snapshot?.useCase?.id}
-            busy={controlBusy}
-            disabled={Boolean(snapshot?.offlinePreview)}
-            onSelect={onUseCase}
-          />
-          {snapshot ? <HowItWorks snapshot={snapshot} onChange={load} /> : null}
-          <details className="device-more">
-            <summary>Technical details</summary>
-            <p>{snapshot?.network?.name || 'XRPL EVM Testnet'}. Chain {snapshot?.network?.chainId || '1449000'}.</p>
-            {snapshot?.simulatedLedger ? <p>Backup demo only. simulated Ledger signature. This is not a Ledger device.</p> : null}
-          </details>
-        </Sheet>
+    </div>
+  );
+}
+
+function StatTile({ label, value, unit = '', hint = '', tone = '' }) {
+  return (
+    <li className={tone ? `stat-tile is-${tone}` : 'stat-tile'}>
+      <p className="stat-label">{label}</p>
+      <p className="stat-value">{value}{unit ? <span className="stat-unit"> {unit}</span> : null}</p>
+      {hint ? <p className="stat-hint">{hint}</p> : null}
+    </li>
+  );
+}
+
+function SpendBars({ rows }) {
+  if (!rows.length) {
+    return <EmptyState icon={<IconReceipt />} title="Nothing paid yet">Spend by merchant shows here after the first payment.</EmptyState>;
+  }
+  return (
+    <ul className="spend-bars">
+      {rows.map((row) => {
+        const percent = Math.round(row.share * 100);
+        return (
+          <li key={row.label}>
+            <div className="spend-line">
+              <span className="spend-name">{row.label}</span>
+              <span className="spend-amount">{money(row.amount)} RLUSD</span>
+            </div>
+            <div className="spend-track" role="img" aria-label={`${row.label}: ${percent} percent of paid spend, ${row.count} payment${row.count === 1 ? '' : 's'}`}>
+              <span className="spend-fill" style={{ '--share': row.share }} />
+            </div>
+            <p className="spend-meta">{percent}% · {row.count} payment{row.count === 1 ? '' : 's'}</p>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function FreezeBanner({ notice, onUnfreeze, disabled }) {
+  return (
+    <section className={`freeze-notice is-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
+      <span className="freeze-icon" aria-hidden="true">{notice.action ? <IconLock size={22} /> : <IconAlert size={22} />}</span>
+      <div className="freeze-copy">
+        <p className="freeze-title">{notice.title}</p>
+        <p>{notice.body}</p>
+        {notice.error ? <p className="freeze-error" role="alert">{notice.error}</p> : null}
+      </div>
+      {notice.action ? (
+        <button type="button" className="btn primary freeze-action" onClick={onUnfreeze} disabled={disabled}>
+          <IconUnlock size={18} />
+          <span>{notice.action}</span>
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ConnectionBanner({ banner, onRetry }) {
+  const [busy, setBusy] = useState(false);
+  async function retry() {
+    setBusy(true);
+    try {
+      await onRetry();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className={`conn-banner is-${banner.tone}`} role={banner.tone === 'danger' ? 'alert' : 'status'}>
+      <span className="conn-dot" aria-hidden="true" />
+      <div className="conn-copy">
+        <p className="conn-title">{banner.title}</p>
+        <p>{banner.body}</p>
+      </div>
+      {banner.action ? (
+        <button type="button" className="btn conn-action" onClick={retry} disabled={busy} aria-busy={busy}>
+          {busy ? 'Checking…' : banner.action}
+        </button>
       ) : null}
     </div>
   );
@@ -1094,15 +1302,6 @@ function SpendRing({ ratio, label, mood = '' }) {
         <span>left</span>
       </div>
     </div>
-  );
-}
-
-function StatusPill({ status }) {
-  return (
-    <span className={`pill ${status.tone}`}>
-      {status.tone === 'danger' ? <IconAlert size={14} /> : status.tone === 'warn' ? <IconAlert size={14} /> : <IconCheck size={14} />}
-      {status.label}
-    </span>
   );
 }
 
@@ -1252,19 +1451,6 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, 
   );
 }
 
-function EmptyState({ icon, title, children, action }) {
-  return (
-    <div className="empty">
-      <span className="empty-icon" aria-hidden="true">{icon}</span>
-      <div className="empty-copy">
-        <p className="empty-title">{title}</p>
-        {children ? <p>{children}</p> : null}
-      </div>
-      {action ? <div className="empty-action">{action}</div> : null}
-    </div>
-  );
-}
-
 function ReceiptCard({ item, explorer }) {
   const voucher = txUrl(explorer, item.txHash);
   const payout = txUrl(explorer, item.payoutTx);
@@ -1324,39 +1510,6 @@ function RowSkeleton() {
         <span className="sk sk-line sk-short" />
       </span>
     </div>
-  );
-}
-
-function ActivityList({ items, onOpen, empty, flashId = '' }) {
-  if (!items.length) return empty;
-  return (
-    <ul className="activity">
-      {items.map((item) => {
-        const status = pill(item);
-        return (
-          <li key={item.id}>
-            <button
-                type="button"
-                className={flashId === item.id ? 'row is-flash' : 'row'}
-                aria-label={`${item.merchantLabel || 'Merchant'}, ${money(item.amount)} RLUSD, ${status.label}, ${when(item.createdAt)}`}
-                onClick={() => onOpen(item)}
-              >
-              <span className="row-line">
-                <span className="avatar" aria-hidden="true">{initial(item.merchantLabel)}</span>
-                <span className="row-title">{item.merchantLabel || 'Merchant'}</span>
-                <span className="amount">{money(item.amount)} RLUSD</span>
-              </span>
-              <span className="row-line row-sub">
-                <span className="row-task">{item.task || 'Purchase'}</span>
-                <span className="row-time" title={when(item.createdAt)}>{relativeTime(item.createdAt)}</span>
-                {item.plan?.source === 'bedrock' ? <span className="bedrock-tag">Bedrock</span> : null}
-              </span>
-              <StatusPill status={status} />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
