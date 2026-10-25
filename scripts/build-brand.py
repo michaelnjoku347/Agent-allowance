@@ -646,12 +646,14 @@ def draw_sheet():
                 fitted = image.copy()
                 fitted.thumbnail((col_w[-1] - 8, row_art - 8), Image.Resampling.LANCZOS)
             else:
-                image = cell(art, size, kind_name)
+                # The shipped disk has its own 16px cut, so the sheet shows what a tab shows.
+                small = concept["id"] == "gauge-disk" and size == 16
+                image = cell(artwork_gauge_disk_small() if small else art, size, kind_name)
                 fitted = zoom(image, factor) if factor != 1 else image
             ox = x + (col_w[columns.index((title, kind_name, size, factor))] - fitted.width) // 2
             oy = y + label_h + (row_art - fitted.height) // 2
             sheet.paste(fitted, (ox, oy))
-            caption = f"{title} · {kind_name}" if kind_name != "lockup" else "Lockup"
+            caption = f"{size} {kind_name}" if kind_name != "lockup" else "Lockup"
             draw.text((x, y + label_h + row_art), caption, font=cap_font, fill=(90, 83, 74))
             x += col_w[columns.index((title, kind_name, size, factor))] + gap
         y += row_h + 22

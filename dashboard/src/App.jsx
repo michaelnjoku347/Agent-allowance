@@ -551,8 +551,8 @@ export default function App() {
         </nav>
         <div className="sidenav-foot">
           <p className="side-balance"><strong>{money(view.left)}</strong> RLUSD left</p>
-          <p className="meta">{snapshot?.frozen ? 'Agent frozen' : 'Inside the rules'}</p>
-          <p className="meta">{snapshot?.simulatedLedger ? 'Demo signer' : 'Ledger for exceptions'}</p>
+          <p className="meta">{snapshot?.frozen ? 'Agent frozen' : 'Agent inside the rules'}</p>
+          <p className="meta">{snapshot?.simulatedLedger ? 'Demo signer' : 'Ledger approves exceptions'}</p>
         </div>
       </aside>
 
@@ -578,7 +578,7 @@ export default function App() {
                 <IconLock />
                 <span>{snapshot?.frozen ? 'Frozen' : 'Freeze'}</span>
               </button>
-              <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Set up allowance</button>
+              <button type="button" className="chip" onClick={() => setSetupOpen(true)}>Edit allowance</button>
               {route === 'home' && snapshot && !presenting ? (
                 <DemoMenu
                   onOverCap={onOverCap}
@@ -912,7 +912,7 @@ export default function App() {
         </Sheet>
       ) : null}
       {setupOpen ? (
-        <Sheet title="Set up allowance" onClose={() => setSetupOpen(false)}>
+        <Sheet title="Edit allowance" onClose={() => setSetupOpen(false)}>
           <UseCaseCard
             selected={snapshot?.useCase?.id}
             busy={controlBusy}

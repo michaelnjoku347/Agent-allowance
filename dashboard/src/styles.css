@@ -3986,3 +3986,50 @@ html {
     transition: none;
   }
 }
+
+/* Second review pass: phone hero, segmented filters. */
+.filters {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--line) 18%, transparent);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.filters .chip {
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  padding: 0 14px;
+}
+
+.filters .chip.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+@media (max-width: 480px) {
+  .hero-tagline {
+    display: none;
+  }
+}
+
+@media (min-width: 361px) and (max-width: 480px) {
+  .hero-main {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .hero .figure {
+    font-size: 56px;
+  }
+  .hero .ring {
+    flex: none;
+    width: 88px;
+    height: 88px;
+  }
+}
