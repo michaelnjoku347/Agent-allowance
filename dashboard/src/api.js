@@ -65,6 +65,14 @@ export async function fetchSnapshot() {
   return { ...status, payments, pending };
 }
 
+/** Three scripted attacks. The server runs the rules. Nothing is signed. */
+export async function runRogueDemo() {
+  const response = await fetch('/api/demo/rogue', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok) throw new Error(body.error || 'The rogue demo did not run.');
+  return body;
+}
+
 /** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
 export async function runOverCap() {
   const response = await fetch('/api/demo/over-cap', { method: 'POST' });

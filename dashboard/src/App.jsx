@@ -5,6 +5,7 @@ import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
+import RogueDemo from './RogueDemo.jsx';
 import {
   IconActivity,
   IconAlert,
@@ -328,6 +329,8 @@ export default function App() {
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
+
+                <RogueDemo onDone={load} />
 
                 {overCap ? (
                   <section className="card rejection" role="alert" aria-labelledby="over-cap-title">

@@ -36,6 +36,25 @@ The merchant name on the paid row follows your rules file. The committed sample 
 
 Gesture at the hero while you say the numbers: **RLUSD left**, **Per purchase 5.00 RLUSD**, **Expires**, **Merchants**.
 
+## Headline — Rogue agent (about 40 seconds)
+
+This is the moment to show. The button runs three attacks through the real rules. It does not sign a voucher, it does not write the allowance file, and it does not add a second payable quote.
+
+> Watch it try to break the allowance. Three attempts. The rules catch each one. No RLUSD moves.
+
+1. On **Home**, find the **Rogue agent** card under the hero.
+2. Click **Rogue agent**.
+3. Read each card as it fills in: the attempt, the rule that caught it, then **Blocked**.
+4. Stop on the summary: **3 attempts, 3 blocked, 0 RLUSD lost**.
+
+The three cards, in order:
+
+1. **Over the cap.** An 8 RLUSD buy from an allowed merchant. The per-purchase cap blocks it and routes it to Ledger approval. Nothing is signed.
+2. **Off the allowlist.** 1 RLUSD to the unlisted desk. The allowlist blocks it, and the denylist hard-blocks it. A Ledger signature cannot pay that payout.
+3. **Raise its own allowance.** The agent asks Eve to raise the cap. Eve refuses. A Ledger `SetAllowance` signature is required, and the allowance file stays as it was.
+
+> It can ask. It cannot raise its own limit, and it cannot pay past the cap or the list.
+
 ## 0:35 — Purchase 1, in rule, paid (about 40 seconds)
 
 > First purchase. The morning market brief is 1 RLUSD, from a merchant on the allowlist, under the cap. The rules allow it. Jev does not flag it. The agent pays.
@@ -99,6 +118,7 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 
 | Click | When |
 | --- | --- |
+| **Rogue agent**, then read the three cards and the summary | Headline. 3 attempts, 3 blocked, 0 RLUSD lost |
 | The paid **morning market brief** row, then **Close** | Purchase 1 |
 | **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | Purchase 2 is redeemed |
 | Nothing except **Decline** on the unlisted card | Purchase 3 stays blocked |

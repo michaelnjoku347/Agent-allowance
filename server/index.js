@@ -27,6 +27,7 @@ import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { declinePending, listPayments, listPending, readPendingRecord, readStore, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
+import { runRogueDemo } from './rogue-demo.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -256,6 +257,14 @@ export function createApp(options = {}) {
       res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.post('/api/demo/rogue', async (req, res) => {
+    try {
+      res.json(await runRogueDemo());
+    } catch (error) {
+      res.status(409).json({ ok: false, signed: false, paid: false, error: error.message ?? 'The rogue demo stopped.' });
     }
   });
 
