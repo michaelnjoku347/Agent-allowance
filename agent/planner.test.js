@@ -271,6 +271,34 @@ test('Bedrock chooses among the three live resources, and null signs nothing', a
   });
   assert.equal(skipped.decision, 'skipped');
   assert.match(skipped.line, /nothing signed/);
+  const row = (await listPayments()).find((item) => item.status === 'skipped' && item.task === 'Buy something unclear');
+  assert.ok(row);
+  assert.match(row.reason, /nothing signed/);
+  assert.equal(row.plan.source, 'fallback');
+  assert.match(row.plan.reason, /Fallback \(Bedrock not configured\)/);
+});
+
+test('an outside-desk choice explains the denylist and signs nothing', async () => {
+  const result = await runOnce({
+    task: 'Buy from the outside desk',
+    chooseResource: async () => ({
+      skipped: false,
+      url: 'http://127.0.0.1:4308/demo/unlisted',
+      reason: 'The task asks for the other desk.',
+      plan: {
+        source: 'bedrock',
+        resourceId: 'outside',
+        reason: 'The task asks for the other desk.',
+      },
+    }),
+  });
+  assert.equal(result.decision, 'skipped');
+  assert.match(result.reason, /Decline is the only action/);
+  assert.match(result.reason, /Nothing was signed/);
+  const row = (await listPayments()).find((item) => item.merchantLabel === 'Unlisted Research API');
+  assert.equal(row.status, 'skipped');
+  assert.match(row.reason, /denylist/);
+  assert.equal(row.plan.source, 'bedrock');
 });
 
 test('the deterministic fallback is used only when Bedrock is not configured', async () => {

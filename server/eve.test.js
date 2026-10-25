@@ -110,7 +110,7 @@ describe('Eve', { concurrency: false }, () => {
     const base = `http://127.0.0.1:${port}`;
     const ask = (message) => fetch(`${base}/api/eve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
       body: JSON.stringify({ message }),
     });
     try {
@@ -138,7 +138,7 @@ describe('Eve', { concurrency: false }, () => {
       assert.match(cap.confirmation.summary, /cap to 3 RLUSD/);
       const saved = await fetch(`${base}/api/eve/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
         body: JSON.stringify({ token: cap.confirmation.token }),
       });
       assert.equal(saved.status, 200);
@@ -151,7 +151,7 @@ describe('Eve', { concurrency: false }, () => {
       assert.match(raise.confirmation.summary, /Ledger/);
       const refused = await fetch(`${base}/api/eve/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
         body: JSON.stringify({ token: raise.confirmation.token }),
       });
       assert.equal(refused.status, 400);

@@ -1,12 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { requestApprovalChallenge, simulateLedgerApproval, submitLedgerApproval } from './api.js';
+import { fetchApprovalProgress, requestApprovalChallenge, simulateLedgerApproval, submitLedgerApproval } from './api.js';
 import { when } from './format.js';
 import { prepareLedger, signOnLedger } from './ledger.js';
 import { webHidSupported } from '../../shared/ledger-device.js';
 
+const PAY_STAGES = [
+  ['signed', 'Signed'],
+  ['broadcasting', 'Broadcasting'],
+  ['settling', 'Settling'],
+  ['paid', 'Paid'],
+];
+
+function stageClass(current, id) {
+  const at = PAY_STAGES.findIndex(([key]) => key === current);
+  const index = PAY_STAGES.findIndex(([key]) => key === id);
+  if (at < 0 || index > at) return 'wait';
+  if (index === at) return 'active';
+  return 'done';
+}
+
 /**
- * Approval sheet. The values in the dark panel are the EIP-712 fields the
- * Ethereum app shows. Connecting uses a Ledger over WebHID.
+ * Approval sheet. The dark panel is the readable message. The device may show
+ * raw fields or a blind-signing prompt on chain 1449000.
  */
 export default function LedgerApproval({ item, onPaid, simulated = false }) {
   const [phase, setPhase] = useState('loading');
@@ -14,11 +29,50 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [payStage, setPayStage] = useState('signed');
   const cancelRef = useRef(null);
+  const pollRef = useRef(null);
   const supported = webHidSupported();
+
+  function stopPoll() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  }
+
+  function rememberStage(progress) {
+    if (progress?.phase && PAY_STAGES.some(([key]) => key === progress.phase)) setPayStage(progress.phase);
+  }
+
+  function trackStages() {
+    stopPoll();
+    pollRef.current = setInterval(async () => {
+      rememberStage(await fetchApprovalProgress(item.id));
+    }, 1000);
+  }
+
+  function watchUntilQuiet() {
+    stopPoll();
+    pollRef.current = setInterval(async () => {
+      const progress = await fetchApprovalProgress(item.id);
+      rememberStage(progress);
+      if (progress?.inFlight) return;
+      stopPoll();
+      if (progress?.missing) {
+        setPayStage('paid');
+        setPhase('done');
+        setResult((current) => current ?? { note: 'Approved on a Ledger and paid once through AP4M x402.' });
+        onPaid?.();
+        return;
+      }
+      setError('That payment did not finish. Check Needs you before trying again.');
+      setPhase('error');
+      onPaid?.();
+    }, 1000);
+  }
 
   useEffect(() => () => {
     cancelRef.current?.();
+    stopPoll();
   }, []);
 
   useEffect(() => {
@@ -32,7 +86,15 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
       })
       .catch((err) => {
         if (stop) return;
+        if (err.code === 'in_progress') {
+          setPhase('paying');
+          setPayStage('broadcasting');
+          setStatus('This approval is already being paid.');
+          watchUntilQuiet();
+          return;
+        }
         setError(err.message || 'Could not prepare that approval.');
+        setChallenge(null);
         setPhase('error');
       });
     return () => {
@@ -67,16 +129,27 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
       });
       cancelRef.current = null;
       setPhase('paying');
+      setPayStage('signed');
       setStatus('The Ledger signed it. Paying this quote…');
+      trackStages();
       const body = await submitLedgerApproval(item.id, {
         signature,
         message: challenge.typedData.message,
       });
+      stopPoll();
+      if (body.inFlight) {
+        setPayStage(body.phase || 'broadcasting');
+        setStatus('This approval is already being paid.');
+        watchUntilQuiet();
+        return;
+      }
+      setPayStage('paid');
       setResult(body);
       setPhase('done');
       await onPaid?.();
     } catch (err) {
       cancelRef.current = null;
+      stopPoll();
       setError(err.message || 'The Ledger did not approve this purchase.');
       setChallenge(null);
       setPhase('loading');
@@ -105,7 +178,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
         <p className="sim-banner" role="status">simulated Ledger signature</p>
       ) : (
         <p>
-          Confirm on the Ledger only if the device shows the same purchase, merchant, amount, and expiry.
+          The panel shows the readable purchase, merchant, amount, and expiry. The Ledger may show raw fields, or it may ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor.
         </p>
       )}
       {display ? (
@@ -124,7 +197,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
           </div>
           <p className="meta">
             {display.amountLabel}
-            {display.merchantLabel ? ` to ${display.merchantLabel}` : ''}. Expires {when(display.expiryIso)}. The device shows the expiry as {display.expiry}.
+            {display.merchantLabel ? ` to ${display.merchantLabel}` : ''}. Expires {when(display.expiryIso)}. The panel shows the expiry as {display.expiry}.
           </p>
           {simulated ? (
             <p className="meta">Backup demo key <code>{challenge.approverAddress}</code>. Not a hardware account.</p>
@@ -138,6 +211,13 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
 
       {phase === 'loading' ? <p className="device-status" role="status">Preparing the approval…</p> : null}
       {phase === 'device' || phase === 'paying' ? <p className="device-status" role="status">{status}</p> : null}
+      {phase === 'paying' ? (
+        <ol className="pay-stages" aria-label="Payment progress">
+          {PAY_STAGES.map(([id, label]) => (
+            <li key={id} className={stageClass(payStage, id)}>{label}</li>
+          ))}
+        </ol>
+      ) : null}
       {phase === 'done' ? (
         <p className="note" role="status">{result?.note || (simulated ? 'simulated Ledger signature' : 'Approved on the Ledger.')}</p>
       ) : null}
@@ -174,7 +254,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false }) {
       ) : null}
       {!simulated && phase === 'ready' && supported ? (
         <p className="meta">
-          Unlock the Ledger, open the Ethereum app if it asks, and confirm there. If the app says blind signing, the fields above are still the message — allow it only when they match.
+          Unlock the Ledger, open the Ethereum app if it asks, and confirm there. If the app asks for blind signing, compare the panel with the quote before you allow it. The device is not clear-signing this testnet message.
         </p>
       ) : null}
     </div>

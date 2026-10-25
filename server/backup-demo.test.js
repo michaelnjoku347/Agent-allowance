@@ -32,7 +32,7 @@ describe('backup demo signer', { concurrency: false }, () => {
     const server = await listen(createApp());
     try {
       const { port } = server.address();
-      const missing = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/pend_x`, { method: 'POST' });
+      const missing = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/pend_x`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       assert.equal(missing.status, 404);
       const status = await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();
       assert.equal(status.simulatedLedger, false);
@@ -95,15 +95,15 @@ describe('backup demo signer', { concurrency: false }, () => {
     const server = await listen(createApp());
     try {
       const { port } = server.address();
-      const declined = await fetch(`http://127.0.0.1:${port}/api/approve/${unlisted.id}/challenge`, { method: 'POST' });
+      const declined = await fetch(`http://127.0.0.1:${port}/api/approve/${unlisted.id}/challenge`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       assert.equal(declined.status, 409);
-      const challenge = await fetch(`http://127.0.0.1:${port}/api/approve/${history.id}/challenge`, { method: 'POST' });
+      const challenge = await fetch(`http://127.0.0.1:${port}/api/approve/${history.id}/challenge`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       const body = await challenge.json();
       assert.equal(challenge.status, 200);
       assert.match(body.approverAddress, /^0x[0-9a-fA-F]{40}$/);
       assert.equal(body.display.amount, '8 RLUSD');
       assert.equal(body.typedData.domain.chainId, 1449000);
-      const signed = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/${history.id}`, { method: 'POST' });
+      const signed = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/${history.id}`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       const paid = await signed.json();
       assert.equal(signed.status, 200);
       assert.equal(paid.note, SIMULATED_LEDGER_NOTE);
@@ -119,7 +119,7 @@ describe('backup demo signer', { concurrency: false }, () => {
     const server = await listen(createApp());
     try {
       const { port } = server.address();
-      const response = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/${history.id}`, { method: 'POST' });
+      const response = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/${history.id}`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       const body = await response.json();
       assert.equal(response.status, 200);
       assert.equal(body.note, SIMULATED_LEDGER_NOTE);

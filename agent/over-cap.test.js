@@ -86,7 +86,10 @@ test('POST /api/demo/over-cap records the rules rejection and does not invent a 
   const server = await listen(createApp());
   const { port } = server.address();
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/demo/over-cap`, { method: 'POST' });
+    const response = await fetch(`http://127.0.0.1:${port}/api/demo/over-cap`, {
+      method: 'POST',
+      headers: { Origin: 'http://127.0.0.1:5173' },
+    });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.ok, true);

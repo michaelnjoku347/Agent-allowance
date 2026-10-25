@@ -49,8 +49,22 @@ function pill(item) {
   if (item.sample) return { label: 'Sample', tone: 'warn' };
   if (item.status === 'paid') return { label: 'Paid', tone: 'ok' };
   if (item.status === 'approved') return { label: 'Waiting', tone: 'warn' };
+  if (item.status === 'skipped') return { label: 'Not signed', tone: 'warn' };
   if (item.status === 'declined' || item.status === 'pending') return { label: 'Blocked', tone: 'danger' };
   return { label: item.status || 'Waiting', tone: 'warn' };
+}
+
+function planLabel(plan) {
+  if (plan?.source === 'bedrock') return 'Amazon Bedrock';
+  if (plan?.source === 'fallback') return 'Fallback (Bedrock not configured)';
+  return '';
+}
+
+function planDetail(plan) {
+  const label = planLabel(plan);
+  const reason = String(plan?.reason ?? '').trim();
+  if (!label || !reason || reason.replace(/\.$/, '') === label) return '';
+  return reason;
 }
 
 function matchesFilter(item, filter) {
@@ -366,6 +380,7 @@ export default function App() {
                               <p className="amount">{money(item.amount)} RLUSD</p>
                             </div>
                             <p>{plainReason(item.reason)}</p>
+                            {item.declineReason ? <p>{item.declineReason}</p> : null}
                             <p className="meta"><code>{shortAddress(item.merchant)}</code> · {when(item.createdAt)}</p>
                             <JevCard jev={item.jev} />
                             <div className="pair">
@@ -662,13 +677,14 @@ function ActivityList({ items, onOpen, empty, explorer }) {
               </span>
               <span className="amount">{money(item.amount)} RLUSD</span>
             </button>
-            {item.plan?.reason ? (
+            {planLabel(item.plan) ? (
               <p className="row-plan">
-                {item.plan.source === 'fallback' ? <span className="fallback-label">Deterministic fallback. </span> : null}
-                {item.plan.reason}
+                <span className="fallback-label">{planLabel(item.plan)}</span>
+                {planDetail(item.plan) ? ` ${planDetail(item.plan)}` : ''}
                 {item.plan.source === 'bedrock' ? <BedrockMark /> : null}
               </p>
             ) : null}
+            {item.status === 'skipped' && item.reason ? <p className="row-plan">{item.reason}</p> : null}
             {item.status === 'paid' && (item.txHash || item.payoutTx || item.receiptUrl) ? (
               <ReceiptCard item={item} explorer={explorer} />
             ) : null}
@@ -700,11 +716,11 @@ function Detail({ item, currency }) {
       <p className="meta">{when(item.createdAt)}</p>
       {item.simulatedLedger ? <p className="sim-label">simulated Ledger signature</p> : null}
       {item.reason ? <p>{plainReason(item.reason)}</p> : null}
-      {item.plan?.reason ? (
+      {planLabel(item.plan) ? (
         <div className="plan">
           <h3>Purchase plan</h3>
-          {item.plan.source === 'fallback' ? <p className="fallback-label">Deterministic fallback</p> : null}
-          <p>{item.plan.reason}</p>
+          <p className="fallback-label">{planLabel(item.plan)}</p>
+          {planDetail(item.plan) ? <p>{planDetail(item.plan)}</p> : null}
           {item.plan.source === 'bedrock' ? <BedrockMark /> : null}
         </div>
       ) : null}

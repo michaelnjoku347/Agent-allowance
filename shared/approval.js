@@ -94,7 +94,7 @@ export function humanAmount(amount) {
   return `${formatRlusd(toUnits(stripped))} RLUSD`;
 }
 
-/** Merchant label plus the checksum address, so the device shows who is paid. */
+/** Merchant label plus the checksum address. The panel shows this string. */
 export function merchantLine(merchant, label) {
   const address = ethers.getAddress(canonicalAddress(merchant));
   const name = String(label ?? '').replace(/\s+/g, ' ').trim();
@@ -105,7 +105,7 @@ export function merchantListLine(merchants) {
   return merchants.map((merchant) => ethers.getAddress(canonicalAddress(merchant))).join(', ');
 }
 
-/** Canonical message. The device shows these strings, not raw wei or a unix time. */
+/** Canonical message. The panel shows these strings, not raw wei or a unix time. */
 export function buildApprovalMessage({ purchaseId, merchant, merchantLabel: label, amount, expiry }) {
   const id = String(purchaseId ?? '');
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error('Invalid purchase id.');

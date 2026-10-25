@@ -697,6 +697,9 @@ p { margin: 0; }
   overflow-wrap: anywhere;
 }
 .device-status { font-weight: 650; }
+.pay-stages { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; padding: 0; list-style: none; }
+.pay-stages li { padding: 4px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+.pay-stages li.active, .pay-stages li.done { color: var(--ink); background: var(--ok-bg, #e7f6ee); }
 
 .detail { display: grid; gap: 8px; }
 .detail .figure { font-size: 2.5rem; }

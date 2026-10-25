@@ -1,5 +1,7 @@
 /**
- * Three purchases, one after another:
+ * Three purchases, one after another, unless Bedrock is configured.
+ * When Bedrock is configured, the demo asks it to choose among the live resources.
+ * Otherwise:
  *   1 RLUSD from the allowed merchant → paid
  *   8 RLUSD history resource          → blocked, over per-purchase cap
  *                                       (a Ledger approval redeems this one)
@@ -17,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runOnce } from '../agent/agent.js';
 import { canonicalAddress, loadRules } from '../agent/rules.js';
+import { readBedrockSettings } from '../server/bedrock.js';
 import { historyResourceUrl } from '../shared/catalog.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,16 +50,41 @@ const steps = [
   },
 ];
 
+function explainAllowlist(address) {
+  const shown = address || 'your merchant payout';
+  console.error(`The payout ${shown} is not in allowedMerchants in agent/rules.json.`);
+  console.error('The demo will not pay until that address is on the allowlist.');
+  console.error('Write the real payout into agent/rules.json with:');
+  console.error('  npm run setup:payments -- --from <starter> --use-agent-as-submitter');
+  console.error('That command keeps the budget, cap, expiry, and denylist, and replaces allowedMerchants with the payout.');
+  console.error('Or add the address under allowedMerchants in agent/rules.json yourself.');
+}
+
+function labelFor(result) {
+  if (result?.plan?.source === 'bedrock') return 'Amazon Bedrock';
+  return 'Fallback (Bedrock not configured)';
+}
+
 async function main() {
   const payout = process.env.MERCHANT_PAYOUT_ADDRESS?.trim() ?? '';
-  if (!payout) throw new Error('Set MERCHANT_PAYOUT_ADDRESS in .env. The merchant pays out to that address.');
-  const address = canonicalAddress(payout);
+  if (!payout) {
+    explainAllowlist('');
+    process.exitCode = 1;
+    return;
+  }
+  let address;
+  try {
+    address = canonicalAddress(payout);
+  } catch {
+    explainAllowlist(payout);
+    process.exitCode = 1;
+    return;
+  }
   const rules = loadRules();
   if (!rules.allowedMerchants.includes(address)) {
-    throw new Error(
-      `Add ${address} to allowedMerchants in agent/rules.json. `
-      + 'The 1 RLUSD sale has to be allowed, and the 8 RLUSD quote has to fail the per-purchase cap.',
-    );
+    explainAllowlist(address);
+    process.exitCode = 1;
+    return;
   }
 
   let health;
@@ -75,11 +103,21 @@ async function main() {
     throw new Error('The 8 RLUSD history merchant is not running. Start it with npm run merchant.');
   }
 
+  if (readBedrockSettings().configured) {
+    console.log('Amazon Bedrock is configured. The demo asks Bedrock to choose one live resource.');
+    const result = await runOnce({ task: 'Buy the morning market brief' });
+    console.log(`→ ${result.line}`);
+    console.log(labelFor(result));
+    return;
+  }
+
+  console.log('Fallback (Bedrock not configured)');
   let failed = false;
   for (const step of steps) {
     try {
       const result = await runOnce({ task: step.task, resourceUrl: step.resourceUrl });
       console.log(`→ ${result.line}`);
+      console.log(labelFor(result));
       const wrongDecision = result.decision !== step.expect;
       const wrongReason = step.reason && result.reason !== step.reason;
       const wrongAmount = step.amount && result.amount !== step.amount;

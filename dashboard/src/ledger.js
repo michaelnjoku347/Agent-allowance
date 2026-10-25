@@ -14,6 +14,7 @@ import {
   describeLedgerInteraction,
   webHidSupported,
 } from '../../shared/ledger-device.js';
+import { ledgerClearSign } from '../../shared/ledger-clear-sign.js';
 
 const CHAIN_ID = 1449000;
 let dmk;
@@ -31,9 +32,14 @@ function wrap(error) {
   return userError(described.message, described.code);
 }
 
-/** Local context only. No Ledger registry call and no invented clear-signing certificate. */
+/**
+ * Load the local ERC-7730 descriptor, then refuse clear-signing.
+ * Chain 1449000 is not in Ledger's registry, and a success filter without a
+ * Ledger PKI certificate can make signTypedData fail.
+ */
 function fieldContextModule() {
-  const skip = { type: 'error', error: new Error('No Ledger registry descriptor for this approval.') };
+  const decision = ledgerClearSign(CHAIN_ID);
+  const skip = { type: 'error', error: new Error(decision.reason) };
   return {
     async getTypedDataFilters() {
       return skip;

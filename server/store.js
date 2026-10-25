@@ -13,8 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import sampleData from '../shared/sample-data.json' with { type: 'json' };
 import network from '../shared/network.json' with { type: 'json' };
-import { canonicalAddress, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
-import { UNLISTED_MERCHANT } from '../merchant/quotes.js';
+import { canonicalAddress, declineReason, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
 
 const defaultStorePath = join(dirname(fileURLToPath(import.meta.url)), 'data', 'store.json');
 
@@ -195,16 +194,10 @@ function presentPending(item) {
     sample: Boolean(item.sample),
     jev: presentJev(item.jev),
     plan: presentPlan(item.plan),
-    declineOnly: isDeclineOnly(item.merchant),
+    declineOnly: Boolean(declineReason(item.merchant)),
+    declineReason: declineReason(item.merchant),
+    paymentPhase: item.paymentPhase ?? null,
   };
-}
-
-function isDeclineOnly(merchant) {
-  try {
-    return canonicalAddress(merchant) === canonicalAddress(UNLISTED_MERCHANT);
-  } catch {
-    return false;
-  }
 }
 
 function liveRows(store, rows) {
@@ -235,13 +228,58 @@ export function summarize(store, rules = loadRules()) {
   };
 }
 
-/** RLUSD already paid by the agent. Sample rows are a preview and are not spent. */
-export async function spentRlusd() {
-  const store = await readStore();
-  const spent = store.payments
+function paidUnits(store) {
+  return (store.payments ?? [])
     .filter((payment) => payment.status === 'paid' && !payment.sample)
     .reduce((sum, payment) => sum + toUnits(payment.amount), 0n);
-  return formatRlusd(spent);
+}
+
+function reservedUnits(store) {
+  return (store.reservations ?? [])
+    .reduce((sum, row) => sum + toUnits(row.amount), 0n);
+}
+
+/** RLUSD already paid, plus amounts reserved for a payment still in flight. */
+export async function spentRlusd() {
+  const store = await readStore();
+  return formatRlusd(paidUnits(store) + reservedUnits(store));
+}
+
+/**
+ * Hold this amount inside the store lock before a payment starts.
+ * The returned spent figure does not include this hold, so the budget check
+ * adds the price once. Another payer sees the hold.
+ */
+export async function reserveSpend(amount) {
+  const price = toUnits(amount);
+  return updateStore((store) => {
+    const rules = loadRules();
+    const spent = paidUnits(store) + reservedUnits(store);
+    if (spent + price > rules.budget) {
+      return { ok: false, reason: 'over budget', spent: formatRlusd(spent) };
+    }
+    const id = newId('rsv');
+    store.reservations ??= [];
+    store.reservations.push({
+      id,
+      purchaseId: null,
+      amount: formatRlusd(price),
+      createdAt: new Date().toISOString(),
+    });
+    return { ok: true, id, spent: formatRlusd(spent) };
+  });
+}
+
+export async function releaseReservation(id) {
+  if (!id) return { ok: true };
+  return updateStore((store) => {
+    store.reservations = (store.reservations ?? []).filter((row) => row.id !== id);
+    return { ok: true };
+  });
+}
+
+function dropReservation(store, { id = '', purchaseId = '' } = {}) {
+  store.reservations = (store.reservations ?? []).filter((row) => row.id !== id && row.purchaseId !== purchaseId);
 }
 
 export async function listPayments() {
@@ -252,7 +290,7 @@ export async function listPayments() {
 export async function listPending() {
   const store = await readStore();
   return liveRows(store, store.pending)
-    .filter((item) => item.status === 'pending')
+    .filter((item) => item.status === 'pending' || item.status === 'paying')
     .map(presentPending);
 }
 
@@ -264,6 +302,7 @@ export async function recordAgentPayment(input) {
   }
   return updateStore((store) => {
     activateAgent(store);
+    if (input.reservationId) dropReservation(store, { id: input.reservationId, purchaseId: input.purchaseId });
     const existing = store.payments.find((row) => !row.sample && row.txHash?.toLowerCase() === input.txHash.toLowerCase());
     if (existing) {
       if (existing.merchant !== merchant || existing.amount !== amount || (input.channelId && existing.channelId && input.channelId !== existing.channelId)) {
@@ -405,7 +444,7 @@ export async function saveApprovalChallenge(id, challenge, nowMs = Date.now()) {
  * Mark this signature used and take the quote for payment.
  * A second use of the same signature is a replay, even if payment later fails.
  */
-export async function claimApprovalSignature(id, signature, nowMs = Date.now()) {
+export async function claimApprovalSignature(id, signature, nowMs = Date.now(), options = {}) {
   if (!validPendingId(id)) return { error: 'invalid' };
   const sig = String(signature ?? '').toLowerCase();
   return updateStore((store) => {
@@ -413,16 +452,63 @@ export async function claimApprovalSignature(id, signature, nowMs = Date.now()) 
     const item = store.pending.find((row) => row.id === id && !row.sample);
     if (!item || (item.status !== 'pending' && item.status !== 'paying')) return { missing: true };
     if (item.status === 'paying' && nowMs - Date.parse(item.paymentStartedAt || 0) < PAYMENT_LOCK_MS) {
-      return { error: 'in_progress' };
+      return { inFlight: true, phase: item.paymentPhase || 'broadcasting' };
     }
     if (store.usedApprovalSignatures.some((row) => String(row).toLowerCase() === sig)) {
       return { error: 'replay' };
     }
+    const rules = loadRules();
+    const price = toUnits(options.amount ?? item.amount);
+    const spent = paidUnits(store) + reservedUnits(store);
+    if (spent + price > rules.budget) return { error: 'over_budget', spent: formatRlusd(spent) };
+    const reservationId = newId('rsv');
+    store.reservations ??= [];
+    store.reservations.push({
+      id: reservationId,
+      purchaseId: id,
+      amount: formatRlusd(price),
+      createdAt: new Date(nowMs).toISOString(),
+    });
     store.usedApprovalSignatures.push(sig);
     item.status = 'paying';
     item.paymentStartedAt = new Date(nowMs).toISOString();
+    item.paymentPhase = 'signed';
     item.approvalSignature = sig;
-    return { ok: true };
+    item.reservationId = reservationId;
+    return { ok: true, reservationId, spent: formatRlusd(spent), phase: 'signed' };
+  });
+}
+
+export async function setPaymentPhase(id, phase) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  return updateStore((store) => {
+    const item = store.pending.find((row) => row.id === id);
+    if (!item) return { missing: true };
+    item.paymentPhase = phase;
+    return { phase };
+  });
+}
+
+/** A choice that signed nothing, so the dashboard can show why. */
+export async function recordSkipped(input) {
+  return updateStore((store) => {
+    activateAgent(store);
+    const row = {
+      id: newId('skip'),
+      sample: false,
+      status: 'skipped',
+      task: String(input.task ?? ''),
+      merchant: input.merchant ?? '',
+      merchantLabel: input.merchantLabel ?? 'No purchase',
+      amount: input.amount ?? '0',
+      reason: String(input.reason ?? 'Nothing was signed.'),
+      note: input.note ?? null,
+      plan: presentPlan(input.plan),
+      txHash: null,
+      createdAt: new Date().toISOString(),
+    };
+    store.payments.unshift(row);
+    return presentPayment(row);
   });
 }
 
@@ -438,6 +524,9 @@ export async function releaseApprovalPayment(id) {
     if (!item) return { missing: true };
     item.status = 'pending';
     delete item.paymentStartedAt;
+    delete item.paymentPhase;
+    dropReservation(store, { id: item.reservationId, purchaseId: id });
+    delete item.reservationId;
     if (item.approvalChallenge?.expiry) item.lastChallengeExpiry = item.approvalChallenge.expiry;
     delete item.approvalChallenge;
     delete item.approvalSignature;
@@ -449,6 +538,7 @@ export async function releaseApprovalPayment(id) {
 export async function completeApprovedPurchase(id) {
   if (!validPendingId(id)) return { error: 'invalid' };
   return updateStore((store) => {
+    dropReservation(store, { purchaseId: id });
     const index = store.pending.findIndex((row) => row.id === id);
     if (index !== -1) store.pending.splice(index, 1);
     return { ok: true };

@@ -8,7 +8,7 @@ Use Chrome, Edge, or Brave. Safari and Firefox have no WebHID, so a real Ledger 
 
 1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). The team budget is already funded in the [participant portal](https://hackathon.ap4m.build/participant).
 2. Fill `.env` from `.env.example`. Put the Ledger Ethereum address (`m/44'/60'/0'/0/0`) in `APPROVER_ADDRESS`. Leave `ALLOWANCE_DEV_SIGNER` unset.
-3. Unlock the Ledger, open the Ethereum app, and plug it in. If that app asks for blind signing, allow it only when the four fields on the device match the dark panel.
+3. Unlock the Ledger, open the Ethereum app, and plug it in. The dark panel shows the readable amount, merchant, and expiry. The device may show raw fields or ask for blind signing, because chain 1449000 has no registered ERC-7730 descriptor. Allow that only when the panel matches this quote.
 4. From the repo root, four terminals:
 
 ```bash
@@ -53,7 +53,7 @@ Gesture at the hero while you say the numbers: **RLUSD left**, **Per purchase 5.
 
 1. Under **Needs you**, find the **8.00 RLUSD** card. The reason reads **This is over the per-purchase cap.**
 2. Click **Approve with Ledger**.
-3. Read the dark panel out loud. The device shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date.
+3. Read the dark panel out loud. It shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date. Say that the device itself may show raw fields or a blind-signing prompt. The sheet then moves through Signed, Broadcasting, Settling, and Paid. A second click does not start another payment.
 4. Click **Connect Ledger**.
 5. In the browser prompt, pick the Ledger. On the device, confirm only if those values match the panel.
 6. Wait until the sheet says the quote was approved and paid once. Click **Close**.

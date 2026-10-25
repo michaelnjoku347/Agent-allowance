@@ -112,7 +112,19 @@ export async function runAgent(task) {
 export async function requestApprovalChallenge(id) {
   const response = await fetch(`/api/approve/${encodeURIComponent(id)}/challenge`, { method: 'POST' });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not prepare that approval.');
+  if (!response.ok) {
+    const error = new Error(body.message || body.error || 'Could not prepare that approval.');
+    error.status = response.status;
+    error.code = body.error;
+    throw error;
+  }
+  return body;
+}
+
+export async function fetchApprovalProgress(id) {
+  const response = await fetch(`/api/approve/${encodeURIComponent(id)}/progress`, { cache: 'no-store' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) return { inFlight: false, missing: true, phase: null };
   return body;
 }
 
@@ -131,6 +143,7 @@ export async function submitLedgerApproval(id, payload) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
+  if (response.status === 202 && body.inFlight) return body;
   if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
   return body;
 }

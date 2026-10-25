@@ -10,5 +10,12 @@
   "merchantLabels": {
     "0xa11cea11cea11cea11cea11cea11cea11cea11ce": "Field Weather Co",
     "0xbee0bee0bee0bee0bee0bee0bee0bee0bee0bee0": "Market Desk"
-  }
+  },
+  "deniedMerchants": [
+    {
+      "address": "0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad",
+      "label": "Unlisted Research API",
+      "reason": "Demo desk. This payout is not a team merchant and cannot be resolved to one. Decline it. A Ledger signature cannot pay it."
+    }
+  ]
 }

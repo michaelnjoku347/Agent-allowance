@@ -16,7 +16,7 @@ import express from 'express';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { channelWarning, higherSpent, readOpenChannel } from '../agent/chain-spend.js';
+import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { formatRlusd, loadRules, toUnits } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
@@ -24,7 +24,7 @@ import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js'
 import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
-import { declinePending, listPayments, listPending, readStore, spentRlusd, summarize } from './store.js';
+import { declinePending, listPayments, listPending, readPendingRecord, readStore, spentRlusd, summarize } from './store.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
@@ -37,6 +37,11 @@ export function fromDashboard(req, env = process.env) {
   return dashboardOrigins(env).includes(String(req.get('origin') ?? ''));
 }
 
+/** DNS rebinding sends a foreign Host with a localhost Origin. Only these hosts are answered. */
+export function allowedHost(host) {
+  return /^(localhost|127\.0\.0\.1)(:\d{1,5})?$/i.test(String(host ?? '').trim());
+}
+
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: join(rootDir, '.env') });
 
@@ -46,6 +51,15 @@ const confirmations = createConfirmations();
 export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '16kb' }));
+  app.use('/api', (req, res, next) => {
+    if (!allowedHost(req.headers.host)) {
+      return res.status(403).json({ error: 'This API only answers on localhost.' });
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !fromDashboard(req)) {
+      return res.status(403).json({ error: 'Open the dashboard to change the allowance.' });
+    }
+    next();
+  });
 
   app.get('/api/status', async (req, res, next) => {
     try {
@@ -54,11 +68,17 @@ export function createApp(options = {}) {
       const localSpent = await spentRlusd();
       let chain = null;
       let chainUnavailable = false;
-      try {
-        chain = options.channelState ? await options.channelState() : await readOpenChannel();
-      } catch {
-        chain = null;
-        chainUnavailable = true;
+      if (options.channelState) {
+        try {
+          chain = await options.channelState();
+        } catch {
+          chain = null;
+          chainUnavailable = true;
+        }
+      } else {
+        const peeked = peekChannel();
+        chain = peeked.chain;
+        chainUnavailable = peeked.unavailable;
       }
       const spent = higherSpent(localSpent, chain?.redeemed);
       const budget = toUnits(summary.budget);
@@ -103,6 +123,7 @@ export function createApp(options = {}) {
     env: options.env,
     rules: options.rules,
     spent: options.spent,
+    channelState: options.channelState,
   };
 
   function sendLedger(res, result) {
@@ -129,6 +150,23 @@ export function createApp(options = {}) {
     }
   });
 
+  app.get('/api/approve/:id/progress', async (req, res, next) => {
+    try {
+      const found = await readPendingRecord(req.params.id);
+      if (found.error === 'invalid') return res.status(400).json({ error: 'invalid' });
+      if (found.missing) return res.status(404).json({ error: 'missing', inFlight: false });
+      const paying = found.pending.status === 'paying';
+      res.json({
+        ok: true,
+        inFlight: paying,
+        phase: paying ? (found.pending.paymentPhase || 'signed') : found.pending.status,
+        status: found.pending.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Backup demo only. Off unless ALLOWANCE_DEV_SIGNER=1. Does not broadcast a voucher.
   app.post('/api/demo/simulated-ledger/:id', async (req, res, next) => {
     try {
@@ -150,7 +188,8 @@ export function createApp(options = {}) {
 
   app.post('/api/allowance', async (req, res, next) => {
     try {
-      sendLedger(res, await acceptAllowanceChange(req.body ?? {}, ledgerOptions));
+      const env = backupChallengeEnv(ledgerOptions.env ?? process.env);
+      sendLedger(res, await acceptAllowanceChange(req.body ?? {}, { ...ledgerOptions, env }));
     } catch (error) {
       next(error);
     }
@@ -291,6 +330,7 @@ export function createApp(options = {}) {
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = Number(process.env.PORT || 8787);
+  startChannelRefresh();
   const server = createApp().listen(port, '127.0.0.1', async () => {
     const status = summarize(await readStore(), loadRules());
     const mode = status.agentConnected

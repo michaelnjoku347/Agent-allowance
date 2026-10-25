@@ -8,8 +8,15 @@
  */
 
 import { payExactQuote } from '../agent/agent.js';
-import { higherSpent, readOpenChannel } from '../agent/chain-spend.js';
-import { activeApprover, canonicalAddress, checkApprovalHardRules, loadRules } from '../agent/rules.js';
+import {
+  channelCoversQuote,
+  higherSpent,
+  paymentBlockedByChain,
+  readOpenChannel,
+  requireSpendChannel,
+  walletConfigured,
+} from '../agent/chain-spend.js';
+import { activeApprover, checkApprovalHardRules, declineReason, formatRlusd, loadRules } from '../agent/rules.js';
 import { plainReason } from '../shared/words.js';
 import {
   CHALLENGE_TTL_SECONDS,
@@ -20,7 +27,6 @@ import {
   normalizeSignature,
 } from '../shared/approval.js';
 import network from '../shared/network.json' with { type: 'json' };
-import { UNLISTED_MERCHANT } from '../merchant/quotes.js';
 import {
   claimApprovalSignature,
   completeApprovedPurchase,
@@ -28,6 +34,7 @@ import {
   readUsedApprovalSignatures,
   releaseApprovalPayment,
   saveApprovalChallenge,
+  setPaymentPhase,
   spentRlusd,
 } from './store.js';
 
@@ -61,9 +68,10 @@ export async function createApprovalChallenge(id, options = {}) {
   if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');
   if (found.missing || found.pending.sample) return missingPurchase();
   if (found.pending.status !== 'pending' && found.pending.status !== 'paying') return missingPurchase();
-  if (isDeclineOnlyMerchant(found.pending.merchant)) {
-    return httpError(409, 'decline_only', 'This quote is from an unlisted desk. Decline it. A Ledger signature cannot pay it.');
-  }
+  const denied = declineReason(found.pending.merchant, rules);
+  if (denied) return httpError(409, 'decline_only', denied);
+  const channelBlock = await channelBlockFor(found.pending, env, options);
+  if (channelBlock) return channelBlock;
 
   // A retry in the same second must not rebuild the signature that already failed.
   let expiry = Math.floor(nowMs / 1000) + ttl;
@@ -101,24 +109,42 @@ export async function createApprovalChallenge(id, options = {}) {
   };
 }
 
-function isDeclineOnlyMerchant(merchant) {
-  try {
-    return canonicalAddress(merchant) === canonicalAddress(UNLISTED_MERCHANT);
-  } catch {
-    return false;
-  }
+async function readSpendChannel(env, options) {
+  if (options.channelState) return options.channelState();
+  if (!walletConfigured(env)) return null;
+  return readOpenChannel(env, { fresh: true });
 }
 
-async function spentForApproval(options) {
-  if (options.spent !== undefined) return options.spent;
-  const local = await spentRlusd();
+/** Fail closed when a configured wallet cannot show a channel that covers the quote. */
+async function channelBlockFor(pending, env, options) {
+  if (options.spent !== undefined && !options.channelState && !walletConfigured(env)) return null;
+  if (!walletConfigured(env) && !options.channelState) return null;
   let chain = null;
   try {
-    chain = options.channelState ? await options.channelState() : await readOpenChannel(options.env ?? process.env);
+    chain = await readSpendChannel(env, options);
   } catch {
-    chain = null;
+    return httpError(409, 'channel_unread', 'The payment channel could not be read. Nothing was paid.');
   }
-  return higherSpent(local, chain?.redeemed);
+  if (!chain) return httpError(409, 'channel_unread', 'The payment channel could not be read. Nothing was paid.');
+  const rules = options.rules ?? loadRules();
+  const blocked = paymentBlockedByChain({ budget: formatRlusd(rules.budget), chain });
+  if (blocked) return httpError(409, 'chain_over_budget', blocked);
+  const cover = channelCoversQuote({ chain, amount: pending.amount });
+  if (!cover.ok) return httpError(409, 'channel_short', cover.message);
+  return null;
+}
+
+async function spentForApproval(pending, options) {
+  if (options.spent !== undefined) return options.spent;
+  const local = await spentRlusd();
+  if (!walletConfigured(options.env ?? process.env) && !options.channelState) return local;
+  const chain = await readSpendChannel(options.env ?? process.env, options);
+  if (!chain) {
+    const error = new Error('The payment channel could not be read. Nothing was paid.');
+    error.code = 'CHANNEL_UNREAD';
+    throw error;
+  }
+  return higherSpent(local, chain.redeemed);
 }
 
 function publicPaymentError(error) {
@@ -128,7 +154,23 @@ function publicPaymentError(error) {
   return text.slice(0, 240);
 }
 
-async function paySavedQuote(pending) {
+async function paySavedQuote(pending, options = {}) {
+  const env = options.env ?? process.env;
+  const chain = options.chain ?? await requireSpendChannel(env);
+  const rules = options.rules ?? loadRules();
+  const blocked = paymentBlockedByChain({ budget: formatRlusd(rules.budget), chain });
+  if (blocked) {
+    const error = new Error(blocked);
+    error.code = 'CHAIN_OVER_BUDGET';
+    throw error;
+  }
+  const cover = channelCoversQuote({ chain, amount: pending.amount });
+  if (!cover.ok) {
+    const error = new Error(cover.message);
+    error.code = 'CHANNEL_SHORT';
+    throw error;
+  }
+  const spent = higherSpent(pending.spentBasis ?? '0', chain.redeemed);
   return payExactQuote({
     task: pending.task,
     resourceUrl: pending.resourceUrl,
@@ -139,7 +181,11 @@ async function paySavedQuote(pending) {
     approver: pending.approver,
     plan: pending.plan,
     purchaseId: pending.id,
-    spent: await spentRlusd(),
+    spent,
+    reservationId: pending.reservationId,
+    onPhase: async (phase) => {
+      await setPaymentPhase(pending.id, phase);
+    },
   });
 }
 
@@ -157,22 +203,35 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
     return httpError(400, 'invalid_signature', 'A Ledger signature is required. Nothing was paid.');
   }
 
+  const found = await readPendingRecord(id);
+  if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');
+  if (!found.missing && !found.pending.sample && found.pending.status === 'paying') {
+    return {
+      status: 202,
+      body: {
+        ok: true,
+        inFlight: true,
+        phase: found.pending.paymentPhase || 'broadcasting',
+        note: 'This approval is already being paid. Nothing else was started.',
+      },
+    };
+  }
+
   const used = await readUsedApprovalSignatures();
+  let presented;
   try {
-    const presented = normalizeSignature(body.signature).toLowerCase();
-    if (used.some((item) => String(item).toLowerCase() === presented)) {
-      return httpError(409, 'replay', 'That Ledger approval was already used.');
-    }
+    presented = normalizeSignature(body.signature).toLowerCase();
   } catch {
     return httpError(400, 'invalid_signature', 'The Ledger signature could not be verified.');
   }
-
-  const found = await readPendingRecord(id);
-  if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');
-  if (found.missing || found.pending.sample) return missingPurchase();
-  if (isDeclineOnlyMerchant(found.pending.merchant)) {
-    return httpError(409, 'decline_only', 'This quote is from an unlisted desk. Decline it. A Ledger signature cannot pay it.');
+  if (used.some((item) => String(item).toLowerCase() === presented)) {
+    return httpError(409, 'replay', 'That Ledger approval was already used.');
   }
+  if (found.missing || found.pending.sample) return missingPurchase();
+  const denied = declineReason(found.pending.merchant, rules);
+  if (denied) return httpError(409, 'decline_only', denied);
+  const channelBlock = await channelBlockFor(found.pending, env, options);
+  if (channelBlock) return channelBlock;
 
   const verdict = judgeApproval({
     pending: found.pending,
@@ -189,7 +248,12 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
     return httpError(status, verdict.error, verdict.message);
   }
 
-  const spent = await spentForApproval(options);
+  let spent;
+  try {
+    spent = await spentForApproval(found.pending, options);
+  } catch (error) {
+    return httpError(409, 'channel_unread', error.message || 'The payment channel could not be read. Nothing was paid.');
+  }
   const hard = checkApprovalHardRules({
     merchant: found.pending.merchant,
     amount: found.pending.amount,
@@ -209,15 +273,41 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
     );
   }
 
-  const claim = await claimApprovalSignature(id, verdict.signature, nowMs);
+  const claim = await claimApprovalSignature(id, verdict.signature, nowMs, { amount: found.pending.amount });
+  if (claim.inFlight) {
+    return {
+      status: 202,
+      body: {
+        ok: true,
+        inFlight: true,
+        phase: claim.phase || 'broadcasting',
+        note: 'This approval is already being paid. Nothing else was started.',
+      },
+    };
+  }
   if (claim.error === 'replay') return httpError(409, 'replay', 'That Ledger approval was already used.');
-  if (claim.error === 'in_progress') {
-    return httpError(409, 'in_progress', 'A payment for this quote is already in progress.');
+  if (claim.error === 'over_budget') {
+    return httpError(409, 'over budget', `${plainReason('over budget')} A Ledger signature cannot override that.`);
   }
   if (claim.missing || claim.error) return missingPurchase();
 
+  let chain = null;
+  if (walletConfigured(env) || options.channelState) {
+    try {
+      chain = await readSpendChannel(env, options);
+    } catch {
+      chain = null;
+    }
+  }
+  const spentBasis = chain ? higherSpent(claim.spent, chain.redeemed) : claim.spent;
+
   try {
-    const payment = await payer({ ...found.pending, approver: verdict.signer });
+    const payment = await payer({
+      ...found.pending,
+      approver: verdict.signer,
+      reservationId: claim.reservationId,
+      spentBasis,
+    }, { env, rules, chain });
     await completeApprovedPurchase(id);
     return {
       status: 200,

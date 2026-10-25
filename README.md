@@ -27,8 +27,8 @@ An agent that can pay for data is useful. An agent holding a card is not. The us
 1. **Rules, first.** `agent/rules.json` holds the allowance: 20 RLUSD budget, 5 RLUSD per purchase, an expiry, and an allowlist. `checkRules` reads the merchant's HTTP 402 quote and stops at the first failure: expired, merchant not allowed, over the cap, or over the budget. Nothing is signed on a failure.
 2. **Jev, second.** Jev reviews a quote only after the rules allow it. A high risk score, a low "needed" score, or a review flag saves the quote. If Jev is down, the rules still decide and the row says so. Jev cannot spend past a rule.
 3. **AP4M x402, when the quote is inside the allowance.** The agent reuses an open Channel, signs one voucher with `buyResource`, and the merchant redeems it on XRPL EVM Testnet. The dashboard keeps the transaction hash, claim id, receipt URL, and explorer link. The Channel stays open for the next payment. Voucher amounts are the running total on that Channel.
-4. **Amazon Bedrock chooses; it does not spend.** When Bedrock is configured, the agent offers three live resources: the 1 RLUSD brief, the 8 RLUSD history, and the outside desk. The model returns an id or null. Null, an unknown id, or an error means nothing is signed. The rules and Jev still run after a real choice. The plan is on the activity row. If Bedrock is not configured, a labeled deterministic fallback selects the 1 RLUSD brief, and the row says so.
-5. **Ledger, for one exception.** The 8 RLUSD history quote waits under **Needs you**. Approving it asks a Ledger Ethereum app, over Chrome WebHID, to sign an EIP-712 `ApprovePurchase` message. The device shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date. Chain id `1449000` stays in the domain. The server rebuilds that message, checks the signature recovers to `APPROVER_ADDRESS`, and checks it matches that quote and has not expired or been used. Only then does the same x402 path redeem that quote once and return the tx hash, claim id, and receipt URL. The unlisted `0x0bad…` desk is decline-only. A failed broadcast puts the row back under **Needs you** with a fresh challenge. The signature can pass the cap. It cannot pass an expired allowance or a budget that is already spent. Eve cannot approve a purchase, and she cannot raise the cap, the budget, the expiry, or the merchant list without a separate `SetAllowance` signature.
+4. **Amazon Bedrock chooses; it does not spend.** When Bedrock is configured, the agent offers three live resources: the 1 RLUSD brief, the 8 RLUSD history, and the outside desk. The model returns an id or null. Null, an unknown id, or an error means nothing is signed, and the activity row says why. The rules and Jev still run after a real choice. The row is labeled **Amazon Bedrock**. If Bedrock is not configured, a deterministic fallback selects the 1 RLUSD brief and the row is labeled **Fallback (Bedrock not configured)**.
+5. **Ledger, for one exception.** The 8 RLUSD history quote waits under **Needs you**. Approving it asks a Ledger Ethereum app, over Chrome WebHID, to sign an EIP-712 `ApprovePurchase` message. The dark panel shows the amount as `8 RLUSD`, the merchant label, and the expiry as a date. Chain id `1449000` stays in the domain. The device may show raw fields or a blind-signing prompt: `shared/erc7730-approve-purchase.json` is not in Ledger's registry for chain 1449000, so the device does not clear-sign it. The server rebuilds the panel's message, checks the signature recovers to `APPROVER_ADDRESS`, and checks it matches that quote and has not expired or been used. Only then does the same x402 path redeem that quote once. While that runs, the sheet shows Signed, Broadcasting, Settling, then Paid. A retry returns the attempt already in flight. The unlisted `0x0bad…` desk is on `deniedMerchants` because that payout is a fixed fake payee, not a team merchant, and a Ledger signature cannot pay it. Decline is the only action. A failed broadcast puts the row back under **Needs you** with a fresh challenge. The signature can pass the cap. It cannot pass an expired allowance, a budget that is already spent, or a channel that cannot be read or cannot cover the quote. Eve cannot approve a purchase, and she cannot raise the cap, the budget, the expiry, or the merchant list without a separate `SetAllowance` signature.
 
 ```mermaid
 flowchart LR
@@ -66,7 +66,7 @@ flowchart LR
 | --- | --- |
 | Agentic Finance track | The agent spends inside a funded allowance. Rules run before any signature, so the agent never holds a card. |
 | Mastercard AP4M | x402 `PAYMENT-REQUIRED` quotes, an RLUSD Channel, one voucher per allowed purchase, redemption, settlement, and a receipt URL from the hackathon service. |
-| Ledger | A person approves one out-of-rule quote on a Ledger Ethereum app. The device signs EIP-712 `ApprovePurchase` over WebHID. `shared/erc7730-approve-purchase.json` is the clear-signing descriptor. The server checks the signer, the quote, the expiry, and replay. |
+| Ledger | A person approves one out-of-rule quote on a Ledger Ethereum app. The device signs EIP-712 `ApprovePurchase` over WebHID. The panel shows the readable strings. The device may ask for blind signing because `shared/erc7730-approve-purchase.json` is not registered for chain 1449000. The server checks the signer, the quote, the expiry, and replay. |
 | AWS | Amazon Bedrock (Converse API) chooses among the three live resources and writes Eve's open-ended replies. Null or an error signs nothing. Bedrock does not approve, deny, or sign a payment. With no AWS credentials, a labeled deterministic fallback selects the 1 RLUSD brief. |
 
 ## Bounty to files
@@ -104,13 +104,13 @@ npm run dashboard   # http://127.0.0.1:5173
 npm run demo        # one paid purchase, two saved quotes
 ```
 
-`npm run demo` expects `MERCHANT_PAYOUT_ADDRESS` to be listed in the rules the agent loads. The committed sample allowlist is in `agent/rules.json`. To point the rules at your own payout without editing that file:
+`npm run demo` expects `MERCHANT_PAYOUT_ADDRESS` to be listed in `agent/rules.json`. The committed file still has placeholder merchants. If the payout is missing, the demo prints how to add it instead of paying. Write the real payout with:
 
 ```bash
 npm run setup:payments -- --from /path/to/payment-starter --use-agent-as-submitter
 ```
 
-That writes gitignored `.env` values and `agent/rules.local.json`. It does not move funds.
+That writes gitignored `.env` values and replaces `allowedMerchants` in `agent/rules.json` with the payout address. The budget, cap, expiry, and denylist stay. It does not move funds. A new channel uses the budget (20 RLUSD), not a 5 RLUSD test cap. `npm run preflight` checks that cap, the redeemed balance, both merchant routes, and the approver before you start.
 
 Until the agent records a decision, the API serves sample rows and the dashboard shows an empty board with the full 20 RLUSD still unspent. Sample rows are a preview. They are not spent, and they cannot be approved. If the API is down, the dashboard opens on a labeled offline sample preview of those rows instead of an error page.
 
@@ -151,7 +151,7 @@ Live explorer links belong in [docs/JUDGE_NOTE.md](docs/JUDGE_NOTE.md). Leave th
 | `LLM_MODEL` | Optional model name for that endpoint. |
 | `ALLOWANCE_DEV_SIGNER` | Leave unset. Set to `1` only for the labeled backup demo in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md). |
 
-`PORT` (8787) is the allowance API. `MERCHANT_PORT` (4308) is the merchant. They are different processes.
+`PORT` (8787) is the allowance API. `MERCHANT_PORT` (4308) is the 1 RLUSD merchant. `HISTORY_PORT` (4318) is the 8 RLUSD history merchant. The dashboard is `http://127.0.0.1:5173`. They are different processes. Port 4309 belongs to another local demo, so this one does not use it.
 
 ## Tests and build
 
@@ -170,13 +170,14 @@ The tests cover the rules, a 402 read with no payment signature, a 1 RLUSD recor
 | GET | `/api/payments` | Payments, with hash, merchant, amount, and status |
 | GET | `/api/pending` | Quotes waiting for a person |
 | POST | `/api/approve/:id/challenge` | EIP-712 payload for the Ledger |
-| POST | `/api/approve/:id` | Check a Ledger signature and pay that quote once |
+| POST | `/api/approve/:id` | Check a Ledger signature and pay that quote once. A retry while it is paying returns that attempt |
+| GET | `/api/approve/:id/progress` | Signed, broadcasting, settling, or paid |
 | POST | `/api/decline/:id` | Record a decline. Nothing is signed or paid |
 | POST | `/api/eve` | Ask Eve. A change comes back as a confirmation |
 | POST | `/api/eve/confirm` | Apply a confirmation token Eve just issued. A raise is refused here |
 | POST | `/api/allowance/challenge` | EIP-712 `SetAllowance` payload when a raise needs the Ledger |
 | POST | `/api/allowance` | Check that signature, then raise the cap, budget, expiry, or merchant list |
-| POST | `/api/run-agent` | Start one purchase. The browser must be the local dashboard |
+| POST | `/api/run-agent` | Start one purchase. Every state-changing POST must come from the dashboard origin, and every `/api` request must use a localhost host |
 
 The ledger file is `server/data/store.json`. It is created on first run and is not committed.
 

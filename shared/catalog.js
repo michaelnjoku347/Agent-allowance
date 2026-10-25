@@ -8,9 +8,12 @@ export function merchantPort(env = process.env) {
   return Number.isInteger(port) ? port : 4308;
 }
 
+/** Not 4309: that port is the other local demo's merchant, and not MERCHANT_PORT. */
+export const HISTORY_PORT_DEFAULT = 4318;
+
 export function historyPort(env = process.env) {
   if (String(env.HISTORY_PORT ?? '').trim()) return Number(env.HISTORY_PORT);
-  return merchantPort(env) + 1;
+  return HISTORY_PORT_DEFAULT;
 }
 
 export function merchantOrigin(env = process.env) {

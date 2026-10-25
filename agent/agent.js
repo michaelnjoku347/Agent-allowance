@@ -22,7 +22,7 @@ import { ethers } from 'ethers';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { higherSpent, readOpenChannel } from './chain-spend.js';
+import { higherSpent, paymentBlockedByChain, requireSpendChannel } from './chain-spend.js';
 import { selectOpenChannel } from './channel.js';
 import { pendingPurchase, validateRecovery } from './recovery.js';
 import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
@@ -31,7 +31,8 @@ import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
-import { recordAgentPayment, recordPending, spentRlusd, listPayments } from '../server/store.js';
+import { readBedrockSettings } from '../server/bedrock.js';
+import { listPayments, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -128,7 +129,7 @@ async function hold({ recordHold, task, quote, label, resourceUrl, reason, descr
     description,
     resourceUrl,
     jev: record,
-    plan,
+    plan: displayPlan(plan),
   });
   console.log('Not paying. Saved for approval.');
   return {
@@ -164,6 +165,7 @@ export async function finishQuote({
   recentPayments = [],
   review = askJev,
   plan = planPurchase,
+  reservationId = '',
 }) {
   const label = merchantLabel(rules, quote.merchant);
   const merchant = canonicalAddress(quote.merchant);
@@ -267,7 +269,8 @@ export async function finishQuote({
   let saved = await recordPayment({
     task, merchant, merchantLabel: label, amount: quote.amount, txHash,
     claimId: purchase.claimId ?? null, channelId, resourceUrl, jev: verdict.jev,
-    plan: purchasePlan,
+    plan: displayPlan(purchasePlan),
+    reservationId,
   });
   const settled = await report(purchase);
   const claimId = settled?.claimId ?? purchase.claimId ?? null;
@@ -286,7 +289,8 @@ export async function finishQuote({
       receiptUrl,
       resourceUrl,
       jev: verdict.jev,
-      plan: purchasePlan,
+      plan: displayPlan(purchasePlan),
+      reservationId,
     });
   } catch (error) {
     console.error('Payment is on-chain but the local ledger was not updated.');
@@ -335,10 +339,14 @@ async function openSession(apiUrl, rules, resourceUrl) {
   console.log('Agent wallet:', wallet.address);
   console.log('Signing in…');
   const { token } = await signIn(apiUrl, teamName, wallet);
-  let channel = selectOpenChannel(await listChannels(apiUrl, token), requestedChannel);
+  const capRlusd = process.env.CHANNEL_CAP?.trim() || formatRlusd(rules.budget);
+  const payout = process.env.MERCHANT_PAYOUT_ADDRESS?.trim() ?? '';
+  let channel = selectOpenChannel(await listChannels(apiUrl, token), requestedChannel, {
+    payout,
+    minCapWei: toUnits(capRlusd),
+  });
   if (!channel) {
-    const capRlusd = process.env.CHANNEL_CAP?.trim() || formatRlusd(rules.budget);
-    console.log(`No open Channel. Opening one with a ${capRlusd} RLUSD cap…`);
+    console.log(`No open Channel with this payout and enough cap. Opening one with a ${capRlusd} RLUSD cap…`);
     channel = await requestChannel(apiUrl, token, wallet, { capRlusd });
     console.log('Channel open', channel.channel_id);
   } else {
@@ -402,6 +410,22 @@ async function reportSettlement(apiUrl, token, channelId, purchase) {
   }
 }
 
+function displayPlan(plan) {
+  if (plan?.source === 'bedrock' || plan?.source === 'fallback') return plan;
+  if (plan?.reason) {
+    return { source: 'bedrock', resourceId: plan.resourceId ?? null, reason: plan.reason, fallback: false };
+  }
+  if (readBedrockSettings().configured) {
+    return { source: 'bedrock', resourceId: null, reason: 'Amazon Bedrock chose this step.', fallback: false };
+  }
+  return {
+    source: 'fallback',
+    resourceId: null,
+    reason: 'Fallback (Bedrock not configured).',
+    fallback: true,
+  };
+}
+
 function ledgerOperation(purchaseId) {
   const slug = String(purchaseId ?? '')
     .toLowerCase()
@@ -434,6 +458,8 @@ export async function payExactQuote({
   purchaseId = '',
   plan = null,
   recordPayment = recordAgentPayment,
+  reservationId = '',
+  onPhase = async () => {},
 } = {}) {
   const hard = checkApprovalHardRules({ merchant, amount, spent, at }, rules);
   if (hard.decision !== 'allow') {
@@ -465,6 +491,7 @@ export async function payExactQuote({
   }
   let purchase;
   try {
+    await onPhase('broadcasting');
     purchase = await payWithX402({
       session,
       quote,
@@ -494,8 +521,10 @@ export async function payExactQuote({
     approver,
     plan,
     note,
+    reservationId,
   });
   try {
+    await onPhase('settling');
     const settled = await reportSettlement(apiUrl, session.token, session.channel.channel_id, purchase);
     saved = await recordPayment({
       task,
@@ -512,6 +541,7 @@ export async function payExactQuote({
       approver,
       plan,
       note,
+      reservationId,
     });
   } catch (error) {
     error.payment = saved;
@@ -541,9 +571,13 @@ export async function runOnce({
   let selectedUrl = resourceUrl;
   if (!selectedUrl) {
     const picked = await chooseResource({ task, rules });
-    if (picked?.skipped || !picked?.url) {
-      const reason = picked?.reason || 'Nothing was selected. Nothing was signed.';
-      console.log(reason);
+    if (picked?.plan?.resourceId === 'outside') {
+      const note = 'The outside desk is on the denylist. Decline is the only action. Nothing was signed.';
+      const reason = `${picked.reason || ''} ${note}`.trim();
+      const line = `nothing signed — ${reason}`;
+      console.log(line);
+      const plan = displayPlan({ ...(picked.plan || {}), reason });
+      await recordSkipped({ task, reason: line, plan, merchantLabel: 'Unlisted Research API' });
       return {
         decision: 'skipped',
         reason,
@@ -553,8 +587,27 @@ export async function runOnce({
         claimId: null,
         receiptUrl: null,
         explorerUrl: null,
-        plan: picked?.plan ?? null,
-        line: `nothing signed — ${reason}`,
+        plan,
+        line,
+      };
+    }
+    if (picked?.skipped || !picked?.url) {
+      const reason = picked?.reason || 'Nothing was selected. Nothing was signed.';
+      const line = `nothing signed — ${reason}`;
+      console.log(line);
+      const plan = displayPlan(picked?.plan?.reason ? picked.plan : null);
+      await recordSkipped({ task, reason: line, plan, merchantLabel: 'No purchase' });
+      return {
+        decision: 'skipped',
+        reason,
+        amount: null,
+        merchant: null,
+        txHash: null,
+        claimId: null,
+        receiptUrl: null,
+        explorerUrl: null,
+        plan,
+        line,
       };
     }
     selectedUrl = picked.url;
@@ -572,16 +625,52 @@ export async function runOnce({
     if (new URL(quote.resourceUrl).href !== url) {
       throw new Error('Merchant quote is for a different resource than the one requested.');
     }
-    const localSpent = await spentRlusd();
     let chain = null;
     if (spent === undefined) {
       try {
-        chain = await readOpenChannel();
+        chain = await requireSpendChannel();
       } catch (error) {
-        console.log(`On-chain channel was not read: ${error.message ?? error}`);
+        const reason = 'The payment channel could not be read. Nothing was signed.';
+        console.log(reason);
+        const plan = displayPlan(presetPlan);
+        await recordSkipped({ task, reason, plan, merchantLabel: 'No purchase' });
+        return {
+          decision: 'skipped',
+          reason,
+          amount: null,
+          merchant: null,
+          txHash: null,
+          claimId: null,
+          receiptUrl: null,
+          explorerUrl: null,
+          plan,
+          line: `nothing signed — ${reason}`,
+        };
+      }
+      const blocked = paymentBlockedByChain({ budget: formatRlusd(rules.budget), chain });
+      if (blocked) {
+        console.log(blocked);
+        const plan = displayPlan(presetPlan);
+        await recordSkipped({ task, reason: blocked, plan, merchantLabel: 'No purchase' });
+        return {
+          decision: 'skipped',
+          reason: blocked,
+          amount: quote.amount,
+          merchant: quote.merchant,
+          txHash: null,
+          claimId: null,
+          receiptUrl: null,
+          explorerUrl: null,
+          plan,
+          line: `nothing signed — ${blocked}`,
+        };
       }
     }
-    const spentNow = spent ?? higherSpent(localSpent, chain?.redeemed);
+    const reserved = spent === undefined ? await reserveSpend(quote.amount) : { ok: true, id: '', spent };
+    if (reserved.ok === false) {
+      console.log('Over budget once in-flight payments are counted. Nothing was signed.');
+    }
+    const spentNow = higherSpent(reserved.spent ?? spent ?? await spentRlusd(), chain?.redeemed);
     const recentPayments = (await listPayments())
       .filter((item) => !item.sample)
       .slice(0, 5)
@@ -591,18 +680,23 @@ export async function runOnce({
         status: item.status,
         task: item.task,
       }));
-    return finishQuote({
-      task,
-      resourceUrl: url,
-      quote,
-      channelId,
-      rules,
-      spent: spentNow,
-      recentPayments,
-      plan: presetPlan ? async () => presetPlan : planPurchase,
-      pay: (args) => payWithX402({ session: active, ...args }),
-      report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
-    });
+    try {
+      return await finishQuote({
+        task,
+        resourceUrl: url,
+        quote,
+        channelId,
+        rules,
+        spent: spentNow,
+        reservationId: reserved.id,
+        recentPayments,
+        plan: presetPlan ? async () => presetPlan : planPurchase,
+        pay: (args) => payWithX402({ session: active, ...args }),
+        report: (purchase) => reportSettlement(apiUrl, active.token, active.channel.channel_id, purchase),
+      });
+    } finally {
+      await releaseReservation(reserved.id);
+    }
   } finally {
     globalThis.fetch = previousFetch;
   }

@@ -75,16 +75,46 @@ export function loadRules(file = rulesFile()) {
     approverAddress = canonicalAddress(raw.approverAddress);
   }
 
+  const deniedMerchants = [];
+  for (const entry of raw.deniedMerchants ?? []) {
+    const source = entry && typeof entry === 'object' ? entry : { address: entry };
+    const address = canonicalAddress(source.address);
+    if (deniedMerchants.some((item) => item.address === address)) continue;
+    deniedMerchants.push({
+      address,
+      label: source.label ? String(source.label) : null,
+      reason: source.reason
+        ? String(source.reason)
+        : 'This merchant is decline-only. A Ledger signature cannot pay it.',
+    });
+  }
+
   return {
     budget,
     maxPerPurchase,
     expiresAt: new Date(expiresAtMs).toISOString(),
     summary: typeof raw.summary === 'string' ? raw.summary : '',
     allowedMerchants,
+    deniedMerchants,
     merchantLabels,
     approverAddress,
     currency: 'RLUSD',
   };
+}
+
+/**
+ * Decline-only when the payout is on the denylist or is not a resolvable address.
+ * Returns the sentence to show, or null when a person may still approve it.
+ */
+export function declineReason(merchant, rules = loadRules()) {
+  let address;
+  try {
+    address = canonicalAddress(merchant);
+  } catch {
+    return 'This payout address cannot be resolved. Decline it. A Ledger signature cannot pay it.';
+  }
+  const denied = (rules.deniedMerchants ?? []).find((item) => item.address === address);
+  return denied?.reason ?? null;
 }
 
 /**

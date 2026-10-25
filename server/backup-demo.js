@@ -40,6 +40,11 @@ function ephemeralApprover() {
   return throwaway;
 }
 
+/** The same throwaway key the backup challenge and the backup verification both use. */
+export function backupApproverWallet() {
+  return ephemeralApprover();
+}
+
 /** Use the throwaway approver when the backup flag is on and no Ledger address is set. */
 export function backupChallengeEnv(env = process.env) {
   if (!devSignerEnabled(env) || String(env.APPROVER_ADDRESS ?? '').trim()) return env;

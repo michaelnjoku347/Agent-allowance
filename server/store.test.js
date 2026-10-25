@@ -59,7 +59,10 @@ describe('allowance API', { concurrency: false }, () => {
       const imagery = pending.find((item) => item.reason === 'over per-purchase cap');
       assert.ok(imagery);
 
-      const approved = await fetch(`${base}/api/approve/${imagery.id}`, { method: 'POST' });
+      const approved = await fetch(`${base}/api/approve/${imagery.id}`, {
+        method: 'POST',
+        headers: { Origin: 'http://127.0.0.1:5173' },
+      });
       assert.equal(approved.status, 400);
       const body = await approved.json();
       assert.match(body.message, /Ledger signature is required/i);
@@ -77,7 +80,7 @@ describe('allowance API', { concurrency: false }, () => {
 
       const again = await fetch(`${base}/api/approve/${imagery.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' },
         body: JSON.stringify({ signature: '0x1234', message: { purchaseId: imagery.id } }),
       });
       assert.equal(again.status, 400);

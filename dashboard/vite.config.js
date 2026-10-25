@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    strictPort: true,
     // The API listens on 8787 (PORT in .env.example). Keep these in step.
     proxy: {
       '/api': 'http://127.0.0.1:8787',

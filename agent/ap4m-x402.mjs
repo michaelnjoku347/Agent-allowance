@@ -64,7 +64,7 @@ function save(file, value) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-async function request(url, headers, requestFetch) {
+async function requestOnce(url, headers, requestFetch) {
   const response = await requestFetch(url, { headers, redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(150_000) });
   const chunks = [];
   let length = 0;
@@ -74,6 +74,19 @@ async function request(url, headers, requestFetch) {
     chunks.push(chunk);
   }
   return { response, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) };
+}
+
+/** A stale chain head is the merchant asking us to wait. The same request is safe to repeat. */
+async function request(url, headers, requestFetch) {
+  const waits = [1000, 2000, 4000];
+  let last;
+  for (let attempt = 0; attempt <= waits.length; attempt += 1) {
+    last = await requestOnce(url, headers, requestFetch);
+    const stale = last.response.status === 503 && last.body?.error === 'chain_head_stale';
+    if (!stale || attempt === waits.length) return last;
+    await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+  }
+  return last;
 }
 
 /**

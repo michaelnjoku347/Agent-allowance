@@ -18,10 +18,10 @@ npm run demo
 ```
 
 4. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
-5. Under **Needs you**, approve the **8 RLUSD** history row on a Ledger. The device shows `8 RLUSD`, the merchant label, and the expiry as a date.
+5. Under **Needs you**, approve the **8 RLUSD** history row on a Ledger. The panel shows `8 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor.
 6. Click the explorer link on that paid row. The row also keeps the claim id and the receipt URL.
 
-`npm run demo` pays the 1 RLUSD brief, saves the 8 RLUSD history quote for that approval, and saves the unlisted `0x0bad…` desk as decline-only. A broadcast that fails returns the 8 RLUSD row to **Needs you** with a fresh challenge.
+`npm run demo` pays the 1 RLUSD brief, saves the 8 RLUSD history quote for that approval, and saves the unlisted `0x0bad…` desk as decline-only. That desk is a fixed fake payee, not a team merchant, so a Ledger signature cannot pay it. When Bedrock is configured, the demo asks Bedrock to choose instead of running those three steps. The activity row is labeled **Amazon Bedrock** or **Fallback (Bedrock not configured)**. A broadcast that fails returns the 8 RLUSD row to **Needs you** with a fresh challenge. Run `npm run preflight` first. It checks the channel cap against the 20 RLUSD budget, redeemed against local spent, and that both merchant ports answer.
 
 ## Live explorer links
 
