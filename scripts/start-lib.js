@@ -106,6 +106,34 @@ export function dashboardInstall(reason) {
   return { label: `Installing dashboard dependencies…${why}`, args: ['install', '--prefix', 'dashboard'] };
 }
 
+const MERCHANT_KEYS = ['MERCHANT_PAYOUT_ADDRESS', 'MERCHANT_ID', 'MERCHANT_SUBMITTER_KEY'];
+
+/**
+ * Should npm start run the local x402 merchant too? Then one window (or one
+ * double-click) starts everything, and closing it stops everything. Only when
+ * all three merchant keys are in .env and nothing answers on the merchant
+ * port yet; a merchant you started yourself is used as it is.
+ * --no-merchant or START_MERCHANT=0 leaves the merchant to you.
+ *
+ *   running(port)   resolves true when something answers on the port
+ */
+export async function merchantLaunch({ argv = [], env = {}, port = 4308, running = async () => false } = {}) {
+  if (argv.includes('--no-merchant') || String(env.START_MERCHANT ?? '').trim() === '0') {
+    return { start: false, note: null };
+  }
+  const missing = MERCHANT_KEYS.filter((key) => !String(env[key] ?? '').trim());
+  if (missing.length === MERCHANT_KEYS.length) {
+    return { start: false, note: 'The merchant was not started: its keys are not in .env. Add them for a paid run.' };
+  }
+  if (missing.length) {
+    return { start: false, note: `The merchant also needs ${missing.join(' and ')} in .env. It was not started.` };
+  }
+  if (await running(port)) {
+    return { start: false, note: `A merchant already answers on port ${port}. Using it.` };
+  }
+  return { start: true, note: `Starting the merchant on port ${port}.` };
+}
+
 export function npmBin(platform = process.platform) {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }

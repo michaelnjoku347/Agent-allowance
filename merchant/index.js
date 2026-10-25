@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
 import { HEIST_INJECTION, HEIST_PRICE, historyPort, historyResourceUrl, merchantPort } from '../shared/catalog.js';
-import { clearStaleMerchantLocks, removeOwnerPid, writeOwnerPid } from '../shared/merchant-lock.js';
+import { clearStaleMerchantLocks, heldLockMessage, readOwnerPid, removeOwnerPid, writeOwnerPid } from '../shared/merchant-lock.js';
 import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 import { activeApprover, loadRules } from '../agent/rules.js';
 import { decodeMandateHeader, judgeMandate } from '../shared/mandate.js';
@@ -194,6 +194,17 @@ async function main() {
     }
   }
 
+  // Before any network call: say so at once when another merchant is running.
+  const [mainState, historyState] = merchantStateTargets();
+  for (const row of await clearStaleMerchantLocks([mainState, historyState])) {
+    if (row.verdict === 'stale') console.log(`Removed a leftover ${row.stateDirectory}/merchant.lock. No merchant was running.`);
+    if (row.verdict === 'held') {
+      fail(row.error
+        ? `Could not remove the leftover ${row.stateDirectory}/merchant.lock: ${row.error}`
+        : heldLockMessage(row.stateDirectory, readOwnerPid(row.stateDirectory)));
+    }
+  }
+
   const price = process.env.PRICE_RLUSD?.trim() || DEMO_AMOUNTS.brief;
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const context = await loadX402Context(apiUrl);
@@ -202,10 +213,6 @@ async function main() {
   if (!configResponse.ok) fail(`Could not read AP4M network config (${configResponse.status}).`);
   const provider = new ethers.JsonRpcProvider(process.env.AP4M_RPC_URL || config.network.rpcUrl);
   const submitter = new ethers.Wallet(submitterKey, provider);
-  const [mainState, historyState] = merchantStateTargets();
-  for (const row of await clearStaleMerchantLocks([mainState, historyState])) {
-    if (row.verdict === 'stale') console.log(`Removed a leftover ${row.stateDirectory}/merchant.lock. No merchant was running.`);
-  }
   const merchant = createX402Merchant({
     context,
     provider,

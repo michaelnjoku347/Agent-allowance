@@ -17,6 +17,7 @@ import {
   envFileNotice,
   installStaleness,
   lanAddresses,
+  merchantLaunch,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
@@ -117,7 +118,7 @@ async function main() {
 
   installIfNeeded();
 
-  const { clearStaleMerchantLocks } = await import('../shared/merchant-lock.js');
+  const { clearStaleMerchantLocks, portAnswers } = await import('../shared/merchant-lock.js');
   const { merchantPort, historyPort } = await import('../shared/catalog.js');
 
   const { default: dotenv } = await import('dotenv');
@@ -172,7 +173,8 @@ async function main() {
     setTimeout(() => process.exit(code), 400).unref();
   }
 
-  function launch(label, command, args, extra = {}) {
+  // An optional child (the merchant) can stop without taking the dashboard down with it.
+  function launch(label, command, args, { optional = false, ...extra } = {}) {
     const child = spawn(command, args, {
       cwd: root,
       env: childEnv,
@@ -184,11 +186,15 @@ async function main() {
     children.push(child);
     child.on('error', (error) => {
       console.error(`${label} could not start. ${error.message}`);
-      shutdown(1);
+      if (!optional) shutdown(1);
     });
     child.on('exit', (code, signal) => {
       if (shuttingDown) return;
       const why = signal ? ` (${signal})` : code ? ` (exit ${code})` : '';
+      if (optional) {
+        console.error(`${label} stopped${why}. The dashboard keeps running without it. Fix the message above, then close this window and start again.`);
+        return;
+      }
       console.error(`${label} stopped${why}. If a port is already in use, close the other window and run npm start again.`);
       shutdown(code || 1);
     });
@@ -197,6 +203,16 @@ async function main() {
 
   launch('The allowance server', process.execPath, ['server/index.js']);
   launch('The dashboard', npmBin(), ['--prefix', 'dashboard', 'run', 'dev', '--', '--host', launchPlan.host], npmSpawnOptions());
+
+  const merchant = await merchantLaunch({
+    argv: process.argv.slice(2),
+    env: process.env,
+    port: merchantPort(process.env),
+    running: portAnswers,
+  });
+  if (merchant.note) console.log(merchant.note);
+  // The port probe can take most of a second; the API may already have failed and begun shutdown.
+  if (merchant.start && !shuttingDown) launch('The merchant', process.execPath, ['merchant/index.js'], { optional: true });
 
   process.on('SIGINT', () => shutdown(0));
   process.on('SIGTERM', () => shutdown(0));

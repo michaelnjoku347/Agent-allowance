@@ -67,7 +67,14 @@ export function lockVerdict({ lockExists, ownerAlive, portAnswers }) {
   return 'stale';
 }
 
-async function portAnswersDefault(port) {
+/** What a second merchant prints instead of the kit's raw lock error. */
+export function heldLockMessage(stateDirectory, pid = null) {
+  const who = pid ? ` (process ${pid})` : '';
+  return `A merchant is already running for ${stateDirectory}${who}. Keep using it, or close its window first. npm start runs the merchant for you when its keys are in .env.`;
+}
+
+/** true when anything answers HTTP on 127.0.0.1:port, even a 404. */
+export async function portAnswers(port) {
   if (!port) return false;
   try {
     await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(800) });
@@ -84,7 +91,7 @@ async function portAnswersDefault(port) {
 export async function clearStaleMerchantLocks(targets, {
   exists = existsSync,
   alive = pidAlive,
-  portAnswers = portAnswersDefault,
+  portAnswers: answers = portAnswers,
   remove = unlinkSync,
 } = {}) {
   const results = [];
@@ -95,7 +102,7 @@ export async function clearStaleMerchantLocks(targets, {
     if (lockExists) {
       const owner = readOwnerPid(stateDirectory);
       const ownerAlive = owner != null && owner !== process.pid && alive(owner);
-      verdict = lockVerdict({ lockExists, ownerAlive, portAnswers: ownerAlive ? false : await portAnswers(port) });
+      verdict = lockVerdict({ lockExists, ownerAlive, portAnswers: ownerAlive ? false : await answers(port) });
     }
     if (verdict === 'stale') {
       try {

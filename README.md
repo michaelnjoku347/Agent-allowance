@@ -29,14 +29,14 @@ Deploy the hosted public demo to Render from `render.yaml` in a few clicks; [doc
 
 1. Install [Node.js 22.13 or newer](https://nodejs.org).
 2. Clone this repository and copy `.env.example` to `.env`.
-3. Run `npm start` from the repository root. On Windows you can double-click `start.bat`; on Mac or Linux, `./start.sh` does the same.
+3. Run `npm start` from the repository root. On Windows, double-click **Start Agent Allowance.bat**: it creates `.env` from the example on the first run and keeps its window open if something fails. `start.bat` on Windows and `./start.sh` on Mac or Linux run the same thing from a terminal.
 
-The dashboard opens at [http://127.0.0.1:5173](http://127.0.0.1:5173). `npm start` checks the Node version, installs dependencies when they are missing or out of date (it reinstalls `dashboard/` when its lockfile changed), clears a merchant lock left behind by a crash, and starts the allowance API and the dashboard together. Blank AWS and Jev keys are fine: the app prints a one-line notice and keeps going.
+The dashboard opens at [http://127.0.0.1:5173](http://127.0.0.1:5173). `npm start` checks the Node version, installs dependencies when they are missing or out of date (it reinstalls `dashboard/` when its lockfile changed), clears a merchant lock left behind by a crash, and starts the allowance API, the dashboard, and, when its keys are in `.env`, the merchant, all in one window. Press Ctrl+C or close the window to stop all of them. Blank AWS, Jev, and merchant keys are fine: the app prints a one-line notice and keeps going.
 
 - `npm run start:phone` binds the dashboard so a phone on the same Wi-Fi can open it, and prints `On your phone: http://<LAN-IP>:5173`.
 - `npm run ship` builds the Docker image and serves the dashboard and API together at [http://127.0.0.1:8787](http://127.0.0.1:8787). A `.env` is passed in when it exists and never copied into the image.
 
-A paid run on testnet also needs the keys in `.env` and `npm run merchant` in a second terminal. See [Funded run](#funded-run).
+A paid run on testnet also needs the keys in `.env`. With the three merchant keys there, `npm start` runs the merchant too. See [Funded run](#funded-run).
 
 ## What you can do
 
@@ -116,10 +116,11 @@ npm run preflight               # checks the channel cap, balances, both merchan
 Then, from the repository root:
 
 ```bash
-npm start                       # API on :8787 and dashboard on :5173
-npm run merchant                # x402 merchant on :4308, history merchant on :4318
-npm run demo                    # one paid 0.01 purchase, two held quotes
+npm start                       # API on :8787, dashboard on :5173, merchant on :4308 and :4318
+npm run demo                    # in a second terminal: one paid 0.01 purchase, two held quotes
 ```
+
+`npm start` runs the merchant only when `MERCHANT_PAYOUT_ADDRESS`, `MERCHANT_ID`, and `MERCHANT_SUBMITTER_KEY` are set and nothing answers on its port yet, so a merchant you started yourself with `npm run merchant` is used as it is. If the merchant stops, the API and the dashboard keep running and the window says why. `npm start -- --no-merchant` or `START_MERCHANT=0` leaves the merchant to you.
 
 Approve the **0.08 RLUSD** row under **Needs you** on your Ledger and open the explorer link on the paid row. Live explorer links for judging go in [docs/JUDGE_NOTE.md](docs/JUDGE_NOTE.md).
 
@@ -139,6 +140,7 @@ Approve the **0.08 RLUSD** row under **Needs you** on your Ledger and open the e
 | `PRICE_RLUSD` | Optional. Price of `GET /resource`. Defaults to 0.01; keep it at or under the cap. |
 | `MERCHANT_ID` | Merchant id from the participant portal. |
 | `MERCHANT_SUBMITTER_KEY` | Submits redemptions. Needs test XRP. Never commit it. |
+| `START_MERCHANT` | Optional. `0` stops `npm start` from running the merchant. |
 | `APPROVER_ADDRESS` | Public address of the Ledger account that approves exceptions. Not a key. When it is unset, setup can name the approver once; after that only a server-side edit changes it. |
 | `JEV_API_KEY`, `JEV_API_URL`, `JEV_MODEL` | Optional risk review. Blank means the rules decide alone. |
 | `AWS_REGION`, `BEDROCK_MODEL_ID`, `AWS_BEARER_TOKEN_BEDROCK` or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Optional Amazon Bedrock. Never commit the keys. |
@@ -201,7 +203,8 @@ The suite covers the rules and their order, quotes and vouchers, Ledger approval
 | You see | Do this |
 | --- | --- |
 | "Can't reach the allowance server" | The API is not running. Run `npm start` again; the page retries on its own. |
-| "Merchant offline" | Start the merchant with `npm run merchant`. Your allowance is safe in the meantime. |
+| "Merchant offline" | Put the three merchant keys in `.env` and start again; `npm start` runs the merchant. Or run `npm run merchant`. Your allowance is safe in the meantime. |
+| "A merchant is already running" | Another window holds the merchant. Keep using it, or close that window first. |
 | `merchant.lock exists` | `npm start` and `npm run merchant` remove a lock no running merchant holds. Never delete `merchant.sqlite`. |
 | `spawn EINVAL` on Windows | Update to this version: npm is now started through a shell on Windows. |
 | A port is already in use | Close the other window running Agent Allowance, then run `npm start` again. |

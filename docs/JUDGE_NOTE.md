@@ -21,6 +21,8 @@ npm run dashboard
 npm run demo
 ```
 
+Or, in two terminals: `npm start`, which runs the server, the dashboard, and the merchant when its keys are in `.env`, then `npm run demo`.
+
 4. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 5. Under **Needs you**, approve the **0.08 RLUSD** history row on a Ledger. The panel shows `0.08 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor.
 6. Click the explorer link on that paid row. The row also keeps the claim id and the receipt URL.

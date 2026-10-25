@@ -29,7 +29,9 @@ npm run dashboard
 npm run demo
 ```
 
-`npm run demo` prints three lines: one paid 0.01 RLUSD purchase, one 0.08 RLUSD quote blocked for the cap, and one 0.01 RLUSD quote blocked because the merchant is not on the allowlist. Leave the first three processes running.
+Or use two terminals: `npm start` runs the server, the dashboard, and the merchant (its keys are in `.env`), then `npm run demo`.
+
+`npm run demo` prints three lines: one paid 0.01 RLUSD purchase, one 0.08 RLUSD quote blocked for the cap, and one 0.01 RLUSD quote blocked because the merchant is not on the allowlist. Leave the other processes running.
 
 5. Open [http://127.0.0.1:5173](http://127.0.0.1:5173). You should see about 0.19 RLUSD left, one paid row, and two cards under **Needs you**. If Eve's chat covers the board, click **Minimize Eve**.
 
