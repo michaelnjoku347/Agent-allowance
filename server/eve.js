@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { loadRules, presentRules, updateAllowance } from '../agent/rules.js';
 import { plainReason, jevSourceLabel } from '../shared/words.js';
-import { approvePending, declinePending, readStore, spentRlusd } from './store.js';
+import { declinePending, readStore, spentRlusd } from './store.js';
 
 const CONFIRM_MS = 120_000;
 
@@ -74,7 +74,7 @@ export function ruleAnswer(message, context) {
 
   if (/\b(help|what can you)\b/.test(lower)) {
     return {
-      reply: 'I can tell you what was spent today, why the last purchase was blocked, and what is waiting. I can prepare an approval, a decline, or a new cap or budget. I ask you to confirm before anything changes.',
+      reply: 'I can tell you what was spent today, why the last purchase was blocked, and what is waiting. I can prepare a decline or a new cap or budget. An out-of-rule purchase is approved on the Ledger in the dashboard. I cannot sign it.',
     };
   }
 
@@ -114,8 +114,7 @@ export function ruleAnswer(message, context) {
     const item = findPending(text, context);
     if (!item) return { reply: 'Nothing is waiting for approval.' };
     return {
-      reply: `I can approve ${item.amount} RLUSD to ${merchantName(item)} after you confirm. Nothing is signed until you do.`,
-      action: { type: 'approve', id: item.id },
+      reply: `${item.amount} RLUSD to ${merchantName(item)} stays unpaid until you approve it on the Ledger in the dashboard. I cannot sign it.`,
     };
   }
 
@@ -141,7 +140,9 @@ export function ruleAnswer(message, context) {
     const lines = context.pending.map((item) => (
       `${item.amount} RLUSD to ${merchantName(item)} — ${plainReason(item.reason)}`
     ));
-    return { reply: `Waiting for you:\n${lines.join('\n')}` };
+    return {
+      reply: `Waiting for you:\n${lines.join('\n')}\nApprove one on the Ledger in the dashboard. I cannot sign it.`,
+    };
   }
 
   if (/\b(spend|spent|spending)\b/.test(lower)) {
@@ -158,7 +159,7 @@ export function ruleAnswer(message, context) {
   }
 
   return {
-    reply: 'I can tell you what was spent today, why the last purchase was blocked, and what is waiting. Say "set my cap to 3" or "approve the pending purchase" and I will ask you to confirm.',
+    reply: 'I can tell you what was spent today, why the last purchase was blocked, and what is waiting. Say "set my cap to 3" and I will ask you to confirm. Approve an out-of-rule purchase on the Ledger in the dashboard.',
   };
 }
 
@@ -169,7 +170,7 @@ export function confirmationSummary(action, context) {
   const name = merchantName(item);
   const amount = item?.amount ?? '';
   if (action.type === 'decline') return `Decline ${amount} RLUSD to ${name}?`;
-  return `Approve ${amount} RLUSD to ${name}?`;
+  return `Approve ${amount} RLUSD to ${name} on the Ledger in the dashboard? Eve cannot sign it.`;
 }
 
 async function answerWithLlm(message, context, env, fetchImpl) {
@@ -193,8 +194,9 @@ async function answerWithLlm(message, context, env, fetchImpl) {
             'You are Eve, the allowance assistant. Answer only from the JSON context.',
             'Do not invent payments. Return JSON {"reply":"...","action":null}',
             'action is null or one of',
-            '{"type":"approve","id":"..."} {"type":"decline","id":"..."}',
+            '{"type":"decline","id":"..."}',
             '{"type":"set_cap","amount":"3"} {"type":"set_budget","amount":"20"}.',
+            'Never approve a purchase. Tell the person to approve it on the Ledger in the dashboard.',
             'Never claim a change already happened. A person confirms it separately.',
             `Context: ${JSON.stringify({
               rules: context.rules,
@@ -233,7 +235,8 @@ async function answerWithLlm(message, context, env, fetchImpl) {
 
 function normalizeAction(action, context) {
   if (!action || typeof action !== 'object') return null;
-  if (action.type === 'approve' || action.type === 'decline') {
+  if (action.type === 'approve') return null;
+  if (action.type === 'decline') {
     const item = context.pending.find((row) => row.id === action.id) ?? context.pending[0];
     if (!item) return null;
     return { type: action.type, id: item.id };
@@ -262,13 +265,7 @@ export async function answerEve(message, context, options = {}) {
 export async function executeConfirmed(action) {
   if (!action || typeof action !== 'object') return { error: 'That confirmation is not valid.' };
   if (action.type === 'approve') {
-    const result = await approvePending(action.id);
-    if (result.error === 'invalid') return { error: 'That approval id is not valid.' };
-    if (result.missing) return { error: 'missing' };
-    return {
-      reply: `Approved ${result.approved.amount} RLUSD to ${merchantName(result.approved)}. Nothing was signed or paid.`,
-      payment: result.approved,
-    };
+    return { error: 'Approve this purchase on the Ledger in the dashboard. Eve cannot sign it.' };
   }
   if (action.type === 'decline') {
     const result = await declinePending(action.id);

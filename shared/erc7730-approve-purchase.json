@@ -1,0 +1,37 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v1.schema.json",
+  "context": {
+    "eip712": {
+      "domain": {
+        "name": "Agent Allowance",
+        "version": "1",
+        "chainId": 1449000
+      }
+    }
+  },
+  "metadata": {
+    "owner": "Agent Allowance",
+    "info": {
+      "legalName": "Agent Allowance",
+      "url": "https://hackathon.ap4m.build"
+    }
+  },
+  "display": {
+    "formats": {
+      "ApprovePurchase(string purchaseId,address merchant,string amount,uint256 expiry)": {
+        "intent": "Approve purchase",
+        "fields": [
+          { "path": "purchaseId", "label": "Purchase", "format": "raw" },
+          { "path": "merchant", "label": "Merchant", "format": "addressName" },
+          { "path": "amount", "label": "Amount", "format": "raw" },
+          {
+            "path": "expiry",
+            "label": "Expires",
+            "format": "date",
+            "params": { "encoding": "timestamp" }
+          }
+        ]
+      }
+    }
+  }
+}

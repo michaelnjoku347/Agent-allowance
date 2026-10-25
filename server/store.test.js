@@ -28,7 +28,7 @@ async function close(server) {
 }
 
 describe('allowance API', { concurrency: false }, () => {
-  test('serves sample budget data and a placeholder approval', async () => {
+  test('serves sample budget data and refuses an unsigned approval', async () => {
     resetStore();
     const server = await listen(createApp());
     const { port } = server.address();
@@ -58,24 +58,26 @@ describe('allowance API', { concurrency: false }, () => {
       assert.ok(imagery);
 
       const approved = await fetch(`${base}/api/approve/${imagery.id}`, { method: 'POST' });
-      assert.equal(approved.status, 200);
+      assert.equal(approved.status, 400);
       const body = await approved.json();
-      assert.equal(body.payment.status, 'approved');
-      assert.equal(body.payment.txHash, null);
-      assert.match(body.note, /nothing was signed or paid/i);
+      assert.match(body.message, /Ledger signature is required/i);
 
       const pendingAfter = await (await fetch(`${base}/api/pending`)).json();
-      assert.equal(pendingAfter.some((item) => item.id === imagery.id), false);
+      assert.equal(pendingAfter.some((item) => item.id === imagery.id), true);
       const paymentsAfter = await (await fetch(`${base}/api/payments`)).json();
-      assert.equal(paymentsAfter[0].status, 'approved');
+      assert.equal(paymentsAfter.some((payment) => payment.status === 'approved'), false);
 
-      // Approving a sample does not spend the allowance or pretend the agent ran.
+      // An unsigned approval does not spend the allowance or pretend the agent ran.
       const statusAfter = await (await fetch(`${base}/api/status`)).json();
       assert.equal(statusAfter.spent, '7.5');
       assert.equal(statusAfter.agentConnected, false);
 
-      const again = await fetch(`${base}/api/approve/${imagery.id}`, { method: 'POST' });
-      assert.equal(again.status, 404);
+      const again = await fetch(`${base}/api/approve/${imagery.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature: '0x1234', message: { purchaseId: imagery.id } }),
+      });
+      assert.equal(again.status, 400);
     } finally {
       await close(server);
     }

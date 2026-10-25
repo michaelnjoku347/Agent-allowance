@@ -622,6 +622,36 @@ p { margin: 0; }
   margin-bottom: 14px;
 }
 
+.approval { display: grid; gap: 12px; }
+.approval .pair { grid-template-columns: 1fr; }
+.device {
+  background: #10241c;
+  color: #e7f6ee;
+  border-radius: 16px;
+  padding: 14px 16px 16px;
+  display: grid;
+  gap: 10px;
+}
+.device-kicker {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9be0c0;
+}
+.device-domain { margin: 0; font-weight: 700; }
+.device dl { display: grid; gap: 8px; margin: 0; }
+.device dl div { display: grid; gap: 2px; }
+.device dt { font-size: 0.75rem; color: #9be0c0; }
+.device dd {
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.device-status { font-weight: 650; }
+
 .detail { display: grid; gap: 8px; }
 .detail .figure { font-size: 2.5rem; }
 .detail-name { font-weight: 650; }

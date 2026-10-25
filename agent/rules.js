@@ -70,6 +70,11 @@ export function loadRules(file = rulesFile()) {
     merchantLabels[canonicalAddress(address)] = String(label);
   }
 
+  let approverAddress = null;
+  if (raw.approverAddress != null && String(raw.approverAddress).trim() !== '') {
+    approverAddress = canonicalAddress(raw.approverAddress);
+  }
+
   return {
     budget,
     maxPerPurchase,
@@ -77,8 +82,20 @@ export function loadRules(file = rulesFile()) {
     summary: typeof raw.summary === 'string' ? raw.summary : '',
     allowedMerchants,
     merchantLabels,
+    approverAddress,
     currency: 'RLUSD',
   };
+}
+
+/**
+ * The Ledger account that may approve one out-of-rule purchase.
+ * APPROVER_ADDRESS in the environment wins over rules.json. A public address
+ * only — this never reads a private key.
+ */
+export function activeApprover(rules = loadRules(), env = process.env) {
+  const raw = String(env.APPROVER_ADDRESS ?? '').trim() || rules.approverAddress || '';
+  if (!raw) return null;
+  return canonicalAddress(raw);
 }
 
 export function merchantLabel(rules, address) {
@@ -101,7 +118,16 @@ export function presentRules(rules) {
       address,
       label: rules.merchantLabels[address] ?? null,
     })),
+    approverAddress: readApprover(rules),
   };
+}
+
+function readApprover(rules) {
+  try {
+    return activeApprover(rules);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -169,4 +195,31 @@ export function checkRules(purchase, rules = loadRules()) {
     return { decision: 'needs_approval', reason: 'over budget' };
   }
   return { decision: 'allow', reason: 'within allowance' };
+}
+
+/**
+ * Rules a Ledger approval cannot override: a positive price, an allowance
+ * that has not expired, and room in the budget. The merchant allowlist and
+ * the per-purchase cap are the rules a person can approve past. Jev is not
+ * consulted here and cannot allow a purchase on its own.
+ */
+export function checkApprovalHardRules(purchase, rules = loadRules()) {
+  if (!purchase || typeof purchase !== 'object') {
+    throw new Error('purchase must describe the merchant quote');
+  }
+  const amount = toUnits(purchase.amount);
+  const spent = toUnits(purchase.spent ?? 0);
+  const at = purchase.at === undefined ? Date.now() : Date.parse(purchase.at);
+  if (Number.isNaN(at)) throw new Error('purchase.at must be an ISO date');
+  canonicalAddress(purchase.merchant);
+  if (amount <= 0n) {
+    return { decision: 'needs_approval', reason: 'amount must be positive' };
+  }
+  if (at >= Date.parse(rules.expiresAt)) {
+    return { decision: 'needs_approval', reason: 'expired' };
+  }
+  if (spent + amount > rules.budget) {
+    return { decision: 'needs_approval', reason: 'over budget' };
+  }
+  return { decision: 'allow', reason: 'ledger approved' };
 }

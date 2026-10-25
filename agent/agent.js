@@ -25,7 +25,7 @@ import { askJev, fallbackJev, rulesOnlyJev } from './jev.js';
 import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
-import { canonicalAddress, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
+import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
 import { recordAgentPayment, recordPending, spentRlusd, listPayments } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
@@ -327,7 +327,7 @@ async function openSession(apiUrl, rules, resourceUrl) {
   return { config, provider, wallet, token, channel, context, pending };
 }
 
-async function payWithX402({ session, quote, resourceUrl, task }) {
+async function payWithX402({ session, quote, resourceUrl, task, operation = null }) {
   const ledgerAddress = session.config.contracts.paymentLedger;
   const state = await getChannelState(session.provider, ledgerAddress, session.channel.channel_id);
   if (!/^[1-9][0-9]{0,77}$/.test(quote.amountWei ?? '')) {
@@ -353,7 +353,7 @@ async function payWithX402({ session, quote, resourceUrl, task }) {
     resourceUrl,
     channelId: session.channel.channel_id.toLowerCase(),
     maximumAmount: quote.amountWei,
-    operation: pending?.operation ?? operationName(task),
+    operation: operation ?? pending?.operation ?? operationName(task),
   });
 }
 
@@ -379,6 +379,121 @@ async function reportSettlement(apiUrl, token, channelId, purchase) {
     console.log('Settlement is still processing:', error.message ?? error);
     return { claimId, payoutTx: null, receiptUrl: null };
   }
+}
+
+function ledgerOperation(purchaseId) {
+  const slug = String(purchaseId ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const name = `ledger-${slug || 'purchase'}`.slice(0, 64);
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) {
+    throw new Error('This purchase id cannot be paid.');
+  }
+  return name;
+}
+
+/**
+ * Pay one quote a Ledger signature already authorized.
+ * The merchant allowlist and the per-purchase cap are not applied again.
+ * Budget, allowance expiry, and a live quote that still matches the signature are.
+ * Jev is not asked and cannot call this.
+ */
+export async function payExactQuote({
+  task,
+  resourceUrl,
+  merchant,
+  amount,
+  merchantLabel: label = null,
+  rules = loadRules(),
+  spent = '0',
+  at = new Date().toISOString(),
+  jev = null,
+  approver = null,
+  purchaseId = '',
+  recordPayment = recordAgentPayment,
+} = {}) {
+  const hard = checkApprovalHardRules({ merchant, amount, spent, at }, rules);
+  if (hard.decision !== 'allow') {
+    const error = new Error(hard.reason);
+    error.code = 'HARD_RULE';
+    error.reason = hard.reason;
+    throw error;
+  }
+  if (!process.env.AGENT_PRIVATE_KEY?.trim() || !process.env.TEAM_NAME?.trim()) {
+    const error = new Error('Add AGENT_PRIVATE_KEY and TEAM_NAME to .env before an approved purchase can be paid.');
+    error.code = 'NOT_CONFIGURED';
+    throw error;
+  }
+  const url = canonicalResourceUrl(resourceUrl);
+  const payee = canonicalAddress(merchant);
+  const price = formatRlusd(toUnits(amount));
+  const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
+  const session = await openSession(apiUrl, rules, url);
+  const channelId = String(session.channel.channel_id).toLowerCase();
+  const quote = await requestQuote(url, channelId);
+  if (new URL(quote.resourceUrl).href !== url) {
+    throw new Error('Merchant quote is for a different resource than the one approved.');
+  }
+  if (canonicalAddress(quote.merchant) !== payee) {
+    throw new Error('The merchant quote no longer matches the approved merchant.');
+  }
+  if (formatRlusd(toUnits(quote.amount)) !== price) {
+    throw new Error('The merchant quote no longer matches the approved amount.');
+  }
+  let purchase;
+  try {
+    purchase = await payWithX402({
+      session,
+      quote,
+      resourceUrl: url,
+      task,
+      operation: ledgerOperation(purchaseId || task),
+    });
+  } catch (error) {
+    if (error?.code === 'OVER_CHANNEL_CAP') throw error;
+    throw error;
+  }
+  const txHash = purchase?.transactionHash;
+  if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    throw new Error('The merchant did not return a redemption transaction hash.');
+  }
+  const note = 'Approved on a Ledger. Paid through AP4M x402.';
+  let saved = await recordPayment({
+    task,
+    merchant: payee,
+    merchantLabel: label,
+    amount: price,
+    txHash,
+    claimId: purchase.claimId ?? null,
+    channelId,
+    resourceUrl: url,
+    jev,
+    approver,
+    note,
+  });
+  try {
+    const settled = await reportSettlement(apiUrl, session.token, session.channel.channel_id, purchase);
+    saved = await recordPayment({
+      task,
+      merchant: payee,
+      merchantLabel: label,
+      amount: price,
+      txHash,
+      claimId: settled?.claimId ?? purchase.claimId ?? null,
+      channelId,
+      payoutTx: settled?.payoutTx ?? null,
+      receiptUrl: settled?.receiptUrl ?? null,
+      resourceUrl: url,
+      jev,
+      approver,
+      note,
+    });
+  } catch (error) {
+    error.payment = saved;
+    throw error;
+  }
+  return saved;
 }
 
 /**

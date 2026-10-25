@@ -30,6 +30,7 @@ function freshStore() {
     agentConnected: false,
     payments: structuredClone(sampleData.payments),
     pending: structuredClone(sampleData.pending),
+    usedApprovalSignatures: [],
   };
 }
 
@@ -146,6 +147,7 @@ function presentPayment(payment) {
     receiptUrl: payment.receiptUrl ?? null,
     settlementStatus: payment.payoutTx ? 'settled' : (payment.status === 'paid' ? 'processing' : null),
     resourceUrl: payment.resourceUrl ?? null,
+    approver: payment.approver ?? null,
     jev: presentJev(payment.jev),
   };
 }
@@ -233,6 +235,8 @@ export async function recordAgentPayment(input) {
         if (input[field] != null) existing[field] = input[field];
       }
       if (input.jev != null) existing.jev = presentJev(input.jev);
+      if (input.note != null) existing.note = input.note;
+      if (input.approver != null) existing.approver = input.approver;
       return existing;
     }
     const payment = {
@@ -250,6 +254,8 @@ export async function recordAgentPayment(input) {
       claimId: input.claimId ?? null,
       channelId: input.channelId ?? null,
       payoutTx: input.payoutTx ?? null,
+      note: input.note ?? null,
+      approver: input.approver ?? null,
       jev: presentJev(input.jev),
       createdAt: new Date().toISOString(),
     };
@@ -282,27 +288,87 @@ export async function recordPending(input) {
   });
 }
 
-/**
- * Placeholder for a Ledger approval. Records the person's decision and does
- * not sign a voucher or send RLUSD.
- */
-export async function approvePending(id) {
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
-    return { error: 'invalid' };
-  }
+const PENDING_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const PAYMENT_LOCK_MS = 180_000;
+
+function validPendingId(id) {
+  return PENDING_ID.test(id ?? '');
+}
+
+export async function readPendingRecord(id) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  const store = await readStore();
+  const item = (store.pending ?? []).find((row) => row.id === id);
+  if (!item) return { missing: true };
+  return { pending: item };
+}
+
+export async function readUsedApprovalSignatures() {
+  const store = await readStore();
+  return Array.isArray(store.usedApprovalSignatures) ? store.usedApprovalSignatures : [];
+}
+
+/** Remember the expiry the device is asked to sign. Replaces an older challenge. */
+export async function saveApprovalChallenge(id, challenge, nowMs = Date.now()) {
+  if (!validPendingId(id)) return { error: 'invalid' };
   return updateStore((store) => {
-    const index = store.pending.findIndex((item) => item.id === id && item.status === 'pending');
-    if (index === -1) return { missing: true };
-    const [item] = store.pending.splice(index, 1);
-    const approved = {
-      ...item,
-      status: 'approved',
-      txHash: null,
-      approvedAt: new Date().toISOString(),
-      note: 'Placeholder for Ledger approval. Nothing was signed or paid.',
-    };
-    store.payments.unshift(approved);
-    return { approved: presentPayment(approved) };
+    const item = store.pending.find((row) => row.id === id);
+    if (!item || item.sample) return { missing: true };
+    if (item.status !== 'pending' && item.status !== 'paying') return { missing: true };
+    if (item.status === 'paying' && nowMs - Date.parse(item.paymentStartedAt || 0) < PAYMENT_LOCK_MS) {
+      return { error: 'in_progress' };
+    }
+    item.status = 'pending';
+    delete item.paymentStartedAt;
+    item.approvalChallenge = { expiry: challenge.expiry, issuedAt: challenge.issuedAt };
+    return { pending: structuredClone(item) };
+  });
+}
+
+/**
+ * Mark this signature used and take the quote for payment.
+ * A second use of the same signature is a replay, even if payment later fails.
+ */
+export async function claimApprovalSignature(id, signature, nowMs = Date.now()) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  const sig = String(signature ?? '').toLowerCase();
+  return updateStore((store) => {
+    store.usedApprovalSignatures ??= [];
+    const item = store.pending.find((row) => row.id === id && !row.sample);
+    if (!item || (item.status !== 'pending' && item.status !== 'paying')) return { missing: true };
+    if (item.status === 'paying' && nowMs - Date.parse(item.paymentStartedAt || 0) < PAYMENT_LOCK_MS) {
+      return { error: 'in_progress' };
+    }
+    if (store.usedApprovalSignatures.some((row) => String(row).toLowerCase() === sig)) {
+      return { error: 'replay' };
+    }
+    store.usedApprovalSignatures.push(sig);
+    item.status = 'paying';
+    item.paymentStartedAt = new Date(nowMs).toISOString();
+    item.approvalSignature = sig;
+    return { ok: true };
+  });
+}
+
+/** Return a quote to the approval list after a payment that did not broadcast. */
+export async function releaseApprovalPayment(id) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  return updateStore((store) => {
+    const item = store.pending.find((row) => row.id === id);
+    if (!item) return { missing: true };
+    item.status = 'pending';
+    delete item.paymentStartedAt;
+    return { ok: true };
+  });
+}
+
+/** Drop the quote once its payment is on the ledger. The signature stays used. */
+export async function completeApprovedPurchase(id) {
+  if (!validPendingId(id)) return { error: 'invalid' };
+  return updateStore((store) => {
+    const index = store.pending.findIndex((row) => row.id === id);
+    if (index !== -1) store.pending.splice(index, 1);
+    return { ok: true };
   });
 }
 

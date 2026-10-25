@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkRules, loadRules } from './rules.js';
+import { checkApprovalHardRules, checkRules, loadRules } from './rules.js';
 
 const rules = loadRules();
 const merchant = rules.allowedMerchants[0];
@@ -31,6 +31,19 @@ test('needs approval when the merchant is not on the list', () => {
   const result = decide({ merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad' });
   assert.equal(result.reason, 'merchant not allowed');
   assert.equal(decide({ merchant: merchant.toUpperCase() }).decision, 'allow');
+});
+
+test('a Ledger approval still stops at expiry and the budget', () => {
+  const overCap = checkApprovalHardRules({ merchant, amount: '8', spent: '0' }, rules);
+  assert.equal(overCap.decision, 'allow');
+  const unlisted = checkApprovalHardRules({
+    merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad',
+    amount: '1',
+    spent: '0',
+  }, rules);
+  assert.equal(unlisted.decision, 'allow');
+  assert.equal(checkApprovalHardRules({ merchant, amount: '8', spent: '16' }, rules).reason, 'over budget');
+  assert.equal(checkApprovalHardRules({ merchant, amount: '1', spent: '0', at: rules.expiresAt }, rules).reason, 'expired');
 });
 
 test('needs approval over the per-purchase cap', () => {

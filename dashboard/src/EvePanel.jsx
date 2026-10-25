@@ -5,7 +5,7 @@ import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 const CHIPS = [
   'What did my agent spend today?',
   'Why was the last one blocked?',
-  'Approve the pending purchase',
+  'What is waiting for approval?',
   'Set my cap to 3',
 ];
 

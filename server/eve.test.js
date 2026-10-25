@@ -75,7 +75,7 @@ describe('Eve', { concurrency: false }, () => {
     assert.match(failed.reply, /spent/i);
   });
 
-  test('approve waits for confirmation, then a cap change updates the rules', async () => {
+  test('approve stays on the Ledger, then a cap change updates the rules', async () => {
     await recordAgentPayment({
       task: 'Buy the morning market brief',
       merchant: '0xa11cea11cea11cea11cea11cea11cea11cea11ce',
@@ -108,26 +108,9 @@ describe('Eve', { concurrency: false }, () => {
       assert.match(why.reply, /per-purchase cap/);
 
       const approve = await (await ask('Approve the pending purchase')).json();
-      assert.ok(approve.confirmation?.token);
-      assert.match(approve.confirmation.summary, /Approve 8 RLUSD/);
+      assert.equal(approve.confirmation, null);
+      assert.match(approve.reply, /Ledger/);
       assert.equal((await listPending()).some((item) => item.id === pending.id), true);
-
-      const confirmed = await fetch(`${base}/api/eve/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: approve.confirmation.token }),
-      });
-      assert.equal(confirmed.status, 200);
-      const confirmedBody = await confirmed.json();
-      assert.match(confirmedBody.reply, /Nothing was signed or paid/);
-      assert.equal((await listPending()).some((item) => item.id === pending.id), false);
-
-      const again = await fetch(`${base}/api/eve/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: approve.confirmation.token }),
-      });
-      assert.equal(again.status, 400);
 
       const tooHigh = await (await ask('Set my cap to 100')).json();
       assert.equal(tooHigh.confirmation, null);
