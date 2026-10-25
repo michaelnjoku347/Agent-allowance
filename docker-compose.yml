@@ -1,0 +1,12 @@
+# Serves the dashboard and the API together at http://127.0.0.1:8787.
+# With a .env file: npm run ship
+# Without one, the page still opens. Paying a merchant needs the keys in .env.
+
+services:
+  allowance:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: "8787"
+      SERVE_DASHBOARD: "1"

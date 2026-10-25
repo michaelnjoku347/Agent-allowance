@@ -7,6 +7,7 @@
 import rules from '../../agent/rules.json';
 import network from '../../shared/network.json';
 import sample from '../../shared/sample-data.json';
+import { presentUseCase } from '../../shared/use-cases.js';
 
 const budget = Number(rules.budget);
 const spent = sample.payments
@@ -45,6 +46,10 @@ export const sampleSnapshot = {
     note: null,
   })),
   pending: sample.pending,
+  frozen: false,
+  frozenAt: null,
+  useCase: presentUseCase('research'),
+  audit: [],
 };
 
 export async function fetchSnapshot() {
@@ -100,6 +105,30 @@ export async function submitAllowance(payload) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.message || body.error || 'Could not change the allowance.');
+  return body;
+}
+
+/** Kill switch. Frozen refuses new payments until the dashboard unfreezes it. */
+export async function setAgentFrozen(frozen) {
+  const response = await fetch('/api/freeze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frozen }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not change the freeze.');
+  return body;
+}
+
+/** Name the job. The server does not rewrite the allowance file. */
+export async function selectUseCase(id) {
+  const response = await fetch('/api/use-case', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Could not select that job.');
   return body;
 }
 

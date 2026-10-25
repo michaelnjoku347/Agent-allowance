@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot } from './api.js';
+import { declinePurchase, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
@@ -21,6 +21,7 @@ import {
 import JevCard from './JevCard.jsx';
 import { money, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
+import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
 
 const TABS = [
@@ -99,6 +100,82 @@ function ruleRows(item) {
   });
 }
 
+function auditPill(row) {
+  if (row.rule === 'freeze') return ['Frozen', 'is-block'];
+  if (row.rule === 'unfreeze') return ['Unfrozen', 'is-ok'];
+  if (row.outcome === 'ledger-approved') return ['Ledger approved', 'is-wait'];
+  if (row.outcome === 'allowed') return ['Allowed', 'is-ok'];
+  return ['Blocked', 'is-block'];
+}
+
+function UseCaseCard({ selected, busy, disabled, onSelect }) {
+  const current = USE_CASES.find((item) => item.id === selected) || USE_CASES[0];
+  return (
+    <section className="card" aria-labelledby="usecase-title">
+      <div className="section-head">
+        <h2 id="usecase-title">This allowance</h2>
+        <p>{current.summary}</p>
+      </div>
+      <div className="filters" role="toolbar" aria-label="Choose a job">
+        {USE_CASES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={item.id === current.id ? 'chip is-on' : 'chip'}
+            aria-pressed={item.id === current.id}
+            disabled={disabled || busy === item.id}
+            onClick={() => onSelect(item.id)}
+          >
+            {item.title}
+          </button>
+        ))}
+      </div>
+      <ul className="use-jobs">
+        {current.jobs.map((job) => <li key={job}>{job}</li>)}
+      </ul>
+      <p className="meta">Choosing a job names the work. The budget, the cap, and the merchant list stay as they are.</p>
+    </section>
+  );
+}
+
+function AuditCard({ rows, onExport }) {
+  const shown = (rows || []).slice(0, 8);
+  return (
+    <section className="card" aria-labelledby="audit-title">
+      <div className="audit-head">
+        <div className="section-head">
+          <h2 id="audit-title">Audit trail</h2>
+          <p>Every allow, block, and Ledger approval is kept with the rule, the reason, and the signer.</p>
+        </div>
+        <button type="button" className="btn" onClick={onExport}>Export JSON</button>
+      </div>
+      {shown.length === 0 ? (
+        <p className="meta">Decisions land here as soon as the agent or the rules make one. Export downloads that list.</p>
+      ) : (
+        <ul className="audit-list">
+          {shown.map((row) => {
+            const [label, tone] = auditPill(row);
+            return (
+              <li key={row.id} className="audit-row">
+                <div className="audit-top">
+                  <span className={`audit-pill ${tone}`}>{label}</span>
+                  <span className="meta">{row.rule}</span>
+                </div>
+                <p>{row.reason}</p>
+                <p className="meta">
+                  {row.signer ? `Signer ${row.signer}` : 'Nothing signed'}
+                  {row.amount ? ` · ${row.amount} RLUSD` : ''}
+                  {row.merchantLabel ? ` · ${row.merchantLabel}` : ''}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function initial(label) {
   const text = (label || 'M').trim();
   return text.slice(0, 1).toUpperCase();
@@ -127,6 +204,7 @@ export default function App() {
   const [runNote, setRunNote] = useState('');
   const [overCap, setOverCap] = useState(null);
   const [overCapBusy, setOverCapBusy] = useState(false);
+  const [controlBusy, setControlBusy] = useState('');
   const [announce, setAnnounce] = useState('');
   const [voiceOn, setVoiceOn] = useState(() => readVoiceEnabled());
   const [presenting, setPresenting] = useState(false);
@@ -266,6 +344,42 @@ export default function App() {
     }
   }
 
+  async function onFreeze() {
+    setControlBusy('freeze');
+    try {
+      await setAgentFrozen(!snapshot?.frozen);
+      await load();
+    } catch (error) {
+      setRunNote(error.message || 'Could not change the freeze.');
+    } finally {
+      setControlBusy('');
+    }
+  }
+
+  async function onUseCase(id) {
+    if (snapshot?.offlinePreview) return;
+    setControlBusy(id);
+    try {
+      await selectUseCase(id);
+      await load();
+    } catch (error) {
+      setRunNote(error.message || 'Could not select that job.');
+    } finally {
+      setControlBusy('');
+    }
+  }
+
+  function exportAudit() {
+    const rows = Array.isArray(snapshot?.audit) ? snapshot.audit : [];
+    const blob = new Blob([`${JSON.stringify(rows, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'allowance-audit.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function onOverCap() {
     setOverCapBusy(true);
     setOverCap(null);
@@ -357,6 +471,9 @@ export default function App() {
             ) : null}
             {snapshot && tab === 'home' ? (
               <div className="stack">
+                {snapshot.frozen ? (
+                  <p className="freeze-banner" role="status">Agent frozen. New payments are refused until you unfreeze it.</p>
+                ) : null}
                 {connection === 'offline' && !snapshot.offlinePreview ? (
                   <p className="note warn" role="alert">
                     <IconAlert />
@@ -408,14 +525,30 @@ export default function App() {
                     <button type="button" className="btn" onClick={onOverCap} disabled={overCapBusy}>
                       {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
                     </button>
+                    <button
+                      type="button"
+                      className={snapshot.frozen ? 'btn' : 'btn danger'}
+                      onClick={onFreeze}
+                      disabled={controlBusy === 'freeze' || snapshot.offlinePreview}
+                    >
+                      {snapshot.frozen ? 'Unfreeze agent' : 'Freeze agent'}
+                    </button>
                     {runNote ? <p className="note" role="status">{runNote}</p> : null}
                   </div>
                 </section>
+
+                <UseCaseCard
+                  selected={snapshot.useCase?.id}
+                  busy={controlBusy}
+                  disabled={Boolean(snapshot.offlinePreview)}
+                  onSelect={onUseCase}
+                />
 
                 <MoneyFlow flow={liveFlow} />
                 <TxFeed rows={feed} />
 
                 <RogueDemo onDone={load} onBeat={onRogueBeat} />
+                <AuditCard rows={snapshot.audit} onExport={exportAudit} />
 
                 {overCap ? (
                   <section className="card rejection" role="alert" aria-labelledby="over-cap-title">
@@ -474,6 +607,8 @@ export default function App() {
                             <div className="pair">
                               {item.declineOnly || item.sample || snapshot.offlinePreview ? (
                                 <p className="meta">Decline only. A Ledger signature cannot pay this quote.</p>
+                              ) : snapshot.frozen ? (
+                                <p className="meta">Frozen. Unfreeze the agent before this quote can be paid.</p>
                               ) : (
                                 <button type="button" className="btn primary" onClick={() => setApproval(item)}>
                                   Approve with Ledger
@@ -548,6 +683,12 @@ export default function App() {
                   )}
                 />
               </section>
+            ) : null}
+
+            {snapshot && tab === 'activity' ? (
+              <div className="stack">
+                <AuditCard rows={snapshot.audit} onExport={exportAudit} />
+              </div>
             ) : null}
 
           </main>

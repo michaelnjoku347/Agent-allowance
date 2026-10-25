@@ -17,6 +17,7 @@ import {
   updateAllowance,
 } from '../agent/rules.js';
 import { executeConfirmed, ruleAnswer } from './eve.js';
+import { recordBlockedDecision } from './store.js';
 import { plainReason } from '../shared/words.js';
 
 function overCapAmount(rules) {
@@ -158,6 +159,19 @@ export async function runRogueDemo({
   const blocked = attempts.filter((item) => item.outcome === 'Blocked' && item.paid === false).length;
   if (blocked !== attempts.length) {
     throw new Error('An attack was not blocked. Nothing was signed.');
+  }
+  try {
+    for (const item of attempts) {
+      await recordBlockedDecision({
+        rule: item.rule,
+        reason: item.note,
+        merchantLabel: item.title,
+        task: item.attempt,
+        amount: item.id === 'unlisted' ? '1' : (item.id === 'over-cap' ? capAmount : null),
+      });
+    }
+  } catch (error) {
+    console.error(error.message ?? error);
   }
   return {
     ok: true,

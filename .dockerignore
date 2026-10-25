@@ -1,0 +1,11 @@
+node_modules
+dashboard/node_modules
+dashboard/dist
+.git
+.env
+.env.*
+server/data
+agent/state
+merchant/state
+*.log
+docs/demo-backup.mp4

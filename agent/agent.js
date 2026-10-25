@@ -32,7 +32,7 @@ import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
 import { readBedrockSettings } from '../server/bedrock.js';
-import { listPayments, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
+import { listPayments, readFrozen, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -169,6 +169,17 @@ export async function finishQuote({
 }) {
   const label = merchantLabel(rules, quote.merchant);
   const merchant = canonicalAddress(quote.merchant);
+  if ((await readFrozen()).frozen) {
+    return hold({
+      recordHold,
+      task,
+      quote,
+      label,
+      resourceUrl,
+      reason: 'agent frozen',
+      description: 'The agent is frozen. Nothing was signed.',
+    });
+  }
   let purchasePlan = null;
   try {
     purchasePlan = await plan({ task, quote, rules });
@@ -567,6 +578,23 @@ export async function runOnce({
   if (!task) {
     throw new Error('Pass a task. Example: npm run agent -- "Buy the morning market brief"');
   }
+  if ((await readFrozen()).frozen) {
+    const reason = 'The agent is frozen. Nothing was signed.';
+    console.log(reason);
+    await recordSkipped({ task, reason, merchantLabel: 'No purchase' });
+    return {
+      decision: 'skipped',
+      reason: 'agent frozen',
+      amount: null,
+      merchant: null,
+      txHash: null,
+      claimId: null,
+      receiptUrl: null,
+      explorerUrl: null,
+      plan: null,
+      line: `nothing signed — ${reason}`,
+    };
+  }
   let presetPlan = null;
   let selectedUrl = resourceUrl;
   if (!selectedUrl) {
@@ -668,7 +696,9 @@ export async function runOnce({
     }
     const reserved = spent === undefined ? await reserveSpend(quote.amount) : { ok: true, id: '', spent };
     if (reserved.ok === false) {
-      console.log('Over budget once in-flight payments are counted. Nothing was signed.');
+      console.log(reserved.reason === 'agent frozen'
+        ? 'The agent is frozen. Nothing was signed.'
+        : 'Over budget once in-flight payments are counted. Nothing was signed.');
     }
     const spentNow = higherSpent(reserved.spent ?? spent ?? await spentRlusd(), chain?.redeemed);
     const recentPayments = (await listPayments())

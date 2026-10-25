@@ -14,6 +14,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import sampleData from '../shared/sample-data.json' with { type: 'json' };
 import network from '../shared/network.json' with { type: 'json' };
 import { canonicalAddress, declineReason, formatRlusd, loadRules, presentRules, toUnits } from '../agent/rules.js';
+import { plainReason } from '../shared/words.js';
+import { presentUseCase, useCaseById } from '../shared/use-cases.js';
 
 const defaultStorePath = join(dirname(fileURLToPath(import.meta.url)), 'data', 'store.json');
 
@@ -111,6 +113,63 @@ async function updateStore(mutator) {
 
 function newId(prefix) {
   return `${prefix}_${randomBytes(4).toString('hex')}`;
+}
+
+const AUDIT_CAP = 200;
+const AUDIT_OUTCOMES = new Set(['allowed', 'blocked', 'ledger-approved']);
+
+function pushAudit(store, input) {
+  const outcome = input.outcome;
+  if (!AUDIT_OUTCOMES.has(outcome)) throw new Error(`Unknown audit outcome: ${outcome}`);
+  store.audit ??= [];
+  const paymentId = input.paymentId ?? null;
+  if (paymentId && store.audit.some((row) => row.paymentId === paymentId && row.outcome === outcome)) {
+    return store.audit.find((row) => row.paymentId === paymentId && row.outcome === outcome);
+  }
+  const row = {
+    id: newId('audit'),
+    at: new Date().toISOString(),
+    outcome,
+    rule: String(input.rule || 'decision').slice(0, 80),
+    reason: String(input.reason || '').slice(0, 500),
+    signer: input.signer ? String(input.signer).slice(0, 120) : null,
+    amount: input.amount ?? null,
+    merchantLabel: input.merchantLabel ? String(input.merchantLabel).slice(0, 80) : null,
+    task: input.task ? String(input.task).slice(0, 180) : null,
+    paymentId,
+  };
+  store.audit.unshift(row);
+  if (store.audit.length > AUDIT_CAP) store.audit.length = AUDIT_CAP;
+  return row;
+}
+
+function presentAudit(store) {
+  return (store.audit ?? []).map((row) => ({
+    id: row.id,
+    at: row.at,
+    outcome: row.outcome,
+    rule: row.rule,
+    reason: row.reason,
+    signer: row.signer ?? null,
+    amount: row.amount ?? null,
+    merchantLabel: row.merchantLabel ?? null,
+    task: row.task ?? null,
+    paymentId: row.paymentId ?? null,
+  }));
+}
+
+/** A rules decision for the export. Does not create a payment or mark the agent connected. */
+export async function recordBlockedDecision(input) {
+  return updateStore((store) => pushAudit(store, {
+    outcome: 'blocked',
+    rule: input.rule,
+    reason: input.reason,
+    signer: null,
+    amount: input.amount ?? null,
+    merchantLabel: input.merchantLabel ?? null,
+    task: input.task ?? null,
+    paymentId: null,
+  }));
 }
 
 /** Drop the demo rows the first time the agent records a real decision. */
@@ -218,6 +277,10 @@ export function summarize(store, rules = loadRules()) {
     spentRatio,
     currency: 'RLUSD',
     agentConnected: Boolean(store.agentConnected),
+    frozen: Boolean(store.frozen),
+    frozenAt: store.frozenAt ?? null,
+    useCase: presentUseCase(store.useCase),
+    audit: presentAudit(store),
     rules: presentRules(rules),
     network: {
       name: network.name,
@@ -255,6 +318,9 @@ export async function reserveSpend(amount) {
   return updateStore((store) => {
     const rules = loadRules();
     const spent = paidUnits(store) + reservedUnits(store);
+    if (store.frozen) {
+      return { ok: false, reason: 'agent frozen', spent: formatRlusd(spent) };
+    }
     if (spent + price > rules.budget) {
       return { ok: false, reason: 'over budget', spent: formatRlusd(spent) };
     }
@@ -292,6 +358,45 @@ export async function listPending() {
   return liveRows(store, store.pending)
     .filter((item) => item.status === 'pending' || item.status === 'paying')
     .map(presentPending);
+}
+
+export async function listAudit() {
+  const store = await readStore();
+  return presentAudit(store);
+}
+
+export async function readFrozen() {
+  const store = await readStore();
+  return { frozen: Boolean(store.frozen), frozenAt: store.frozenAt ?? null };
+}
+
+/** Instant kill switch. Frozen refuses new payments. Unfreeze lets the rules decide again. */
+export async function setFreeze(frozen) {
+  const on = Boolean(frozen);
+  return updateStore((store) => {
+    store.frozen = on;
+    store.frozenAt = on ? new Date().toISOString() : null;
+    pushAudit(store, {
+      outcome: on ? 'blocked' : 'allowed',
+      rule: on ? 'freeze' : 'unfreeze',
+      reason: plainReason(on ? 'freeze' : 'unfreeze'),
+      signer: 'person',
+      amount: null,
+      merchantLabel: null,
+      task: null,
+      paymentId: null,
+    });
+    return { frozen: store.frozen, frozenAt: store.frozenAt };
+  });
+}
+
+/** Remember which job this allowance is demonstrating. The rules file stays as it is. */
+export async function setUseCase(id) {
+  if (!useCaseById(id)) return { error: 'unknown' };
+  return updateStore((store) => {
+    store.useCase = id;
+    return { useCase: presentUseCase(id) };
+  });
 }
 
 export async function recordAgentPayment(input) {
@@ -339,6 +444,16 @@ export async function recordAgentPayment(input) {
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
+    pushAudit(store, {
+      outcome: input.approver ? 'ledger-approved' : 'allowed',
+      rule: input.rule || (input.approver ? 'ledger approved' : 'within allowance'),
+      reason: input.note || plainReason(input.approver ? 'ledger approved' : 'within allowance'),
+      signer: input.approver || 'agent',
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: payment.task,
+      paymentId: payment.id,
+    });
     return payment;
   });
 }
@@ -374,6 +489,18 @@ export async function recordUnbroadcastPayment(input) {
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(payment);
+    pushAudit(store, {
+      outcome: input.approver || input.simulatedLedger ? 'ledger-approved' : 'allowed',
+      rule: input.simulatedLedger ? 'simulated Ledger signature' : (input.approver ? 'ledger approved' : 'within allowance'),
+      reason: input.note || (input.simulatedLedger
+        ? 'Backup demo only. simulated Ledger signature. Nothing was broadcast.'
+        : plainReason('within allowance')),
+      signer: input.approver || (input.simulatedLedger ? 'simulated Ledger' : 'agent'),
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: payment.task,
+      paymentId: payment.id,
+    });
     return payment;
   });
 }
@@ -399,6 +526,17 @@ export async function recordPending(input) {
       createdAt: new Date().toISOString(),
     };
     store.pending.unshift(pending);
+    const known = plainReason(pending.reason);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: known === pending.reason && pending.reason.length > 40 ? 'needs approval' : pending.reason,
+      reason: pending.description || known,
+      signer: null,
+      amount,
+      merchantLabel: input.merchantLabel ?? null,
+      task: pending.task,
+      paymentId: pending.id,
+    });
     return pending;
   });
 }
@@ -508,6 +646,16 @@ export async function recordSkipped(input) {
       createdAt: new Date().toISOString(),
     };
     store.payments.unshift(row);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: 'nothing signed',
+      reason: row.reason,
+      signer: null,
+      amount: row.amount,
+      merchantLabel: row.merchantLabel,
+      task: row.task,
+      paymentId: row.id,
+    });
     return presentPayment(row);
   });
 }
@@ -562,6 +710,16 @@ export async function declinePending(id) {
       note: 'Declined. Nothing was signed or paid.',
     };
     store.payments.unshift(declined);
+    pushAudit(store, {
+      outcome: 'blocked',
+      rule: item.reason || 'declined',
+      reason: 'Declined. Nothing was signed or paid.',
+      signer: null,
+      amount: item.amount ?? null,
+      merchantLabel: item.merchantLabel ?? null,
+      task: item.task ?? null,
+      paymentId: declined.id,
+    });
     return { declined: presentPayment(declined) };
   });
 }

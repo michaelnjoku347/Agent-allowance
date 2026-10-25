@@ -9,6 +9,11 @@ export function plainReason(reason) {
     'over channel cap': 'The channel cannot cover this payment.',
     'Jev flagged for review': 'Jev asked for a person to review this before it is paid.',
     'amount must be positive': 'The price is not a positive amount.',
+    'within allowance': 'Inside the allowance. The agent paid.',
+    'ledger approved': 'Approved on a Ledger and paid once.',
+    'agent frozen': 'The agent is frozen. Nothing was signed.',
+    freeze: 'The agent is frozen. New payments are refused.',
+    unfreeze: 'The agent can pay inside the allowance again.',
     'Jev unavailable — rules only': 'Jev was not available, so only the rules were used.',
     'Jev would pay this.': 'Jev would pay this.',
   };

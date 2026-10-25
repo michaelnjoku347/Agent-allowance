@@ -14,6 +14,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
@@ -24,13 +25,18 @@ import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js'
 import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
-import { declinePending, listPayments, listPending, readPendingRecord, readStore, spentRlusd, summarize } from './store.js';
+import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
 import { runRogueDemo } from './rogue-demo.js';
 
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  const port = String(env.PORT || '8787').replace(/[^\d]/g, '') || '8787';
+  for (const host of ['127.0.0.1', 'localhost']) {
+    const origin = `http://${host}:${port}`;
+    if (!origins.includes(origin)) origins.push(origin);
+  }
   const extra = String(env.DASHBOARD_ORIGIN ?? '').trim();
   if (extra && !origins.includes(extra)) origins.push(extra);
   return origins;
@@ -292,9 +298,48 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/run-agent', (req, res) => {
+  app.get('/api/audit', async (req, res, next) => {
+    try {
+      res.json(await listAudit());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/freeze', async (req, res, next) => {
+    try {
+      const frozen = req.body?.frozen !== false;
+      const state = await setFreeze(frozen);
+      if (frozen && agentChild && agentChild.exitCode === null && !agentChild.killed) {
+        agentChild.kill('SIGTERM');
+      }
+      res.json({ ok: true, ...state });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/use-case', async (req, res, next) => {
+    try {
+      const id = typeof req.body?.id === 'string' ? req.body.id : '';
+      const result = await setUseCase(id);
+      if (result.error) return res.status(400).json({ error: 'That use case is not one of the presets.' });
+      res.json({ ok: true, useCase: result.useCase });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/run-agent', async (req, res, next) => {
     if (!fromDashboard(req)) {
       return res.status(403).json({ ok: false, error: 'Open the dashboard to run the agent.' });
+    }
+    try {
+      if ((await readFrozen()).frozen) {
+        return res.status(409).json({ ok: false, error: 'The agent is frozen. Unfreeze it before it can pay.' });
+      }
+    } catch (error) {
+      return next(error);
     }
     const raw = typeof req.body?.task === 'string' ? req.body.task : '';
     const task = raw.replace(/\s+/g, ' ').trim().slice(0, 180) || 'Buy the morning weather brief';
@@ -329,6 +374,20 @@ export function createApp(options = {}) {
   app.use('/api', (req, res) => {
     res.status(404).json({ error: 'Not found' });
   });
+
+  if (process.env.SERVE_DASHBOARD === '1') {
+    const dist = join(rootDir, 'dashboard', 'dist');
+    if (existsSync(join(dist, 'index.html'))) {
+      app.use(express.static(dist));
+      app.use((req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(join(dist, 'index.html'));
+      });
+    } else {
+      console.error('SERVE_DASHBOARD=1 but dashboard/dist is missing. Build the dashboard first.');
+    }
+  }
 
   app.use((error, req, res, next) => {
     console.error(error.message ?? error);

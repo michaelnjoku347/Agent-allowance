@@ -1,6 +1,18 @@
-# Agent Allowance — 3-minute pitch and live demo
+# Agent Allowance — 5-minute live demo
 
-Speak the lines. Do the clicks in order. The whole thing fits in three minutes if the services are already up.
+Speak the lines. Do the clicks in order. The services are already up before you walk in. Each block maps to the judging rubric. If a step is slow, skip the optional line and keep going. The payment path does not depend on voice, fullscreen, or the preset you clicked.
+
+| Time | Rubric | What the judge sees |
+| --- | --- | --- |
+| 0:00 | Demo and story (10%) | The card question, then the hero: budget, cap, expiry, merchants |
+| 0:40 | Real-world utility (25%) | Travel, SaaS procurement, and supplies. Same rules. |
+| 1:20 | Trust and control (25%) | Rogue agent: 3 attempts, 3 blocked, 0 RLUSD lost |
+| 2:10 | Trust and control (25%) | Audit trail, Export JSON, Freeze agent |
+| 2:50 | Technical execution (25%) | The 1 RLUSD brief, paid inside the rules |
+| 3:30 | Trust and technical | The 8 RLUSD quote, approved once on a Ledger |
+| 4:25 | Trust and control | The unlisted desk, decline only |
+| 4:40 | Path to production (15%) | `docs/PATH_TO_PRODUCTION.md` and `npm run ship` |
+| 4:50 | Demo and story | The close |
 
 ## Before you walk in
 
@@ -24,7 +36,7 @@ npm run demo
 
 The merchant name on the paid row follows your rules file. The committed sample rules say **Market Desk**. `npm run setup:payments` labels your payout **Team merchant**. Either is fine. Say the name you see.
 
-## 0:00 — Story (about 35 seconds)
+## 0:00 — Story (Demo and story)
 
 > Would you give an AI your credit card?
 >
@@ -36,7 +48,16 @@ The merchant name on the paid row follows your rules file. The committed sample 
 
 Gesture at the hero while you say the numbers: **RLUSD left**, **Per purchase 5.00 RLUSD**, **Expires**, **Merchants**.
 
-## Headline — Rogue agent (about 40 seconds)
+## 0:40 — Three jobs, one allowance (Real-world utility)
+
+> Same rules. Three jobs. A travel booker, a software buyer, a supplies clerk. The budget does not change when I change the job.
+
+1. On **Home**, find **This allowance**, under the hero.
+2. Click **Travel booking**, then **SaaS and API procurement**, then **Small-business supplies**. Read one line from the list each time.
+3. Click **Research desk** before the next step. That is the job the live quotes use.
+4. Say that the budget, the cap, and the merchant list did not change. The page says so under the list.
+
+## 1:20 — Rogue agent (Trust and control)
 
 This is the moment to show. The button runs three attacks through the real rules. It does not sign a voucher, it does not write the allowance file, and it does not add a second payable quote.
 
@@ -57,9 +78,20 @@ The three cards, in order:
 
 The payment path under the hero lights Agent, then Rules, and stops. Ledger lights only when a signature could still pay. XRPL and the merchant stay dark, because nothing was signed.
 
-**Voice on** is the header default. Eve says “Waiting for Ledger” or “Blocked” as each card lands. Click **Voice off** to mute her and the soft tones. **Present** enlarges the type for a projector. If the browser refuses fullscreen, the larger type still applies. **On XRPL** shows an explorer link only after a real transaction hash is recorded.
+Voice, Present, and the payment path are optional. **Voice on** speaks the block. **Voice off** mutes Eve and the tones. **Present** enlarges the type. If fullscreen is refused, the larger type still applies. Leave them on only if the room can hear and the projector is already up. **On XRPL** shows an explorer link only after a real transaction hash is recorded.
 
-## 0:35 — Purchase 1, in rule, paid (about 40 seconds)
+## 2:10 — Audit trail and freeze (Trust and control)
+
+> Every decision is written down. Rule, reason, signer. And if I want it to stop, it stops.
+
+1. Under the rogue cards, open **Audit trail**. The three blocks are there. Each row says **Blocked**, the rule, and **Nothing signed**.
+2. Click **Export JSON**. A file named `allowance-audit.json` downloads. You do not need to open it unless a judge asks.
+3. Click **Freeze agent**. The banner says new payments are refused. **Run agent** will not start a payment. Quotes under **Needs you** cannot be paid until you unfreeze.
+4. Click **Unfreeze agent** before the Ledger step. The banner goes away.
+
+Do this while nothing is mid-payment. Freeze refuses the next signature. It does not rewrite a transaction that has already been broadcast.
+
+## 2:50 — Purchase 1, in rule, paid (Technical execution)
 
 > First purchase. The morning market brief is 1 RLUSD, from a merchant on the allowlist, under the cap. The rules allow it. Jev does not flag it. The agent pays.
 
@@ -70,7 +102,7 @@ The payment path under the hero lights Agent, then Rules, and stops. Ledger ligh
 
 > Nothing on that path asked a person. The agent stayed inside the allowance.
 
-## 1:15 — Purchase 2, over the cap, approved on the Ledger (about 50 seconds)
+## 3:30 — Purchase 2, over the cap, approved on the Ledger (Trust and technical)
 
 > Second purchase. Same merchant. Eight RLUSD of history. The cap is five, so the agent does not sign. A person can, on a Ledger. That signature redeems the 8 RLUSD resource. It still cannot pass an expired allowance or a blown budget.
 
@@ -84,7 +116,7 @@ The payment path under the hero lights Agent, then Rules, and stops. Ledger ligh
 
 > One signature, one redemption, and it cannot be replayed.
 
-## 1:55 — Purchase 3, off the allowlist, decline only (about 25 seconds)
+## 4:25 — Purchase 3, off the allowlist, decline only (Trust and control)
 
 > Third purchase. One RLUSD, but the merchant is the unlisted desk. There is no Approve button. Decline is the only action. A Ledger signature cannot pay `0x0bad…`.
 
@@ -94,9 +126,15 @@ The payment path under the hero lights Agent, then Rules, and stops. Ledger ligh
 
 > Eve can explain a block. Eve cannot approve one, and she cannot raise a limit without a Ledger signature. That stays on the device.
 
-## 2:45 — Close (about 15 seconds)
+## 4:40 — Path to production
 
-> So: would you give an AI your credit card? Give it an allowance. The rules spend. A person, on a Ledger, is the only way past the list or the cap. The budget and the expiry still hold. Thank you.
+> This build is testnet. The ship path is the same control plane: Docker serves the dashboard and the API on one port, the agent key stays capped, the Ledger stays the approver, and the audit file is what finance exports. Mainnet is a chain id and a real payout, not a new product.
+
+Point at [docs/PATH_TO_PRODUCTION.md](PATH_TO_PRODUCTION.md). If a judge asks how it deploys, say `npm run ship` after Docker is installed. Do not start that build during the five minutes.
+
+## 4:50 — Close (Demo and story)
+
+> So: would you give an AI your credit card? Give it an allowance. The rules spend. A person, on a Ledger, is the only way past the list or the cap. Freeze stops the agent. The budget and the expiry still hold. Thank you.
 
 If a judge asks where the sponsors are: AP4M moves the RLUSD, XRPL EVM Testnet is the chain, Bedrock writes the words, Ledger signs the exception. The table is in the README.
 
@@ -122,10 +160,13 @@ Do not set `ALLOWANCE_DEV_SIGNER` for the judged live run. With the flag off, th
 
 | Click | When |
 | --- | --- |
-| **Rogue agent**, then read the three cards and the summary | Headline. 3 attempts, 3 blocked, 0 RLUSD lost |
-| The paid **morning market brief** row, then **Close** | Purchase 1 |
+| **Travel booking**, **SaaS and API procurement**, **Small-business supplies**, then **Research desk** | Real-world utility. Return to Research desk before the purchases. |
+| **Rogue agent**, then read the three cards and the summary | Trust. 3 attempts, 3 blocked, 0 RLUSD lost |
+| **Export JSON**, then **Freeze agent**, then **Unfreeze agent** | Trust. Do this before the Ledger step. |
+| The paid **morning market brief** row, then **Close** | Technical execution |
 | **Approve with Ledger** on the **8.00 RLUSD** card, then **Connect Ledger**, then the explorer link | Purchase 2 is redeemed |
 | Nothing except **Decline** on the unlisted card | Purchase 3 stays blocked |
-| **Activity** | Show the paid history row beside the still-blocked desk |
+| **Activity** | The paid history row beside the still-blocked desk, and the audit list |
 | **Minimize Eve** | Only if her chat covers the board |
-| **Run agent**, **Try an over-cap purchase**, **Decline** | Not in this three minutes. The over-cap button files an extra 6 RLUSD quote and muddies the story. |
+| **Run agent**, **Try an over-cap purchase** | Not in these five minutes. The over-cap button files an extra 6 RLUSD quote and muddies the story. |
+| **Voice off**, **Present** | Optional. The demo stands without them. |

@@ -30,6 +30,7 @@ import network from '../shared/network.json' with { type: 'json' };
 import {
   claimApprovalSignature,
   completeApprovedPurchase,
+  readFrozen,
   readPendingRecord,
   readUsedApprovalSignatures,
   releaseApprovalPayment,
@@ -262,6 +263,9 @@ export async function acceptLedgerApproval(id, body = {}, options = {}) {
   }, rules);
   if (hard.decision !== 'allow') {
     return httpError(409, hard.reason, `${plainReason(hard.reason)} A Ledger signature cannot override that.`);
+  }
+  if ((await readFrozen()).frozen) {
+    return httpError(409, 'agent frozen', 'The agent is frozen. Unfreeze it before this quote can be paid. Nothing was signed.');
   }
 
   const payer = options.payApproved ?? paySavedQuote;
