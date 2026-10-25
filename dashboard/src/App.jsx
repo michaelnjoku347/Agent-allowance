@@ -248,6 +248,7 @@ export default function App() {
   useEffect(() => {
     const ids = view.activity.map((item) => item.id);
     if (seen.current === null) {
+      if (!snapshot) return;
       seen.current = new Set(ids);
       return;
     }
@@ -265,7 +266,7 @@ export default function App() {
       speakLine(spoken);
       playTone(kind);
     }
-  }, [view.activity, voiceOn]);
+  }, [view.activity, voiceOn, snapshot]);
 
   useEffect(() => () => {
     window.clearTimeout(moodTimer.current);
