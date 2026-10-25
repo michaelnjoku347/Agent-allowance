@@ -1913,3 +1913,97 @@ input[aria-invalid="true"] {
 .ceremony-modal .why {
   margin-bottom: 16px;
 }
+
+/* Eve */
+.eve-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.eve-done::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.bubble .eve-done {
+  display: flex;
+  width: fit-content;
+}
+
+.confirm-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.row.is-flash {
+  animation: row-flash 1.6s var(--ease-out) 2;
+}
+
+@keyframes row-flash {
+  0%, 100% { background: transparent; }
+  30% { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row.is-flash {
+    animation: none;
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+}
+
+/* Eve transcript: a scrolling column whose bubbles never shrink into each other. */
+.eve-window .transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.eve-window .transcript > * {
+  flex-shrink: 0;
+}
+
+.bubble {
+  white-space: pre-line;
+}
+
+.bubble .who {
+  white-space: normal;
+}
+
+@media (min-width: 960px) {
+  .eve-window {
+    width: 400px;
+    max-height: min(680px, calc(100vh - 48px));
+    border-color: var(--hairline);
+  }
+  .eve-window .transcript {
+    flex: 1 1 auto;
+    min-height: 160px;
+    max-height: none;
+  }
+  /* With Eve open, the page keeps its left edge and makes room on the right. */
+  .app:has(.eve-dock.is-open) .shell,
+  .app:has(.eve-dock.is-peek) .shell {
+    width: auto;
+    max-width: none;
+    margin-left: 32px;
+    margin-right: 448px;
+  }
+}

@@ -72,7 +72,7 @@ describe('freeze closes the channel only when one is open', { concurrency: false
     await setFreeze(false);
   });
 
-  test('Pause agent freezes signing and does not claim a channel closed', async () => {
+  test('Eve only proposes a pause; the confirm freezes signing and does not claim a channel closed', async () => {
     const server = await listen(createApp());
     const base = `http://127.0.0.1:${server.address().port}`;
     const origin = { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json' };
@@ -84,10 +84,31 @@ describe('freeze closes the channel only when one is open', { concurrency: false
       });
       assert.equal(paused.status, 200);
       const body = await paused.json();
-      assert.equal(body.frozen, true);
-      assert.equal(body.channelClosed, false);
-      assert.match(body.reply, /Signing has stopped/);
-      assert.equal(/the payment channel is closed/i.test(body.reply), false);
+      assert.equal(body.confirmation.action.type, 'freeze');
+      assert.match(body.confirmation.summary, /Freeze the agent now/);
+      const before = await (await fetch(`${base}/api/status`)).json();
+      assert.equal(before.frozen, false, 'nothing is frozen until the person confirms');
+
+      const confirmed = await fetch(`${base}/api/eve/confirm`, {
+        method: 'POST',
+        headers: origin,
+        body: JSON.stringify({ token: body.confirmation.token }),
+      });
+      assert.equal(confirmed.status, 200);
+      const done = await confirmed.json();
+      assert.equal(done.frozen, true);
+      assert.match(done.reply, /Signing has stopped/);
+      assert.equal(/the payment channel is closed/i.test(done.reply), false);
+      assert.equal((await (await fetch(`${base}/api/status`)).json()).frozen, true);
+
+      const unfreeze = await (await fetch(`${base}/api/eve`, {
+        method: 'POST',
+        headers: origin,
+        body: JSON.stringify({ message: 'unfreeze the agent' }),
+      })).json();
+      assert.equal(unfreeze.confirmation, null, 'Eve never offers to unfreeze');
+      assert.match(unfreeze.reply, /cannot unfreeze/);
+      assert.deepEqual(unfreeze.ui, { type: 'navigate', route: 'security' });
 
       const opened = await fetch(`${base}/api/freeze`, {
         method: 'POST',

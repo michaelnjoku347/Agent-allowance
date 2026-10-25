@@ -180,7 +180,7 @@ describe('Eve on Bedrock', () => {
     assert.equal(JSON.stringify(client.calls[0].input).includes('llm-secret'), false);
   });
 
-  test('a cap above the budget is not offered for confirmation', async () => {
+  test('a rule change never reaches Bedrock, so it cannot claim it changed the cap', async () => {
     const client = mockClient(JSON.stringify({
       reply: 'I set the cap to 100.',
       action: { type: 'set_cap', amount: '100' },
@@ -189,9 +189,27 @@ describe('Eve on Bedrock', () => {
       env: bearerEnv(),
       bedrockClient: client,
     });
-    assert.equal(answered.source, 'bedrock');
-    assert.equal(answered.action, null);
+    assert.equal(client.calls.length, 0);
+    assert.equal(answered.source, 'rules');
+    assert.equal(answered.action, undefined);
+    assert.match(answered.reply, /I cannot change the allowance/);
     assert.match(answered.reply, /no more than the budget/);
+  });
+
+  test('Bedrock gets the ledger draft and its own action is dropped', async () => {
+    const client = mockClient(JSON.stringify({
+      reply: 'You have spent 1 RLUSD today.',
+      action: { type: 'freeze' },
+      ui: { type: 'navigate', route: 'security' },
+    }));
+    const answered = await answerEve('What did my agent spend today?', context, {
+      env: bearerEnv(),
+      bedrockClient: client,
+    });
+    assert.equal(answered.source, 'bedrock');
+    assert.equal(answered.action, undefined);
+    assert.equal(answered.ui, undefined);
+    assert.match(JSON.stringify(client.calls[0].input), /Draft answer from the ledger/);
   });
 
   test('a Bedrock failure falls back to the built-in parser', async () => {

@@ -103,14 +103,19 @@ export async function runRogueDemo({
     pending: [],
     payments: [],
   });
-  if (!eve.action || eve.action.ledger !== true) {
-    throw new Error('Eve did not treat that request as a raise.');
+  // Eve may only open the editor. She must not offer to change the allowance herself.
+  if (eve.action || eve.boundary !== 'rules') {
+    throw new Error('Eve did not refuse to change the allowance.');
   }
   const refused = apply(raise.patch);
   if (refused?.code !== 'needs_ledger') {
     throw new Error('The allowance engine did not require a Ledger signature. Nothing was changed.');
   }
-  const confirmed = await confirm(eve.action);
+  // A forged confirmation for the same raise must be refused too.
+  const forged = raise.patch.maxPerPurchase
+    ? { type: 'set_cap', amount: raise.patch.maxPerPurchase, ledger: true }
+    : { type: 'set_budget', amount: raise.patch.budget, ledger: true };
+  const confirmed = await confirm(forged);
   if (!confirmed?.error) {
     throw new Error('Eve applied a raise without a Ledger signature.');
   }

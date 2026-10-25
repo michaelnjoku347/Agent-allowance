@@ -83,6 +83,7 @@ export function ActivityList({ items, onOpen, empty, flashId = '' }) {
           <li key={item.id}>
             <button
                 type="button"
+                data-row-id={item.id}
                 className={flashId === item.id ? 'row is-flash' : 'row'}
                 aria-label={`${item.merchantLabel || 'Merchant'}, ${money(item.amount)} RLUSD, ${status.label}, ${when(item.createdAt)}`}
                 onClick={() => onOpen(item)}

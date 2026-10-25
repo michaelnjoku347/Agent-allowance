@@ -28,7 +28,7 @@ import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
 import { describeAllowanceChange, formatRlusd, loadRules, presentRules, toUnits, updateAllowance } from '../agent/rules.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
-import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
+import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext, safeUi } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { anchorDecision } from '../agent/anchor.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
@@ -437,34 +437,23 @@ export function createApp(options = {}) {
       const message = parsed.value;
       const context = await loadEveContext();
       const result = await answerEve(message, context);
-      if (result.action?.type === 'freeze') {
-        const frozen = await freezeAgent();
-        stopAgentProcess();
-        const detail = frozen.channelClosed
-          ? 'The payment channel is closed.'
-          : frozen.channelReason;
-        return res.json({
-          reply: `The agent is paused. Signing has stopped. ${detail}`,
-          bedrock: result.source === 'bedrock',
-          confirmation: null,
-          frozen: true,
-          channelClosed: Boolean(frozen.channelClosed),
-        });
-      }
       const payload = {
         reply: result.reply,
         bedrock: result.source === 'bedrock',
+        source: result.source,
         confirmation: null,
+        ui: safeUi(result.ui),
+        suggestions: Array.isArray(result.suggestions) ? result.suggestions.slice(0, 4) : [],
       };
-      if (!result.action) return res.json(payload);
-      const token = confirmations.issue(result.action);
-      payload.confirmation = {
-        token,
-        summary: confirmationSummary(result.action, context),
-        action: result.action,
-        ledger: Boolean(result.action.ledger),
-        proposal: result.action.ledger ? allowanceProposal(result.action, context.rules) : null,
-      };
+      // Freeze and decline are proposals. Nothing runs until the person confirms.
+      if (result.action?.type === 'freeze' || result.action?.type === 'decline') {
+        const token = confirmations.issue(result.action);
+        payload.confirmation = {
+          token,
+          summary: confirmationSummary(result.action, context),
+          action: result.action,
+        };
+      }
       res.json(payload);
     } catch (error) {
       next(error);
@@ -479,11 +468,12 @@ export function createApp(options = {}) {
         return res.status(400).json({ error: 'That confirmation expired. Ask Eve again.' });
       }
       const result = await executeConfirmed(action);
+      if (result.frozen) stopAgentProcess();
       if (result.error === 'missing') {
         return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
       }
       if (result.error) return res.status(400).json({ error: result.error });
-      res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
+      res.json({ ok: true, reply: result.reply, payment: result.payment ?? null, frozen: Boolean(result.frozen) });
     } catch (error) {
       next(error);
     }

@@ -39,7 +39,7 @@ import JevCard from './JevCard.jsx';
 import HistoryView from './HistoryView.jsx';
 import ApprovalWhy from './ApprovalWhy.jsx';
 import { explainApproval } from './approvalWhy.js';
-import { EMPTY_FILTERS, normalizeFilters } from './history.js';
+import { EMPTY_FILTERS, downloadCsv, filterHistory, normalizeFilters } from './history.js';
 import { ActivityList, EmptyState, StatusPill, cannotApprove, initial, pill, planDetail, planLabel, reasonChip } from './rows.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
@@ -372,6 +372,55 @@ export default function App() {
   }, [connection]);
 
   const view = useMemo(() => allowanceView(snapshot), [snapshot]);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  // Eve's UI steps. Each one only changes what is on screen; saving, signing,
+  // and approving stay with the person.
+  useEffect(() => {
+    function onEveUi(event) {
+      const ui = event.detail || {};
+      const rows = viewRef.current.activity;
+      if (ui.type === 'navigate') go(ui.route);
+      if (ui.type === 'filter') {
+        setHistoryFilters(normalizeFilters(ui.filters));
+        setFilter('all');
+        go('activity');
+      }
+      if (ui.type === 'export') {
+        const shownRows = filterHistory(rows, ui.filters);
+        const name = downloadCsv(shownRows);
+        pushToast(`Eve saved ${shownRows.length} row${shownRows.length === 1 ? '' : 's'} to ${name}.`);
+      }
+      if (ui.type === 'highlight') {
+        setHistoryFilters(EMPTY_FILTERS);
+        setFilter('all');
+        go('activity');
+        setFlashId(ui.id);
+        window.setTimeout(() => {
+          document.querySelector(`[data-row-id="${CSS.escape(String(ui.id))}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 80);
+      }
+      if (ui.type === 'edit') {
+        setEditorSeed({ ...(ui.seed || {}) });
+        go('rules');
+      }
+      if (ui.type === 'review') {
+        const item = viewRef.current.pending.find((row) => row.id === ui.id);
+        go('approvals');
+        if (item) setApproval(item);
+      }
+    }
+    function onChanged() {
+      load();
+    }
+    window.addEventListener('eve:ui', onEveUi);
+    window.addEventListener('allowance:changed', onChanged);
+    return () => {
+      window.removeEventListener('eve:ui', onEveUi);
+      window.removeEventListener('allowance:changed', onChanged);
+    };
+  }, []);
 
   useEffect(() => {
     const ids = view.activity.map((item) => item.id);
