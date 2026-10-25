@@ -150,6 +150,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
             const title = blocked?.querySelector('.row-title');
             const pill = blocked?.querySelector('.pill');
             const time = blocked?.querySelector('.row-time');
+            const task = blocked?.querySelector('.row-task');
+            const box = (el) => el.getBoundingClientRect();
             return {
               scrollWidth: root.scrollWidth,
               clientWidth: root.clientWidth,
@@ -160,7 +162,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
               lines,
               steps,
               pillBelowTitle: Boolean(title && pill && pill.getBoundingClientRect().top >= title.getBoundingClientRect().bottom - 2),
-              pillBesideTime: Boolean(time && pill && Math.abs(pill.getBoundingClientRect().top - time.getBoundingClientRect().top) < 12),
+              timeUnderPill: Boolean(time && pill && box(time).top >= box(pill).bottom - 2 && Math.abs(box(time).right - box(pill).right) <= 1),
+              taskUnderTitle: Boolean(task && title && Math.abs(box(task).left - box(title).left) <= 1),
             };
           })()`,
           returnByValue: true,
@@ -176,7 +179,8 @@ test('phone pages do not scroll sideways at 320 and 390', async () => {
           assert.ok(box.steps.every((step) => step.width >= 52), `${width} ${theme} steps ${box.steps.map((step) => step.width).join(',')}`);
         }
         assert.equal(box.pillBelowTitle, true, `${width} ${theme} status pill is on the second line`);
-        assert.equal(box.pillBesideTime, true, `${width} ${theme} status pill sits beside the time`);
+        assert.equal(box.timeUnderPill, true, `${width} ${theme} time sits right-aligned under the status pill`);
+        assert.equal(box.taskUnderTitle, true, `${width} ${theme} task lines up under the merchant name`);
         assert.ok(
           box.scrollWidth <= box.clientWidth,
           `${width} ${theme} scrollWidth ${box.scrollWidth} clientWidth ${box.clientWidth} innerWidth ${box.innerWidth}`,

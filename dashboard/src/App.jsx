@@ -18,7 +18,15 @@ import {
   IconHome,
   IconLock,
   IconReceipt,
-  IconSettings,
+  IconBadgeCheck,
+  IconBot,
+  IconContrast,
+  IconGear,
+  IconHelp,
+  IconMore,
+  IconShieldCheck,
+  IconSliders,
+  IconStore,
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
@@ -32,14 +40,14 @@ const Desk = lazy(() => import('./views.jsx'));
 const ICONS = {
   home: IconHome,
   activity: IconActivity,
-  approvals: IconReceipt,
-  rules: IconLock,
-  merchants: IconCheck,
-  agents: IconAlert,
-  security: IconLock,
-  settings: IconSettings,
-  help: IconAlert,
-  more: IconSettings,
+  approvals: IconBadgeCheck,
+  rules: IconSliders,
+  merchants: IconStore,
+  agents: IconBot,
+  security: IconShieldCheck,
+  settings: IconGear,
+  help: IconHelp,
+  more: IconMore,
 };
 
 function readFlag(key) {
@@ -503,10 +511,7 @@ export default function App() {
       <aside className="sidenav">
         <div className="sidenav-brand">
           <BrandMark size={64} />
-          <div>
-            <p className="eyebrow">Allowance</p>
-            <h1>Agent Allowance</h1>
-          </div>
+          <h1>Agent Allowance</h1>
         </div>
         <nav className="sidenav-nav" aria-label="Primary">
           {navSections().map((section) => (
@@ -532,13 +537,17 @@ export default function App() {
             </div>
           ))}
         </nav>
-        <div className="sidenav-links">
-          {NAV.filter((item) => item.id === 'settings' || item.id === 'help').map((item) => (
-            <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <nav className="sidenav-links" aria-label="Settings and help">
+          {NAV.filter((item) => item.id === 'settings' || item.id === 'help').map((item) => {
+            const Icon = ICONS[item.id];
+            return (
+              <button key={item.id} type="button" onClick={() => go(item.id)} aria-current={route === item.id ? 'page' : undefined}>
+                <Icon />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
         <div className="sidenav-foot">
           <p className="side-balance"><strong>{money(view.left)}</strong> RLUSD left</p>
           <p className="meta">{snapshot?.frozen ? 'Agent frozen' : 'Inside the rules'}</p>
@@ -590,15 +599,17 @@ export default function App() {
           <main id="main" tabIndex={-1}>
             {loading ? <Skeletons /> : null}
             {view.demo ? (
-              <p className="demo-badge" role="status">
-                <span>Demo</span>
-                {snapshot?.offlinePreview
-                  ? 'Example rows, while the allowance is offline.'
-                  : 'Example rows, until the agent pays.'}
+              <div className="demo-badge" role="status">
+                <span className="demo-tag">Demo</span>
+                <span className="demo-text">
+                  {snapshot?.offlinePreview
+                    ? 'Example rows while offline.'
+                    : 'Example rows until the agent pays.'}
+                </span>
                 {snapshot?.offlinePreview ? (
-                  <button type="button" className="btn text" onClick={load}>Try again</button>
+                  <button type="button" className="retry-pill" onClick={load}>Try again</button>
                 ) : null}
-              </p>
+              </div>
             ) : null}
             {snapshot && route === 'home' ? (
               <HeistDemo onDone={load} onResult={onHeist}>
@@ -952,7 +963,7 @@ function ThemeControl({ theme, setTheme }) {
         aria-label="Display settings"
         onClick={() => setOpen((value) => !value)}
       >
-        <IconSettings />
+        <IconContrast />
       </button>
       {open ? (
         <fieldset className="theme-menu" id={menuId}>

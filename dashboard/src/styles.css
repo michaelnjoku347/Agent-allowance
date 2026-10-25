@@ -714,7 +714,7 @@ p {
   gap: 12px 8px;
   margin: 16px 0 0;
   padding-top: 12px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
 }
 
 .rule-grid div {
@@ -2764,13 +2764,14 @@ input[type="range"] {
   max-width: 100%;
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(6ch, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     "avatar title amount pill"
-    "task task time tag";
+    "avatar task task time"
+    ". tag tag tag";
   align-items: center;
-  column-gap: 8px;
-  row-gap: 4px;
+  column-gap: 10px;
+  row-gap: 2px;
   border-radius: var(--r-3);
   text-align: left;
 }
@@ -2782,6 +2783,7 @@ input[type="range"] {
 
 .activity .avatar {
   grid-area: avatar;
+  align-self: center;
 }
 
 .activity .row-title {
@@ -2800,6 +2802,7 @@ input[type="range"] {
 
 .activity .pill {
   grid-area: pill;
+  justify-self: end;
 }
 
 .activity .row-task {
@@ -2817,6 +2820,7 @@ input[type="range"] {
 
 .activity .bedrock-tag {
   grid-area: tag;
+  justify-self: start;
 }
 
 .activity .row-task, .activity .row-time {
@@ -2830,8 +2834,8 @@ input[type="range"] {
 }
 
 .activity .amount {
-  font-size: var(--fs-4);
-  font-weight: 600;
+  font-size: var(--fs-3);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3414,32 +3418,11 @@ html {
     min-width: 100%;
   }
   .activity .row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "line1 line1"
-      "line2 pill";
-  }
-  .activity .row-line {
-    display: grid;
-    grid-area: line1;
-    grid-template-columns: auto minmax(6ch, 1fr) auto;
-    grid-template-areas: "avatar title amount";
-    column-gap: 8px;
-    align-items: center;
-    min-width: 0;
-    max-width: 100%;
-  }
-  .activity .row-sub {
-    grid-area: line2;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "task time";
-  }
-  .activity .pill {
-    grid-area: pill;
-    justify-self: end;
-  }
-  .activity .bedrock-tag {
-    grid-column: 1 / -1;
+      "avatar title amount"
+      "avatar task pill"
+      ". tag time";
   }
 }
 
@@ -3513,15 +3496,11 @@ html {
 }
 
 .sidenav-links {
-  display: flex;
-  gap: 8px;
-  padding: 12px 8px 0;
-}
-
-.sidenav-links button {
-  min-height: 36px;
-  color: var(--muted);
-  font-size: var(--fs-1);
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
 }
 
 .nav-count {
@@ -3575,7 +3554,7 @@ html {
   font-size: var(--fs-1);
 }
 
-.demo-badge span {
+.demo-badge .demo-tag {
   padding: 2px 8px;
   border-radius: var(--r-pill);
   background: var(--pine);
@@ -3584,6 +3563,30 @@ html {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 10px;
+}
+
+.retry-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong, var(--ink));
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-1);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retry-pill:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.retry-pill:focus-visible {
+  outline: 2px solid var(--focus, var(--pine));
+  outline-offset: 2px;
 }
 
 .setup-card p,
