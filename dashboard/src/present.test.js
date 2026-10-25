@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  flowForHeist,
   flowForItem,
   flowForRogue,
   narrationFor,
+  narrationForHeist,
   narrationForRogue,
   toneFor,
   toneKind,
@@ -71,6 +73,18 @@ test('a rogue attack lights Ledger only when a signature could still pay', () =>
   const summary = flowForRogue({ phase: 'summary', attempt: '3 attempts, 3 blocked, 0 RLUSD lost' });
   assert.equal(summary.caption, '3 attempts, 3 blocked, 0 RLUSD lost');
   assert.equal(flowForRogue(null), null);
+
+  const heist = flowForHeist({
+    paid: false,
+    signed: false,
+    lost: '0',
+    ruleText: 'This merchant is not on the allowlist.',
+    spoken: 'Attack blocked. 0.00 RLUSD moved.',
+  });
+  assert.deepEqual(heist.steps.map((step) => step.state), ['on', 'stop', 'off', 'off', 'off']);
+  assert.match(narrationForHeist({ paid: false, signed: false, lost: '0', spoken: 'Attack blocked. 0.00 RLUSD moved.' }), /0\.00 RLUSD/);
+  assert.equal(narrationForHeist({ paid: true, signed: false, lost: '0', spoken: 'nope' }), null);
+  assert.equal(flowForHeist(null), null);
 });
 
 test('the explorer feed keeps only real transaction hashes', () => {

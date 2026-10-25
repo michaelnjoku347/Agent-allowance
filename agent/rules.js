@@ -114,7 +114,11 @@ export function declineReason(merchant, rules = loadRules()) {
     return 'This payout address cannot be resolved. Decline it. A Ledger signature cannot pay it.';
   }
   const denied = (rules.deniedMerchants ?? []).find((item) => item.address === address);
-  return denied?.reason ?? null;
+  if (denied?.reason) return denied.reason;
+  if (!rules.allowedMerchants.includes(address)) {
+    return 'This merchant is not on the allowlist. A Ledger signature cannot pay it.';
+  }
+  return null;
 }
 
 /**
@@ -286,9 +290,10 @@ export function checkRules(purchase, rules = loadRules()) {
 
 /**
  * Rules a Ledger approval cannot override: a positive price, an allowance
- * that has not expired, and room in the budget. The merchant allowlist and
- * the per-purchase cap are the rules a person can approve past. Jev is not
- * consulted here and cannot allow a purchase on its own.
+ * that has not expired, a merchant on the allowlist, and room in the budget.
+ * The per-purchase cap is the rule a person can approve past. An unlisted
+ * merchant is decline-only, not only the one demo desk. Jev is not consulted
+ * here and cannot allow a purchase on its own.
  */
 export function checkApprovalHardRules(purchase, rules = loadRules()) {
   if (!purchase || typeof purchase !== 'object') {
@@ -298,12 +303,15 @@ export function checkApprovalHardRules(purchase, rules = loadRules()) {
   const spent = toUnits(purchase.spent ?? 0);
   const at = purchase.at === undefined ? Date.now() : Date.parse(purchase.at);
   if (Number.isNaN(at)) throw new Error('purchase.at must be an ISO date');
-  canonicalAddress(purchase.merchant);
+  const merchant = canonicalAddress(purchase.merchant);
   if (amount <= 0n) {
     return { decision: 'needs_approval', reason: 'amount must be positive' };
   }
   if (at >= Date.parse(rules.expiresAt)) {
     return { decision: 'needs_approval', reason: 'expired' };
+  }
+  if (!rules.allowedMerchants.includes(merchant)) {
+    return { decision: 'needs_approval', reason: 'merchant not allowed' };
   }
   if (spent + amount > rules.budget) {
     return { decision: 'needs_approval', reason: 'over budget' };

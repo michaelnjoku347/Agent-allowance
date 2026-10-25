@@ -70,6 +70,14 @@ export async function fetchSnapshot() {
   return { ...status, payments, pending };
 }
 
+/** One injected catalog row. The planner runs. The rules block it. Nothing is signed. */
+export async function runHeist() {
+  const response = await fetch('/api/demo/heist', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok) throw new Error(body.error || 'The heist did not run.');
+  return body;
+}
+
 /** Three scripted attacks. The server runs the rules. Nothing is signed. */
 export async function runRogueDemo() {
   const response = await fetch('/api/demo/rogue', { method: 'POST' });

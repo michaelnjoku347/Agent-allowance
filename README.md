@@ -1,5 +1,7 @@
 # Agent Allowance
 
+[![Tests](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml/badge.svg)](https://github.com/michaelnjoku347/Agent-allowance/actions/workflows/test.yml)
+
 ## Run it
 
 1. Clone this repo.

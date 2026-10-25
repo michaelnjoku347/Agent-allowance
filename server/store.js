@@ -279,6 +279,8 @@ export function summarize(store, rules = loadRules()) {
     agentConnected: Boolean(store.agentConnected),
     frozen: Boolean(store.frozen),
     frozenAt: store.frozenAt ?? null,
+    channelClosed: Boolean(store.channelClosed),
+    freezeDetail: typeof store.freezeDetail === 'string' ? store.freezeDetail : null,
     useCase: presentUseCase(store.useCase),
     audit: presentAudit(store),
     rules: presentRules(rules),
@@ -387,6 +389,15 @@ export async function setFreeze(frozen) {
       paymentId: null,
     });
     return { frozen: store.frozen, frozenAt: store.frozenAt };
+  });
+}
+
+/** What the freeze did to the payment channel. Unfreeze does not reopen it. */
+export async function noteChannelClose({ closed, detail }) {
+  return updateStore((store) => {
+    store.channelClosed = Boolean(closed);
+    store.freezeDetail = typeof detail === 'string' ? detail.slice(0, 240) : null;
+    return { channelClosed: store.channelClosed, freezeDetail: store.freezeDetail };
   });
 }
 

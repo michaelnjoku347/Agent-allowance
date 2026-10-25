@@ -279,6 +279,20 @@ p { margin: 0; }
   color: var(--muted);
 }
 .meter-caption { margin-top: 10px; font-size: 0.9375rem; overflow-wrap: anywhere; }
+.money-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 12px 0 0;
+}
+.money-summary div { min-width: 0; }
+.money-summary dt { margin: 0; font-size: 0.75rem; color: var(--muted); }
+.money-summary dd { margin: 2px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+.heist { display: grid; gap: 14px; min-width: 0; }
+.heist-injection { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .money-summary { grid-template-columns: 1fr; }
+}
 .chain-lines {
   display: grid;
   gap: 2px;

@@ -24,6 +24,8 @@ test('sample preview totals are not spent, so left matches the budget', () => {
   assert.equal(view.left, '20');
   assert.equal(view.ratio, 0);
   assert.equal(view.activity.length, 0);
+  assert.equal(view.held, '0');
+  assert.equal(view.lost, '0');
   assert.equal(view.payments.length, 0);
   assert.equal(view.pending.length, 0);
   assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
@@ -47,6 +49,8 @@ test('real payments keep spent, left, and budget in agreement', () => {
   assert.equal(view.budget, '20');
   assert.equal(view.pending.length, 1);
   assert.equal(view.pending[0].status, 'pending');
+  assert.equal(view.held, '2');
+  assert.equal(view.lost, '0');
   assert.equal(view.activity[0].id, 'wait');
   assert.equal(parseMicro(view.left) + parseMicro(view.spent), parseMicro(view.budget));
 });

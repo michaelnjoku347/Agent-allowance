@@ -44,6 +44,12 @@ export function narrationFor(item) {
   return null;
 }
 
+export function narrationForHeist(report) {
+  if (!report || report.paid || report.signed || report.lost !== '0') return null;
+  const line = String(report.spoken ?? '').trim();
+  return line || null;
+}
+
 export function narrationForRogue(card) {
   if (!card || card.phase !== 'blocked') return null;
   if (card.route === 'ledger') return 'Waiting for Ledger. Nothing was signed.';
@@ -93,6 +99,14 @@ export function flowForItem(item) {
     };
   }
   return { steps: steps(['off', 'off', 'off', 'off', 'off']), caption: 'The path lights up when a purchase is decided.' };
+}
+
+export function flowForHeist(report) {
+  if (!report || report.paid || report.signed) return null;
+  return {
+    steps: steps(['on', 'stop', 'off', 'off', 'off']),
+    caption: report.ruleText || 'Blocked by the rules. Nothing was signed.',
+  };
 }
 
 export function flowForRogue(card) {

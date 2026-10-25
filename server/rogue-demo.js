@@ -90,11 +90,9 @@ export async function runRogueDemo({
     throw new Error(`The unlisted attack was caught by “${outsideDecision.reason}”, so it is not the allowlist demo.`);
   }
   const hardBlock = decline(denied.address, rules);
-  if (!hardBlock) {
+  const hardDecision = hard(outside, rules);
+  if (!hardBlock && hardDecision.decision === 'allow') {
     throw new Error('That merchant is off the allowlist, and a Ledger signature could still pay it.');
-  }
-  if (hard(outside, rules).decision !== 'allow') {
-    throw new Error('The hard block must come from the denylist, after the budget and expiry still pass.');
   }
 
   const raise = raiseRequest(rules);

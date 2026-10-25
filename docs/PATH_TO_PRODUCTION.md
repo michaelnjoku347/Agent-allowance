@@ -51,3 +51,17 @@ Agent Allowance is the control plane in front of an agent that needs to pay.
 - RLUSD settlement stays on the payment channel. The fee is for the rules, the Ledger step, the audit export, and the freeze switch. It is not a cut of the merchant's payout.
 - The first three jobs are the ones on the dashboard: a travel booker, a SaaS and API buyer, and a small-business supplies agent. Each job uses the same budget, cap, allowlist, and approver. Selling a new job is a preset and a merchant list, not a new wallet product.
 - A finance lead who wants the exception log uses Export JSON. A lead who wants the agent to stop uses Freeze. Those two actions are the ones a buyer can try in the first meeting.
+
+## What production still has to wire
+
+The hackathon build keeps the agent key in `.env`, the ledger in `server/data/store.json`, and Bedrock credentials in the environment when they are set. None of that ships as the production shape.
+
+- **Agent key.** Put it in AWS KMS or Secrets Manager. The task reads it at start through an IAM role. It is not baked into the image, and it is not committed. Freeze still stops signing, and close-channel still uses that key only to sign the close checkpoint.
+- **Ledger and audit.** Replace `server/data/store.json` with DynamoDB, one item per decision and one conditional write for the reservation lock. The laptop file stays for the hackathon. Export JSON keeps the same fields: rule, reason, signer, amount, merchant label. No private keys.
+- **Bedrock.** Call it with the task's IAM role. Drop the long-lived key from `.env` on the hosted deploy. If the role is missing, the row stays labeled **Fallback (Bedrock not configured)**. Do not relabel that fallback as a live model.
+- **Signed mandate.** A merchant-verifiable signed mandate is a later control. This build does not issue an AgentMandate, and a merchant cannot yet require one. Today the gate is the allowlist, the cap, the budget, the expiry, and a Ledger signature on an exception. An unlisted merchant cannot be Ledger-approved.
+- **ERC-7730.** Register `ApprovePurchase` and `SetAllowance` on the production chain once Ledger's registry accepts that chain. Chain 1449000 cannot clear-sign today. Until a certificate exists, the panel keeps showing the amount, the merchant, and the expiry, and the server still recovers the signature to `APPROVER_ADDRESS`.
+- **RLUSD mainnet.** Switch only after the payment service publishes that chain id. This repo refuses a chain it was not built for. Do not point the testnet faucet, the testnet channel, or the testnet payout at mainnet. The testnet guard that rejects anything other than chain `1449000` becomes a guard for the published mainnet id.
+- **Who buys it.** A travel booker, a SaaS and API buyer, and a small-business supplies agent. Each one uses the same budget, cap, allowlist, and approver. Selling a new job is a preset and a merchant list.
+
+`Dockerfile` is the container. `npm run ship` builds it and serves the dashboard and the API on port 8787. `apprunner.yaml` is the AWS App Runner shape for that same process: Node 22, `SERVE_DASHBOARD=1`, port 8787, no secrets in the file. If App Runner's runtime name differs from `nodejs22`, use the Node 22 runtime it offers. Secrets stay in Secrets Manager, not in the YAML.

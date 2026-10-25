@@ -28,6 +28,8 @@ import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
+import { freezeAgent } from './freeze-channel.js';
+import { runHeist } from './heist.js';
 import { runRogueDemo } from './rogue-demo.js';
 
 export function dashboardOrigins(env = process.env) {
@@ -56,6 +58,12 @@ dotenv.config({ path: join(rootDir, '.env') });
 
 let agentChild = null;
 const confirmations = createConfirmations();
+
+function stopAgentProcess() {
+  if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
+    agentChild.kill('SIGTERM');
+  }
+}
 
 export function createApp(options = {}) {
   const app = express();
@@ -228,6 +236,20 @@ export function createApp(options = {}) {
       const message = typeof req.body?.message === 'string' ? req.body.message.slice(0, 2000) : '';
       const context = await loadEveContext();
       const result = await answerEve(message, context);
+      if (result.action?.type === 'freeze') {
+        const frozen = await freezeAgent();
+        stopAgentProcess();
+        const detail = frozen.channelClosed
+          ? 'The payment channel is closed.'
+          : frozen.channelReason;
+        return res.json({
+          reply: `The agent is paused. Signing has stopped. ${detail}`,
+          bedrock: result.source === 'bedrock',
+          confirmation: null,
+          frozen: true,
+          channelClosed: Boolean(frozen.channelClosed),
+        });
+      }
       const payload = {
         reply: result.reply,
         bedrock: result.source === 'bedrock',
@@ -263,6 +285,19 @@ export function createApp(options = {}) {
       res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.post('/api/demo/heist', async (req, res) => {
+    try {
+      const body = await runHeist();
+      const packed = JSON.stringify(body);
+      if (body.paid || body.signed || body.lost !== '0' || packed.includes('0x')) {
+        return res.status(409).json({ ok: false, signed: false, paid: false, error: 'The heist did not stay blocked.' });
+      }
+      res.json(body);
+    } catch (error) {
+      res.status(409).json({ ok: false, signed: false, paid: false, error: error.message ?? 'The heist stopped.' });
     }
   });
 
@@ -309,11 +344,13 @@ export function createApp(options = {}) {
   app.post('/api/freeze', async (req, res, next) => {
     try {
       const frozen = req.body?.frozen !== false;
-      const state = await setFreeze(frozen);
-      if (frozen && agentChild && agentChild.exitCode === null && !agentChild.killed) {
-        agentChild.kill('SIGTERM');
+      if (!frozen) {
+        const state = await setFreeze(false);
+        return res.json({ ok: true, signing: true, ...state });
       }
-      res.json({ ok: true, ...state });
+      const state = await freezeAgent();
+      stopAgentProcess();
+      res.json(state);
     } catch (error) {
       next(error);
     }

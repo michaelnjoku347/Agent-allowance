@@ -5,8 +5,8 @@ import BedrockMark from './BedrockMark.jsx';
 import LedgerApproval from './LedgerApproval.jsx';
 import CountUp from './CountUp.jsx';
 import { EveDock } from './EvePanel.jsx';
-import RogueDemo from './RogueDemo.jsx';
-import { flowForItem, flowForRogue, narrationFor, narrationForRogue, toneKind, txFeed } from './present.js';
+import HeistDemo from './HeistDemo.jsx';
+import { flowForHeist, flowForItem, narrationFor, narrationForHeist, toneKind, txFeed } from './present.js';
 import { MoneyFlow, TxFeed } from './Stage.jsx';
 import { playTone, readVoiceEnabled, setPresentation, speakLine, stopSpeech, writeVoiceEnabled } from './stage.js';
 import {
@@ -304,21 +304,17 @@ export default function App() {
     }
   }
 
-  const onRogueBeat = useCallback((card) => {
-    const flow = flowForRogue(card);
+  const onHeist = useCallback((report) => {
+    const flow = flowForHeist(report);
     if (flow) setFlowOverride(flow);
-    if (!voiceOn || !card) return;
-    if (card.phase === 'blocked') {
-      const line = narrationForRogue(card);
-      if (line) speakLine(line);
-      const kind = card.route === 'ledger' ? 'wait' : 'block';
-      playTone(kind);
-      setRingMood(kind === 'wait' ? 'wait' : 'block');
-      window.clearTimeout(moodTimer.current);
-      moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
-    } else if (card.phase === 'summary' && card.attempt) {
-      speakLine(card.attempt);
-    }
+    if (!voiceOn) return;
+    const line = narrationForHeist(report);
+    if (!line) return;
+    speakLine(line);
+    playTone('block');
+    setRingMood('block');
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setRingMood(''), 700);
   }, [voiceOn]);
 
   async function decide(id) {
@@ -472,7 +468,13 @@ export default function App() {
             {snapshot && tab === 'home' ? (
               <div className="stack">
                 {snapshot.frozen ? (
-                  <p className="freeze-banner" role="status">Agent frozen. New payments are refused until you unfreeze it.</p>
+                  <p className="freeze-banner" role="status">
+                    {snapshot.channelClosed
+                      ? 'Agent frozen. The payment channel is closed. The agent cannot sign another voucher.'
+                      : snapshot.freezeDetail
+                        ? `Agent frozen. ${snapshot.freezeDetail}`
+                        : 'Agent frozen. New payments are refused until you unfreeze it.'}
+                  </p>
                 ) : null}
                 {connection === 'offline' && !snapshot.offlinePreview ? (
                   <p className="note warn" role="alert">
@@ -492,6 +494,20 @@ export default function App() {
                       <p className="meter-caption">
                         {money(view.spent)} of {money(view.budget)} RLUSD spent
                       </p>
+                      <dl className="money-summary">
+                        <div>
+                          <dt>Remaining</dt>
+                          <dd>{money(view.left)} RLUSD</dd>
+                        </div>
+                        <div>
+                          <dt>Held for review</dt>
+                          <dd>{money(view.held)} RLUSD</dd>
+                        </div>
+                        <div>
+                          <dt>Lost</dt>
+                          <dd>{money(view.lost)} RLUSD</dd>
+                        </div>
+                      </dl>
                       <p className="chain-lines">
                         <span>Local ledger {money(view.localSpent)} RLUSD</span>
                         <span>
@@ -547,7 +563,7 @@ export default function App() {
                 <MoneyFlow flow={liveFlow} />
                 <TxFeed rows={feed} />
 
-                <RogueDemo onDone={load} onBeat={onRogueBeat} />
+                <HeistDemo onDone={load} onResult={onHeist} />
                 <AuditCard rows={snapshot.audit} onExport={exportAudit} />
 
                 {overCap ? (

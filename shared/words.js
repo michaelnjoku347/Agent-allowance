@@ -7,6 +7,7 @@ export function plainReason(reason) {
     'over per-purchase cap': 'This is over the per-purchase cap.',
     'over budget': 'This would go over the budget.',
     'over channel cap': 'The channel cannot cover this payment.',
+    'over spend rate': 'The hourly spend rate stopped this purchase.',
     'Jev flagged for review': 'Jev asked for a person to review this before it is paid.',
     'amount must be positive': 'The price is not a positive amount.',
     'within allowance': 'Inside the allowance. The agent paid.',

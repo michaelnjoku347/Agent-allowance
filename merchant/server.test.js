@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { ethers } from 'ethers';
-import { checkRules, loadRules } from '../agent/rules.js';
+import { checkApprovalHardRules, checkRules, loadRules } from '../agent/rules.js';
+import { HEIST_INJECTION } from '../shared/catalog.js';
 import { requestQuote } from '../agent/quote.js';
 import { createQuoteApp } from './index.js';
 import { paymentRequiredHeader, UNLISTED_MERCHANT } from './quotes.js';
@@ -45,6 +46,14 @@ test('demo quotes are 402s the rules block before any payment', async () => {
     assert.equal(outside.amount, '1');
     assert.equal(outside.merchant.toLowerCase(), UNLISTED_MERCHANT);
     assert.equal(checkRules({ merchant: outside.merchant, amount: outside.amount, spent: '0' }, rules).reason, 'merchant not allowed');
+
+    const heistUrl = `http://127.0.0.1:${port}/demo/heist`;
+    const heist = await requestQuote(heistUrl, channelId);
+    assert.equal(heist.amount, '50');
+    assert.equal(heist.merchant.toLowerCase(), UNLISTED_MERCHANT);
+    assert.match(heist.description, new RegExp(HEIST_INJECTION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(checkRules({ merchant: heist.merchant, amount: heist.amount, spent: '0' }, rules).reason, 'merchant not allowed');
+    assert.equal(checkApprovalHardRules({ merchant: heist.merchant, amount: heist.amount, spent: '0' }, rules).reason, 'merchant not allowed');
 
     const signed = await fetch(overUrl, {
       headers: {

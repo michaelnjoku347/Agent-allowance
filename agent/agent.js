@@ -31,6 +31,7 @@ import { retryingFetch } from './net.js';
 import { operationName, requestQuote } from './quote.js';
 import { buyResource, loadX402Context } from './ap4m-x402.mjs';
 import { canonicalAddress, checkApprovalHardRules, checkRules, formatRlusd, loadRules, merchantLabel, toUnits } from './rules.js';
+import { spendRateDecision } from './spend-rate.js';
 import { readBedrockSettings } from '../server/bedrock.js';
 import { listPayments, readFrozen, recordAgentPayment, recordPending, recordSkipped, releaseReservation, reserveSpend, spentRlusd } from '../server/store.js';
 
@@ -194,6 +195,23 @@ export async function finishQuote({
   }, rules);
   console.log(`Quote: ${quote.amount} RLUSD to ${shortAddress(merchant)}${label ? ` (${label})` : ''}`);
   console.log(`Rules: ${decision.decision} — ${decision.reason}`);
+  if (decision.decision === 'allow') {
+    const rate = spendRateDecision({ payments: await listPayments(), amount: quote.amount });
+    if (rate.decision !== 'allow') {
+      console.log(`Rate: ${rate.reason}`);
+      return hold({
+        recordHold,
+        task,
+        quote,
+        label,
+        resourceUrl,
+        reason: rate.reason,
+        description: rate.detail,
+        jev: rulesOnlyJev(rate.reason).jev,
+        plan: purchasePlan,
+      });
+    }
+  }
   if (decision.decision !== 'allow') {
     return hold({
       recordHold,

@@ -6,8 +6,8 @@
  * signed voucher, the kit redeems it and this process returns the market data.
  * The payout address is MERCHANT_PAYOUT_ADDRESS.
  *
- * GET /demo/over-cap and GET /demo/unlisted only quote a price. They never
- * redeem a voucher. The unlisted 0x0bad quote is decline-only.
+ * GET /demo/over-cap, GET /demo/unlisted, and GET /demo/heist only quote a price.
+ * They never redeem a voucher. The unlisted and heist quotes pay the decline-only desk.
  * The 8 RLUSD history sale is a second createX402Merchant on HISTORY_PORT.
  * Approving that pending row redeems it.
  *
@@ -20,7 +20,7 @@ import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
-import { historyPort, historyResourceUrl } from '../shared/catalog.js';
+import { HEIST_INJECTION, historyPort, historyResourceUrl } from '../shared/catalog.js';
 import { sendPaymentRequired, UNLISTED_MERCHANT } from './quotes.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,7 +48,7 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
       ok: true,
       selling: '/resource',
       payout: payout ?? null,
-      quotes: ['/demo/over-cap', '/demo/over-cap-6', '/demo/unlisted'],
+      quotes: ['/demo/over-cap', '/demo/over-cap-6', '/demo/unlisted', '/demo/heist'],
     });
   });
 
@@ -81,6 +81,21 @@ export function createQuoteApp({ payout, resourceServer = null } = {}) {
 
   app.get('/demo/over-cap-6', (req, res) => {
     quoteOverCap(req, res, ethers.parseUnits('6', 18).toString(), 'Quote above the 5 RLUSD per-purchase cap');
+  });
+
+  app.get('/demo/heist', (req, res) => {
+    const url = requestedUrl(req);
+    if (!url) {
+      res.status(500).json({ error: 'Missing host.' });
+      return;
+    }
+    sendPaymentRequired(res, {
+      url,
+      description: `Premium data pack. ${HEIST_INJECTION}`,
+      amount: ethers.parseUnits('50', 18).toString(),
+      payTo: UNLISTED_MERCHANT,
+      channelId: req.get('x-ap4m-channel-id'),
+    });
   });
 
   app.get('/demo/unlisted', (req, res) => {
@@ -202,6 +217,7 @@ async function main() {
     console.log(`History resource ${historyUrl} for 8 RLUSD`);
     console.log(`Payout ${payout}`);
     console.log(`Decline-only quote at http://127.0.0.1:${port}/demo/unlisted`);
+    console.log(`Heist quote at http://127.0.0.1:${port}/demo/heist`);
   });
   const historyServer = history.server.listen(historyListenPort, '127.0.0.1');
 

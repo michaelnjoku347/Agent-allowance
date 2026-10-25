@@ -79,6 +79,11 @@ export function allowanceView(snapshot) {
   const chainMicro = chainRedeemed == null || chainRedeemed === '' ? null : parseMicro(chainRedeemed);
   const spentMicro = chainMicro !== null && chainMicro > localSpentMicro ? chainMicro : localSpentMicro;
   const leftMicro = budgetMicro > spentMicro ? budgetMicro - spentMicro : 0n;
+  const heldMicro = pending.reduce((sum, item) => {
+    const amount = parseMicro(item.amount);
+    if (amount === null || amount <= 0n) return sum;
+    return sum + amount;
+  }, 0n);
   const activity = [...payments, ...pending].sort((a, b) => (
     Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0)
   ));
@@ -99,6 +104,8 @@ export function allowanceView(snapshot) {
     offlinePreview,
     spent: formatMicro(spentMicro),
     left: formatMicro(leftMicro),
+    held: formatMicro(heldMicro),
+    lost: '0',
     budgetNumber: asNumber(budgetMicro),
     spentNumber: asNumber(spentMicro),
     leftNumber: asNumber(leftMicro),

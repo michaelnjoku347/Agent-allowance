@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { describeAllowanceChange, loadRules, presentRules, updateAllowance } from '../agent/rules.js';
 import { plainReason, jevSourceLabel } from '../shared/words.js';
 import { converse, parseModelJson, readBedrockSettings } from './bedrock.js';
+import { freezeAgent } from './freeze-channel.js';
 import { declinePending, readStore, spentRlusd } from './store.js';
 
 const CONFIRM_MS = 120_000;
@@ -76,6 +77,13 @@ export function ruleAnswer(message, context) {
   if (/\b(help|what can you)\b/.test(lower)) {
     return {
       reply: 'I can tell you what was spent today, why the last purchase was blocked, and what is waiting. I can prepare a decline or a new cap or budget. An out-of-rule purchase is approved on the Ledger in the dashboard. I cannot sign it.',
+    };
+  }
+
+  if (/\b(pause|freeze)( the)? agent\b/.test(lower)) {
+    return {
+      reply: 'Pausing the agent. New signatures stop now.',
+      action: { type: 'freeze' },
     };
   }
 
@@ -337,6 +345,8 @@ async function answerWithBedrock(message, context, env, client) {
 export async function answerEve(message, context, options = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const local = ruleAnswer(message, context);
+  if (local.action?.type === 'freeze') return { ...local, source: 'rules' };
   if (readBedrockSettings(env).configured) {
     try {
       return await answerWithBedrock(message, context, env, options.bedrockClient);
@@ -356,6 +366,13 @@ export async function answerEve(message, context, options = {}) {
 
 export async function executeConfirmed(action) {
   if (!action || typeof action !== 'object') return { error: 'That confirmation is not valid.' };
+  if (action.type === 'freeze') {
+    const frozen = await freezeAgent();
+    const detail = frozen.channelClosed
+      ? 'The payment channel is closed.'
+      : frozen.channelReason;
+    return { reply: `The agent is paused. Signing has stopped. ${detail}` };
+  }
   if (action.type === 'approve') {
     return { error: 'Approve this purchase on the Ledger in the dashboard. Eve cannot sign it.' };
   }

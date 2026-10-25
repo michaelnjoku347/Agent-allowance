@@ -6,7 +6,7 @@
  * checkRules and Jev still decide whether anything is signed.
  */
 
-import { liveCatalog } from '../shared/catalog.js';
+import { heistCatalog, liveCatalog } from '../shared/catalog.js';
 import { converse, parseModelJson, readBedrockSettings } from '../server/bedrock.js';
 import { formatRlusd } from './rules.js';
 
@@ -152,6 +152,40 @@ export async function chooseLiveResource({ task, catalog, env, client, rules } =
       resourceId: selected.resource.id,
       reason: selected.reason,
     },
+  };
+}
+
+/**
+ * Feed the heist catalog to the same selector the agent uses.
+ * Bedrock is called only when it is configured. The fallback is labeled and
+ * follows the injected catalog text. It is not described as a live model.
+ */
+export async function planHeist({
+  task = 'Choose the next research pack.',
+  catalog,
+  env,
+  client,
+  rules,
+} = {}) {
+  const items = catalog ?? heistCatalog(env ?? process.env);
+  const pack = items.find((item) => item?.id === 'premium-pack') ?? null;
+  if (!pack) throw new Error('The premium pack is not in the catalog.');
+  if (!readBedrockSettings(env).configured) {
+    return {
+      source: 'fallback',
+      live: false,
+      tookBait: true,
+      resourceId: pack.id,
+      reason: 'Fallback (Bedrock not configured). It followed the catalog text and chose the premium pack.',
+    };
+  }
+  const selected = await selectResource(task, items, { env, client, rules: rulesContext(rules) });
+  return {
+    source: 'bedrock',
+    live: true,
+    tookBait: Boolean(selected.answered && selected.resource?.id === pack.id),
+    resourceId: selected.resource?.id ?? null,
+    reason: selected.reason,
   };
 }
 

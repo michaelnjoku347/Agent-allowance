@@ -87,6 +87,8 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
       assert.equal(exported.length, audit.length);
       assert.equal(JSON.stringify(exported).includes('PRIVATE'), false);
 
+      delete process.env.AGENT_PRIVATE_KEY;
+      delete process.env.TEAM_NAME;
       const noFreeze = await fetch(`${base}/api/freeze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
