@@ -41,7 +41,7 @@ export async function createMandateChallenge(options = {}) {
     return httpError(400, 'no_approver', 'APPROVER_ADDRESS is not a valid Ethereum address.');
   }
   if (!approver) {
-    return httpError(409, 'no_approver', 'Set APPROVER_ADDRESS to the Ledger account that signs the agent mandate.');
+    return httpError(409, 'no_approver', 'No approver is set yet. Name your Ledger account on the Security page (or set APPROVER_ADDRESS) before signing the agent mandate.');
   }
   const agent = options.agent ?? agentAddress(env);
   if (!agent) {

@@ -197,7 +197,7 @@ export function judgeApproval({
   chainId = network.chainId,
 }) {
   if (!approver) {
-    return fail('no_approver', 'Set APPROVER_ADDRESS to the Ledger account that may approve a purchase.');
+    return fail('no_approver', 'No approver is set yet. Name your Ledger account on the Security page (or set APPROVER_ADDRESS), then approve this purchase.');
   }
   if (!pending || pending.sample || pending.status === 'declined') {
     return fail('missing', 'That purchase is not waiting for approval.');
@@ -273,7 +273,7 @@ export function judgeSetAllowance({
   chainId = network.chainId,
 }) {
   if (!approver) {
-    return fail('no_approver', 'Set APPROVER_ADDRESS to the Ledger account that may change the allowance.');
+    return fail('no_approver', 'No approver is set yet. Name your Ledger account on the Security page (or set APPROVER_ADDRESS) before raising a limit.');
   }
   if (!proposal || !challenge) {
     return fail('missing', 'Nothing is waiting for a Ledger signature.');

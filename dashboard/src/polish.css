@@ -2831,3 +2831,25 @@ body.has-overlay .toasts {
     padding-inline: 0;
   }
 }
+
+/* Security: name the approver once, from the dashboard. */
+.approver-setup {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.approver-missing {
+  margin: 0;
+  color: var(--ink);
+}
+
+.approver-setup .field input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.approver-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

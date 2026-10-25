@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import AllowanceEditor from './AllowanceEditor.jsx';
+import ApproverSetup from './ApproverSetup.jsx';
 import { money, relativeTime, when as whenFull } from './format.js';
 import { daysLabel, daysLeft, spendByMerchant } from './insights.js';
 import { IconCheck, IconLock, IconUnlock } from './icons.jsx';
@@ -264,7 +265,7 @@ function auditTone(row) {
   return ['Blocked', 'danger'];
 }
 
-export function SecurityView({ snapshot, onFreeze, busy, disabled, onExportAudit }) {
+export function SecurityView({ snapshot, onFreeze, busy, disabled, onExportAudit, onLoad, onNotice }) {
   const audit = snapshot?.audit ?? [];
   const frozen = Boolean(snapshot?.frozen);
   const approver = snapshot?.rules?.approverAddress;
@@ -288,9 +289,13 @@ export function SecurityView({ snapshot, onFreeze, busy, disabled, onExportAudit
       <section className="card approver-card" aria-labelledby="approver-title">
         <div className="card-head">
           <h2 id="approver-title">Approver</h2>
-          <span className={snapshot?.simulatedLedger ? 'pill warn' : 'pill ok'}>{snapshot?.simulatedLedger ? 'Demo signer' : 'Hardware Ledger'}</span>
+          <span className={snapshot?.simulatedLedger || !approver ? 'pill warn' : 'pill ok'}>
+            {snapshot?.simulatedLedger ? 'Demo signer' : approver ? 'Hardware Ledger' : 'Not set'}
+          </span>
         </div>
-        {approver ? <CopyAddress address={approver} /> : <p className="meta">No approver address is set. Purchases over the cap can only be declined until APPROVER_ADDRESS is set.</p>}
+        {approver
+          ? <CopyAddress address={approver} />
+          : <ApproverSetup disabled={Boolean(snapshot?.offlinePreview)} onSaved={onLoad} onNotice={onNotice} />}
         <ul className="approver-can">
           <li><IconCheck size={16} /> Approves one over-cap purchase at a time</li>
           <li><IconCheck size={16} /> Signs raises to the budget, cap, expiry, or merchant list</li>
