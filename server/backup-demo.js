@@ -14,7 +14,8 @@ import { pathToFileURL } from 'node:url';
 import { finishQuote } from '../agent/agent.js';
 import { fallbackJev } from '../agent/jev.js';
 import { requestQuote } from '../agent/quote.js';
-import { checkRules, loadRules, merchantLabel } from '../agent/rules.js';
+import { checkRules, loadRules, merchantLabel, toUnits } from '../agent/rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 import { sendPaymentRequired, UNLISTED_MERCHANT } from '../merchant/quotes.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { signApprovalForTest } from './dev-signer.js';
@@ -27,6 +28,7 @@ import {
 } from './store.js';
 
 const CHANNEL_ID = `0x${'ab'.repeat(32)}`;
+const { brief: IN_RULE, history: OVER_CAP, unlisted: UNLISTED } = DEMO_AMOUNTS;
 export const SIMULATED_LEDGER_NOTE = 'simulated Ledger signature';
 
 let throwaway = null;
@@ -67,9 +69,9 @@ function quoteApp(payee) {
       channelId: req.get('x-ap4m-channel-id'),
     });
   };
-  app.get('/in-rule', quote('1', payee, 'Morning market brief'));
-  app.get('/over-cap', quote('8', payee, 'Extended market history'));
-  app.get('/unlisted', quote('1', UNLISTED_MERCHANT, 'Quote from a desk outside the allowance'));
+  app.get('/in-rule', quote(IN_RULE, payee, 'Morning market brief'));
+  app.get('/over-cap', quote(OVER_CAP, payee, 'Extended market history'));
+  app.get('/unlisted', quote(UNLISTED, UNLISTED_MERCHANT, 'Quote from a desk outside the allowance'));
   return app;
 }
 
@@ -87,7 +89,7 @@ async function close(server) {
 }
 
 /**
- * Three local decisions: 1 RLUSD allowed, 8 RLUSD over the cap, 1 RLUSD unlisted.
+ * Three local decisions: 0.01 RLUSD allowed, 0.08 RLUSD over the cap, 0.01 RLUSD unlisted.
  * Replaces the ledger file. Does not sign a voucher.
  */
 export async function rehearseBackupDemo() {
@@ -111,8 +113,8 @@ export async function rehearseBackupDemo() {
       amount: inQuote.amount,
       spent: '0',
     }, rules);
-    if (allowed.decision !== 'allow' || inQuote.amount !== '1') {
-      throw new Error('The 1 RLUSD quote was not inside the allowance.');
+    if (allowed.decision !== 'allow' || toUnits(inQuote.amount) !== toUnits(IN_RULE)) {
+      throw new Error(`The ${IN_RULE} RLUSD quote was not inside the allowance.`);
     }
     const paid = await recordUnbroadcastPayment({
       task: 'Buy the morning market brief',

@@ -35,16 +35,16 @@ describe('allowance API', { concurrency: false }, () => {
     const base = `http://127.0.0.1:${port}`;
     try {
       const status = await (await fetch(`${base}/api/status`)).json();
-      assert.equal(status.budget, '20');
+      assert.equal(status.budget, '0.2');
       assert.equal(status.localSpent, '0');
       assert.equal(status.spent, '0');
-      assert.equal(status.remaining, '20');
+      assert.equal(status.remaining, '0.2');
       assert.equal(status.chain, null);
       assert.equal(status.currency, 'RLUSD');
       assert.equal(status.agentConnected, false);
       assert.equal(await spentRlusd(), '0');
       assert.equal(status.network.chainId, 1449000);
-      assert.equal(status.rules.maxPerPurchase, '5');
+      assert.equal(status.rules.maxPerPurchase, '0.05');
       assert.equal(status.rules.allowedMerchants.length, 2);
 
       const payments = await (await fetch(`${base}/api/payments`)).json();
@@ -95,9 +95,9 @@ describe('allowance API', { concurrency: false }, () => {
       task: 'Buy a dataset that is too expensive',
       merchant: '0xa11cea11cea11cea11cea11cea11cea11cea11ce',
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
-      description: 'Quoted 8 RLUSD.',
+      description: 'Quoted 0.08 RLUSD.',
       resourceUrl: 'http://127.0.0.1:4308/resource',
     });
     assert.equal(pending.sample, false);
@@ -120,13 +120,13 @@ describe('allowance API', { concurrency: false }, () => {
       task: 'Morning weather brief',
       merchant: '0xA11CEA11CEA11CEA11CEA11CEA11CEA11CEA11CE',
       merchantLabel: 'Field Weather Co',
-      amount: '1',
+      amount: '0.01',
       txHash: `0x${'ab'.repeat(32)}`,
       claimId: 'claim-demo',
       receiptUrl: 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json',
     });
     assert.equal(paid.status, 'paid');
-    assert.equal(paid.amount, '1');
+    assert.equal(paid.amount, '0.01');
 
     const server2 = await listen(createApp());
     const port2 = server2.address().port;
@@ -137,8 +137,8 @@ describe('allowance API', { concurrency: false }, () => {
       assert.equal(live.receiptUrl, 'https://hackathon.ap4m.build/public/evidence/claims/claim-demo.json');
       assert.equal(live.claimId, 'claim-demo');
       const status = await (await fetch(`http://127.0.0.1:${port2}/api/status`)).json();
-      assert.equal(status.spent, '1');
-      assert.equal(status.remaining, '19');
+      assert.equal(status.spent, '0.01');
+      assert.equal(status.remaining, '0.19');
     } finally {
       await close(server2);
     }
@@ -194,11 +194,11 @@ describe('allowance API', { concurrency: false }, () => {
 
 test('repeated redemption recording updates settlement without double-counting the budget', async () => {
   resetStore();
-  const input = { task: 'Recovery', amount: '1', merchant: '0x' + '11'.repeat(20), txHash: '0x' + 'aa'.repeat(32) };
+  const input = { task: 'Recovery', amount: '0.01', merchant: '0x' + '11'.repeat(20), txHash: '0x' + 'aa'.repeat(32) };
   const first = await recordAgentPayment(input);
   const settled = await recordAgentPayment({ ...input, payoutTx: '0x' + 'bb'.repeat(32), receiptUrl: 'https://hackathon.ap4m.build/public/evidence/example.json' });
   assert.equal(first.id, settled.id);
-  assert.equal(await spentRlusd(), '1');
+  assert.equal(await spentRlusd(), '0.01');
   const { listPayments } = await import('./store.js');
   let rows = await listPayments();
   assert.equal(rows.length, 1);
@@ -206,8 +206,8 @@ test('repeated redemption recording updates settlement without double-counting t
   await recordAgentPayment({ ...input, receiptUrl: null, payoutTx: null });
   rows = await listPayments();
   assert.equal(rows[0].payoutTx, settled.payoutTx);
-  await assert.rejects(recordAgentPayment({ ...input, amount: '2' }), /Conflicting/);
-  assert.equal(await spentRlusd(), '1');
+  await assert.rejects(recordAgentPayment({ ...input, amount: '0.02' }), /Conflicting/);
+  assert.equal(await spentRlusd(), '0.01');
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -229,7 +229,7 @@ test('sample rows stay out of /api/pending once real data exists, even without a
         task: 'Buy the satellite pack',
         merchant: '0xa11cea11cea11cea11cea11cea11cea11cea11ce',
         merchantLabel: 'Field Weather Co',
-        amount: '8',
+        amount: '0.08',
         reason: 'over per-purchase cap',
         createdAt: new Date().toISOString(),
       },

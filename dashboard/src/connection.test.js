@@ -37,12 +37,18 @@ test('the banner says what is down, what still works, and when it retries', () =
   assert.match(stale.body, /3 minutes ago/);
 
   assert.equal(describeConnection({ connection: 'offline', kind: 'server' }).title, 'The allowance server hit an error');
+  // A server that answers with an error is not "unreachable", even before the first snapshot.
+  const broken = describeConnection({ connection: 'offline', preview: true, kind: 'server', retryInMs: 5000 });
+  assert.equal(broken.title, 'The allowance server hit an error');
+  assert.doesNotMatch(broken.body, /Start the server/);
+  assert.match(broken.body, /Nothing was paid\. Trying again in 5 seconds\./);
+  assert.equal(describeConnection({ connection: 'offline', preview: true, kind: 'timeout' }).title, 'The allowance server is not answering');
   assert.equal(describeConnection({ connection: 'offline', kind: 'rules' }).tone, 'danger');
   assert.equal(describeConnection({ connection: 'offline', kind: 'busy', retryInMs: 1000 }).body, 'The allowance server asked the page to wait. Trying again in 1 second.');
 
   const merchant = describeConnection({ connection: 'online', health: { rules: 'ok', merchant: 'down', merchantConfigured: true } });
   assert.equal(merchant.title, 'Merchant offline');
-  assert.match(merchant.body, /npm run merchant/);
+  assert.match(merchant.body, /npm start, which runs it/);
   assert.match(merchant.body, /allowance is safe/);
   assert.equal(describeConnection({ connection: 'online', health: { rules: 'ok', merchant: 'down', merchantConfigured: false } }), null);
   assert.equal(describeConnection({ connection: 'online', health: { rules: 'unreadable', message: 'Fix it.' } }).body, 'Fix it.');

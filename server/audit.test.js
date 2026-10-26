@@ -38,13 +38,13 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
     await recordAgentPayment({
       merchant,
       merchantLabel: 'Field Weather Co',
-      amount: '1',
+      amount: '0.01',
       txHash: hash,
       task: 'Buy the brief',
     });
     await recordAgentPayment({
       merchant,
-      amount: '1',
+      amount: '0.01',
       txHash: hash,
       task: 'Buy the brief',
       note: 'settled',
@@ -52,7 +52,7 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
     await recordPending({
       merchant,
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
       task: 'Buy history',
     });
@@ -60,7 +60,7 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
     await recordAgentPayment({
       merchant,
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       txHash: `0x${'cd'.repeat(32)}`,
       task: 'Buy history',
       approver,
@@ -122,7 +122,7 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
       const status = await (await fetch(`${base}/api/status`)).json();
       assert.equal(status.frozen, true);
       assert.equal(status.useCase.id, 'travel');
-      assert.equal(status.rules.budget, '20');
+      assert.equal(status.rules.budget, '0.2');
 
       const unknown = await fetch(`${base}/api/use-case`, {
         method: 'POST',
@@ -155,7 +155,7 @@ describe('audit, freeze, and use cases', { concurrency: false }, () => {
       resourceUrl: 'http://127.0.0.1:9/resource',
       quote: {
         merchant: rules.allowedMerchants[0],
-        amount: '1',
+        amount: '0.01',
         description: 'brief',
         resourceUrl: 'http://127.0.0.1:9/resource',
       },

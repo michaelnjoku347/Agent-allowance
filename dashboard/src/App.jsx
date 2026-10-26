@@ -1,8 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { allowanceView } from './allowance.js';
-import { declinePurchase, fetchHealth, fetchSnapshot, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
+import { declinePurchase, fetchHealth, fetchSnapshot, resetDemo, runAgent, runOverCap, sampleSnapshot, selectUseCase, setAgentFrozen, subscribeEvents } from './api.js';
 import { backoffDelay, describeConnection, failureKind } from './connection.js';
 import { freezeControl, freezeNotice, freezeResult } from './freeze.js';
+import { handleMenuKey } from './menuKeys.js';
 import { daysLabel, daysLeft, outcomeCounts, spendByMerchant } from './insights.js';
 import BedrockMark from './BedrockMark.jsx';
 import BrandMark from './BrandMark.jsx';
@@ -37,15 +38,16 @@ import {
 } from './icons.jsx';
 import JevCard from './JevCard.jsx';
 import HistoryView from './HistoryView.jsx';
+import Onboarding, { readIntroDone } from './Onboarding.jsx';
 import ApprovalWhy from './ApprovalWhy.jsx';
 import { explainApproval } from './approvalWhy.js';
-import { EMPTY_FILTERS, normalizeFilters } from './history.js';
+import { EMPTY_FILTERS, downloadCsv, filterHistory, normalizeFilters } from './history.js';
 import { ActivityList, EmptyState, StatusPill, cannotApprove, initial, pill, planDetail, planLabel, reasonChip } from './rows.jsx';
 import { money, relativeTime, shortAddress, when } from './format.js';
 import { useTheme } from './theme.js';
 import { USE_CASES } from '../../shared/use-cases.js';
 import { plainReason } from '../../shared/words.js';
-import { NAV, approvalCount, mobileTabs, moreItems, navSections, parseRoute, routeHash } from './routes.js';
+import { NAV, approvalCount, mobileTabs, moreItems, navSections, pageTitle, parseRoute, routeHash } from './routes.js';
 
 const Desk = lazy(() => import('./views.jsx'));
 
@@ -213,6 +215,8 @@ export default function App() {
   const [filter, setFilter] = useState('all');
   const [historyFilters, setHistoryFilters] = useState(EMPTY_FILTERS);
   const [editorSeed, setEditorSeed] = useState(null);
+  const [intro, setIntro] = useState(null);
+  const introChecked = useRef(false);
   const [detail, setDetail] = useState(null);
   const [approval, setApproval] = useState(null);
   const [busyId, setBusyId] = useState('');
@@ -276,8 +280,12 @@ export default function App() {
     return load();
   }
 
+  // null: no decision yet (back and forward count as the person's own move).
+  const focusAfterRoute = useRef(null);
+
   useEffect(() => {
     function onHash() {
+      if (focusAfterRoute.current === null) focusAfterRoute.current = true;
       setRoute(parseRoute(window.location.hash));
       setMoreOpen(false);
     }
@@ -285,11 +293,27 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  function go(id) {
+  // A new page gets its own title, and the person's own navigation moves focus to its
+  // heading so a screen reader says where they are. Eve's steps leave focus in the chat.
+  useEffect(() => {
+    document.title = pageTitle(route);
+    const move = focusAfterRoute.current;
+    focusAfterRoute.current = null;
+    // The effect runs after the new page is in the DOM. No animation frame: a
+    // background tab never runs one, and focus would stay on the old link.
+    if (move) (document.querySelector('#main h1') || document.getElementById('main'))?.focus({ preventScroll: true });
+  }, [route]);
+
+  function go(id, { focus = true } = {}) {
     const next = routeHash(id);
     const current = window.location.hash;
-    if (current === next || (id === 'home' && (current === '' || current === '#'))) setRoute('home');
-    else window.location.hash = next;
+    if (current === next || (id === 'home' && (current === '' || current === '#'))) {
+      focusAfterRoute.current = null;
+      setRoute('home');
+    } else {
+      focusAfterRoute.current = focus;
+      window.location.hash = next;
+    }
     setMoreOpen(false);
   }
 
@@ -364,6 +388,25 @@ export default function App() {
     };
   }, []);
 
+  // First run: once the allowance answers (or the offline preview loads), show the intro
+  // unless this browser finished or skipped it, or setup already finished on the server.
+  useEffect(() => {
+    if (!snapshot || introChecked.current) return;
+    introChecked.current = true;
+    if (readIntroDone() == null && !snapshot.profile?.onboardedAt) setIntro('intro');
+  }, [snapshot]);
+
+  useEffect(() => {
+    const openIntro = () => setIntro('intro');
+    const openSetup = () => setIntro('setup');
+    window.addEventListener('intro:open', openIntro);
+    window.addEventListener('setup:open', openSetup);
+    return () => {
+      window.removeEventListener('intro:open', openIntro);
+      window.removeEventListener('setup:open', openSetup);
+    };
+  }, []);
+
   // While offline, re-render once a second so "Trying again in 8 seconds" counts down.
   useEffect(() => {
     if (connection !== 'offline') return undefined;
@@ -372,6 +415,56 @@ export default function App() {
   }, [connection]);
 
   const view = useMemo(() => allowanceView(snapshot), [snapshot]);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  // Eve's UI steps. Each one only changes what is on screen; saving, signing,
+  // and approving stay with the person.
+  useEffect(() => {
+    function onEveUi(event) {
+      const ui = event.detail || {};
+      const rows = viewRef.current.activity;
+      if (ui.type === 'navigate') go(ui.route, { focus: false });
+      if (ui.type === 'filter') {
+        setHistoryFilters(normalizeFilters(ui.filters));
+        setFilter('all');
+        go('activity', { focus: false });
+      }
+      if (ui.type === 'export') {
+        const shownRows = filterHistory(rows, ui.filters);
+        const name = downloadCsv(shownRows);
+        pushToast(`Eve saved ${shownRows.length} row${shownRows.length === 1 ? '' : 's'} to ${name}.`);
+      }
+      if (ui.type === 'highlight') {
+        setHistoryFilters(EMPTY_FILTERS);
+        setFilter('all');
+        go('activity', { focus: false });
+        setFlashId(ui.id);
+        window.setTimeout(() => {
+          const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+          document.querySelector(`[data-row-id="${CSS.escape(String(ui.id))}"]`)?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+        }, 80);
+      }
+      if (ui.type === 'edit') {
+        setEditorSeed({ ...(ui.seed || {}) });
+        go('rules', { focus: false });
+      }
+      if (ui.type === 'review') {
+        const item = viewRef.current.pending.find((row) => row.id === ui.id);
+        go('approvals', { focus: false });
+        if (item) setApproval(item);
+      }
+    }
+    function onChanged() {
+      load();
+    }
+    window.addEventListener('eve:ui', onEveUi);
+    window.addEventListener('allowance:changed', onChanged);
+    return () => {
+      window.removeEventListener('eve:ui', onEveUi);
+      window.removeEventListener('allowance:changed', onChanged);
+    };
+  }, []);
 
   useEffect(() => {
     const ids = view.activity.map((item) => item.id);
@@ -475,9 +568,10 @@ export default function App() {
     setRunNote('');
     try {
       const body = await runAgent('Buy the morning market brief');
-      const note = body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
+      const note = body.simulated ? body.line : body.ok ? 'Agent started.' : (body.error || 'Add the wallet in .env to pay a merchant.');
       setRunNote(note);
-      if (body.ok) pushToast('The agent started.');
+      if (body.ok) pushToast(body.simulated ? body.line : 'The agent started.');
+      if (body.simulated) load();
     } catch (error) {
       setRunNote(error.message || 'Could not start the agent.');
     }
@@ -659,6 +753,7 @@ export default function App() {
           })}
         </nav>
         <div className="sidenav-foot">
+          {snapshot?.profile?.agentName ? <p className="side-agent">{snapshot.profile.agentName}</p> : null}
           <p className="side-balance"><strong>{money(view.left)}</strong> of {money(view.budget)} RLUSD left</p>
           <p className={snapshot?.frozen ? 'side-status is-frozen' : 'side-status'}>
             <span className="side-dot" aria-hidden="true" />
@@ -732,12 +827,12 @@ export default function App() {
             {loading ? <Skeletons /> : null}
             {route === 'home' ? (
               <div className="page-head is-home">
-                <h1 className="sr-only">Home</h1>
+                <h1 className="sr-only" tabIndex={-1}>Home</h1>
                 <p className="hero-tagline">Spending power for AI, with a human key.</p>
               </div>
             ) : (
               <div className="page-head">
-                <h1 id="page-title">{routeItem?.label}</h1>
+                <h1 id="page-title" tabIndex={-1}>{routeItem?.label}</h1>
                 {pageLede ? <p>{pageLede}</p> : null}
               </div>
             )}
@@ -745,7 +840,31 @@ export default function App() {
             {frozenNotice ? (
               <FreezeBanner notice={frozenNotice} onUnfreeze={() => onFreeze(false)} disabled={freezeDisabled} />
             ) : null}
-            {view.demo ? (
+            {snapshot?.publicDemo ? (
+              <div className="public-demo" role="note">
+                <span className="demo-tag">Public demo</span>
+                <p>
+                  This is your own sandbox. Approvals and raises use a <strong>simulated Ledger signature</strong>, and Run agent records simulated payments. Nothing is broadcast.
+                </p>
+                <button
+                  type="button"
+                  className="btn text"
+                  onClick={async () => {
+                    try {
+                      await resetDemo();
+                      seen.current = null;
+                      pushToast('Your demo was reset to the sample rows.');
+                      load();
+                    } catch (error) {
+                      pushToast(error.message || 'Could not reset the demo.');
+                    }
+                  }}
+                >
+                  Reset my demo
+                </button>
+              </div>
+            ) : null}
+            {view.demo && !snapshot?.publicDemo ? (
               <div className="demo-badge" role="status">
                 <span className="demo-tag">Demo</span>
                 <span className="demo-text">
@@ -770,12 +889,12 @@ export default function App() {
                 rogueBusy={rogueBusy}
               />
               <div className="home-board">
-                {!onboarded && !presenting ? (
+                {!onboarded && !presenting && !intro && !snapshot.profile?.onboardedAt && readIntroDone() === 'skipped' ? (
                   <section className="card setup-card board-setup" aria-labelledby="setup-title">
-                    <h2 id="setup-title">Set up this allowance</h2>
-                    <p>The budget, the cap, and the merchant list are already in place. Review them before the agent pays.</p>
+                    <h2 id="setup-title">Finish setting up your agent</h2>
+                    <p>Name it, check the budget, the cap, the merchants, and the end date, and connect your Ledger. It takes about a minute.</p>
                     <div className="how-actions">
-                      <button type="button" className="btn primary" onClick={() => { dismissOnboarding(); go('rules'); }}>Review rules</button>
+                      <button type="button" className="btn primary" onClick={() => setIntro('setup')}>Finish setup</button>
                       <button type="button" className="btn" onClick={dismissOnboarding}>Not now</button>
                     </div>
                   </section>
@@ -783,7 +902,7 @@ export default function App() {
                 <section className="card hero board-hero" aria-labelledby="allowance-title">
                   <div className="hero-main">
                     <div className="hero-copy">
-                      <h2 id="allowance-title" className="eyebrow">Left to spend</h2>
+                      <h2 id="allowance-title" className="eyebrow">{snapshot.profile?.agentName ? `${snapshot.profile.agentName} · left to spend` : 'Left to spend'}</h2>
                       <p className="figure">
                         <CountUp value={view.leftNumber} />
                         <span className="unit">RLUSD</span>
@@ -1088,7 +1207,18 @@ export default function App() {
           </div>
         </nav>
         {moreOpen ? (
-          <div className="more-sheet" role="dialog" aria-label="More">
+          <div
+            className="more-sheet"
+            role="dialog"
+            aria-label="More"
+            ref={(node) => { if (node && !node.contains(document.activeElement)) node.querySelector('button')?.focus(); }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              setMoreOpen(false);
+              document.querySelector('.tabbar button[aria-expanded]')?.focus();
+            }}
+          >
             {moreItems().map((item) => {
               const Icon = ICONS[item.id];
               return (
@@ -1106,6 +1236,15 @@ export default function App() {
       </div>
 
       <EveDock seed={eveSeed} onSeedHandled={() => setEveSeed(null)} presenting={presenting} />
+      {intro && snapshot ? (
+        <Onboarding
+          startAt={intro}
+          snapshot={snapshot}
+          onClose={() => setIntro(null)}
+          onSaved={load}
+          onNotice={(line) => { pushToast(line); setAnnounce(line); }}
+        />
+      ) : null}
       {approval ? (
         <Sheet variant="ceremony" title={`Approve ${money(approval.amount)} RLUSD`} onClose={() => setApproval(null)}>
           <ApprovalWhy why={explainApproval(approval, whyContext)} headingLevel={3} />
@@ -1269,17 +1408,24 @@ function ThemeControl({ theme, setTheme }) {
   );
 }
 
+/**
+ * The balance as the brand's gauge disk: a pine disk, a tick ring, and the
+ * lime band of what is left, which sweeps in on first paint and eases to
+ * each new value. The cream dot marks where the band ends, like the cut in
+ * the logo. Reduced motion shows the final band at once.
+ */
 function SpendRing({ ratio, label, mood = '' }) {
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, ratio));
   const percent = Math.round(clamped * 100);
-  const angle = clamped * Math.PI * 2;
+  const angle = clamped * Math.PI * 2 - Math.PI / 2;
   const dotX = 60 + radius * Math.cos(angle);
   const dotY = 60 + radius * Math.sin(angle);
+  const ticks = Array.from({ length: 24 }, (_, index) => index);
   return (
     <div
-      className={mood ? `ring is-${mood}` : 'ring'}
+      className={mood ? `ring gauge is-${mood}` : 'ring gauge'}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -1287,15 +1433,34 @@ function SpendRing({ ratio, label, mood = '' }) {
       aria-label={label}
     >
       <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="gauge-disk" cx="60" cy="60" r="58" />
+        <g className="gauge-ticks">
+          {ticks.map((index) => {
+            const a = (index / ticks.length) * Math.PI * 2;
+            const inner = index % 6 === 0 ? 52 : 54;
+            return (
+              <line
+                key={index}
+                x1={60 + inner * Math.cos(a)}
+                y1={60 + inner * Math.sin(a)}
+                x2={60 + 56 * Math.cos(a)}
+                y2={60 + 56 * Math.sin(a)}
+              />
+            );
+          })}
+        </g>
         <circle className="ring-track" cx="60" cy="60" r={radius} />
         <circle
           className="ring-value"
           cx="60"
           cy="60"
           r={radius}
+          transform="rotate(-90 60 60)"
+          style={{ '--circ': circumference }}
           strokeDasharray={`${circumference * clamped} ${circumference}`}
         />
-        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="6" /> : null}
+        {clamped > 0 ? <circle className="ring-dot" cx={dotX} cy={dotY} r="5" /> : null}
+        <circle className="gauge-core" cx="60" cy="60" r="34" />
       </svg>
       <div className="ring-label" aria-hidden="true">
         <strong>{percent}%</strong>
@@ -1317,21 +1482,40 @@ function DemoBridge({ bridge, onBusy, runHeist, runRogue, heistBusy, rogueBusy }
 function DemoMenu({ onOverCap, onHeist, onRogue, onPresent, overCapBusy, heistBusy, rogueBusy }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const buttonRef = useRef(null);
+  const menuId = useId();
   useEffect(() => {
     if (!open) return undefined;
+    ref.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
     function onDoc(event) {
       if (!ref.current?.contains(event.target)) setOpen(false);
     }
     document.addEventListener('pointerdown', onDoc);
     return () => document.removeEventListener('pointerdown', onDoc);
   }, [open]);
+  function onMenuKey(event) {
+    handleMenuKey(event, {
+      items: [...(ref.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') ?? [])],
+      close: () => setOpen(false),
+      button: buttonRef.current,
+    });
+  }
   return (
     <div className="demo-menu" ref={ref}>
-      <button type="button" className="chip" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="chip"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}
+      >
         Demo
       </button>
       {open ? (
-        <div className="demo-pop" role="menu">
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Demo" onKeyDown={onMenuKey}>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onOverCap(); }} disabled={overCapBusy}>
             {overCapBusy ? 'Checking the cap…' : 'Try an over-cap purchase'}
           </button>
@@ -1382,18 +1566,16 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, 
     function onDoc(event) {
       if (!ref.current?.contains(event.target)) setOpen(false);
     }
-    function onKey(event) {
-      if (event.key !== 'Escape') return;
-      setOpen(false);
-      buttonRef.current?.focus();
-    }
     document.addEventListener('pointerdown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDoc);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('pointerdown', onDoc);
   }, [open]);
+  function onMenuKey(event) {
+    handleMenuKey(event, {
+      items: [...(ref.current?.querySelectorAll('[role="menuitem"]:not(:disabled), [role="menuitemradio"]') ?? [])],
+      close: () => setOpen(false),
+      button: buttonRef.current,
+    });
+  }
   function pick(action) {
     setOpen(false);
     action();
@@ -1413,7 +1595,7 @@ function AppMenu({ frozen, freezeDisabled, onFreeze, setupLabel, onSetup, demo, 
         <IconMoreVertical />
       </button>
       {open ? (
-        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions">
+        <div className="demo-pop" role="menu" id={menuId} aria-label="Allowance actions" onKeyDown={onMenuKey}>
           <button type="button" role="menuitem" onClick={() => pick(onFreeze)} disabled={freezeDisabled}>
             <IconLock size={18} />
             <span>{frozen ? 'Unfreeze the agent' : 'Freeze the agent'}</span>

@@ -8,6 +8,7 @@ import {
   envFileNotice,
   installStaleness,
   lanAddresses,
+  merchantLaunch,
   missingInstalls,
   nodeVersionProblem,
   npmBin,
@@ -120,4 +121,51 @@ test('the launcher opens the dashboard URL on each desktop', () => {
   assert.deepEqual(browserOpen(DASHBOARD_URL, 'linux'), { command: 'xdg-open', args: [DASHBOARD_URL] });
   assert.equal(npmBin('win32'), 'npm.cmd');
   assert.equal(npmBin('linux'), 'npm');
+});
+
+const MERCHANT_ENV = {
+  MERCHANT_PAYOUT_ADDRESS: '0x1111111111111111111111111111111111111111',
+  MERCHANT_ID: '0x2222222222222222222222222222222222222222',
+  MERCHANT_SUBMITTER_KEY: 'set',
+};
+const noProbe = async () => {
+  throw new Error('should not probe the port');
+};
+
+test('npm start runs the merchant only when all its keys are set and none is running', async () => {
+  const probed = [];
+  const free = async (port) => {
+    probed.push(port);
+    return false;
+  };
+  assert.deepEqual(await merchantLaunch({ env: MERCHANT_ENV, port: 4308, running: free }), {
+    start: true,
+    note: 'Starting the merchant on port 4308.',
+  });
+  assert.deepEqual(probed, [4308]);
+
+  assert.deepEqual(await merchantLaunch({ env: MERCHANT_ENV, port: 4400, running: async () => true }), {
+    start: false,
+    note: 'A merchant already answers on port 4400. Using it.',
+  });
+});
+
+test('without merchant keys npm start says so in one line and starts the rest', async () => {
+  const none = await merchantLaunch({ env: {}, running: noProbe });
+  assert.deepEqual(none, { start: false, note: 'The merchant was not started: its keys are not in .env. Add them for a paid run.' });
+  // Blank values from a copied .env.example count as missing.
+  const blank = await merchantLaunch({ env: { MERCHANT_PAYOUT_ADDRESS: ' ', MERCHANT_ID: '', MERCHANT_SUBMITTER_KEY: '' }, running: noProbe });
+  assert.deepEqual(blank, none);
+
+  const partial = await merchantLaunch({ env: { ...MERCHANT_ENV, MERCHANT_ID: '', MERCHANT_SUBMITTER_KEY: '  ' }, running: noProbe });
+  assert.deepEqual(partial, {
+    start: false,
+    note: 'The merchant also needs MERCHANT_ID and MERCHANT_SUBMITTER_KEY in .env. It was not started.',
+  });
+});
+
+test('--no-merchant and START_MERCHANT=0 leave the merchant to you, quietly', async () => {
+  assert.deepEqual(await merchantLaunch({ argv: ['--no-merchant'], env: MERCHANT_ENV, running: noProbe }), { start: false, note: null });
+  assert.deepEqual(await merchantLaunch({ env: { ...MERCHANT_ENV, START_MERCHANT: '0' }, running: noProbe }), { start: false, note: null });
+  assert.equal((await merchantLaunch({ env: { ...MERCHANT_ENV, START_MERCHANT: '1' }, running: async () => false })).start, true);
 });

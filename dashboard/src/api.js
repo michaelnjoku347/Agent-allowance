@@ -10,44 +10,9 @@ import sample from '../../shared/sample-data.json';
 import { presentUseCase } from '../../shared/use-cases.js';
 import { createReconnectingStream } from './connection.js';
 
-const UNREACHABLE = 'Can’t reach the allowance server. Check that npm start is still running, then try again.';
+import { approvalProgress, call, failure, postJson } from './http.js';
 
-/**
- * fetch with a timeout and a sentence a person can act on. A dropped
- * connection becomes kind "unreachable"; a 429 carries the server's wait.
- */
-export async function call(path, { method = 'GET', body, timeoutMs = 15_000, fetchImpl = fetch } = {}) {
-  const init = { method, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) };
-  if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify(body);
-  }
-  let response;
-  try {
-    response = await fetchImpl(path, init);
-  } catch (error) {
-    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    const wrapped = new Error(timedOut ? 'The allowance server took too long to answer. Try again.' : UNREACHABLE);
-    wrapped.kind = timedOut ? 'timeout' : 'unreachable';
-    throw wrapped;
-  }
-  const parsed = await response.json().catch(() => ({}));
-  return { response, body: parsed && typeof parsed === 'object' ? parsed : {} };
-}
-
-function failure(response, body, fallback) {
-  const error = new Error(body.message || body.error || fallback);
-  error.status = response.status;
-  error.code = body.error;
-  if (response.status === 429) error.kind = 'busy';
-  return error;
-}
-
-async function postJson(path, payload, fallback, timeoutMs = 15_000) {
-  const { response, body } = await call(path, { method: 'POST', body: payload, timeoutMs });
-  if (!response.ok) throw failure(response, body, fallback);
-  return body;
-}
+export { call };
 
 const budget = Number(rules.budget);
 const spent = sample.payments
@@ -72,6 +37,12 @@ export const sampleSnapshot = {
       address,
       label: rules.merchantLabels?.[address] ?? null,
     })),
+    deniedMerchants: (rules.deniedMerchants ?? []).map((item) => ({
+      address: String(item.address ?? item).toLowerCase(),
+      label: item.label ?? null,
+      reason: item.reason ?? 'This merchant is decline-only. A Ledger signature cannot pay it.',
+    })),
+    approverAddress: rules.approverAddress ?? null,
   },
   network: {
     name: network.name,
@@ -134,7 +105,7 @@ export async function runRogueDemo() {
   return body;
 }
 
-/** Read a 6 RLUSD quote and let the rules reject it before anything is signed. */
+/** Read a 0.06 RLUSD quote and let the rules reject it before anything is signed. */
 export async function runOverCap() {
   return postJson('/api/demo/over-cap', undefined, 'The over-cap demo did not run.', 60_000);
 }
@@ -171,16 +142,9 @@ export async function selectUseCase(id) {
 }
 
 /** Ask the API to start the agent. A missing wallet still returns 200 with an error the page can show. */
-export async function runAgent(task) {
-  const response = await fetch('/api/run-agent', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (response.status >= 500) {
-    throw new Error(body.error || 'Could not start the agent.');
-  }
+export async function runAgent(task, { fetchImpl } = {}) {
+  const { response, body } = await call('/api/run-agent', { method: 'POST', body: { task }, timeoutMs: 60_000, fetchImpl });
+  if (response.status >= 500 || response.status === 429) throw failure(response, body, 'Could not start the agent.');
   return body;
 }
 
@@ -188,11 +152,8 @@ export async function requestApprovalChallenge(id) {
   return postJson(`/api/approve/${encodeURIComponent(id)}/challenge`, undefined, 'Could not prepare that approval.');
 }
 
-export async function fetchApprovalProgress(id) {
-  const response = await fetch(`/api/approve/${encodeURIComponent(id)}/progress`, { cache: 'no-store' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) return { inFlight: false, missing: true, phase: null };
-  return body;
+export async function fetchApprovalProgress(id, { fetchImpl } = {}) {
+  return approvalProgress(id, { fetchImpl });
 }
 
 /** Backup demo only. The server rejects this unless ALLOWANCE_DEV_SIGNER=1. */
@@ -200,15 +161,11 @@ export async function simulateLedgerApproval(id) {
   return postJson(`/api/demo/simulated-ledger/${encodeURIComponent(id)}`, undefined, 'Could not approve that purchase.');
 }
 
-export async function submitLedgerApproval(id, payload) {
-  const response = await fetch(`/api/approve/${encodeURIComponent(id)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const body = await response.json().catch(() => ({}));
+export async function submitLedgerApproval(id, payload, { fetchImpl } = {}) {
+  // Paying on testnet can take a while; the server answers 202 once the payment is under way.
+  const { response, body } = await call(`/api/approve/${encodeURIComponent(id)}`, { method: 'POST', body: payload, timeoutMs: 180_000, fetchImpl });
   if (response.status === 202 && body.inFlight) return body;
-  if (!response.ok) throw new Error(body.message || body.error || 'Could not approve that purchase.');
+  if (!response.ok) throw failure(response, body, 'Could not approve that purchase.');
   return body;
 }
 
@@ -222,6 +179,26 @@ export async function askEve(message) {
 
 export async function confirmEve(token) {
   return postJson('/api/eve/confirm', { token }, 'That confirmation did not go through.', 120_000);
+}
+
+/** The agent's display name, and the moment setup finished. */
+export async function saveProfile(profile) {
+  return postJson('/api/profile', profile, 'Could not save the agent name.');
+}
+
+/** First run only: the server refuses once an approver is set. */
+export async function setApprover(address) {
+  return postJson('/api/approver', { address }, 'Could not save the approver.');
+}
+
+/** Backup and hosted demos only: raise with the simulated signer. The server refuses otherwise. */
+export async function simulatedAllowance(proposal) {
+  return postJson('/api/demo/simulated-allowance', proposal, 'Could not raise the allowance.');
+}
+
+/** Hosted demo: start this visitor's sandbox over from the sample rows. */
+export async function resetDemo() {
+  return postJson('/api/demo/reset', undefined, 'Could not reset the demo.');
 }
 
 /** What an allowance change would do, and whether the Ledger must sign it. Writes nothing. */

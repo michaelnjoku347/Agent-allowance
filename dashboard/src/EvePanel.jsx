@@ -1,20 +1,36 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { askEve, confirmEve, requestAllowanceChallenge, submitAllowance } from './api.js';
+import { askEve, confirmEve } from './api.js';
 import BedrockMark from './BedrockMark.jsx';
-import { prepareLedger, signOnLedger } from './ledger.js';
 import { EveMark, IconChevron, IconMic, IconMinus } from './icons.jsx';
 
 const CHIPS = [
-  'What did my agent spend today?',
-  'Why was the last one blocked?',
-  'What is waiting for approval?',
-  'Set my cap to 3',
+  'How much can my agent still spend?',
+  'What is waiting for me?',
+  'Show blocked purchases',
+  'What should I do next?',
 ];
+
+const ROUTE_NAMES = {
+  home: 'Home', activity: 'Activity', approvals: 'Approvals', rules: 'Rules', merchants: 'Merchants',
+  agents: 'Agents', security: 'Security', settings: 'Settings', help: 'Help',
+};
+
+/** The small "done" tag under a reply that took a UI step. */
+export function uiLabel(ui) {
+  if (!ui) return '';
+  if (ui.type === 'navigate') return `Opened ${ROUTE_NAMES[ui.route] ?? 'the page'}`;
+  if (ui.type === 'filter') return 'Filtered your history';
+  if (ui.type === 'export') return 'Saved a CSV';
+  if (ui.type === 'highlight') return 'Highlighted it';
+  if (ui.type === 'edit') return 'Opened the editor with a draft';
+  if (ui.type === 'review') return 'Opened the approval';
+  return '';
+}
 
 const YES = /^(yes|yeah|yep|confirm|ok|okay)$/i;
 const DOCK_KEY = 'allowance-eve';
 const CHAT_KEY = 'allowance-eve-chat';
-const HELLO = 'Ask what was spent, why a quote was blocked, or to change a rule. I ask before I change anything.';
+const HELLO = 'Ask me anything about your allowance. I can open pages, filter your history, and export a CSV. I never sign, spend, change your rules, or unfreeze the agent.';
 
 function readChat() {
   try {
@@ -23,7 +39,7 @@ function readChat() {
     if (!Array.isArray(parsed)) return null;
     const messages = parsed.filter((item) => (
       item && typeof item.text === 'string' && (item.role === 'eve' || item.role === 'you')
-    ));
+    )).map((item) => ({ role: item.role, text: item.text, bedrock: item.bedrock === true, done: typeof item.done === 'string' ? item.done : '' }));
     if (messages.length) return messages.slice(-40);
   } catch {
     /* Private browsing can block storage. The chat still lasts while Eve stays mounted. */
@@ -273,6 +289,7 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
   const [error, setError] = useState('');
   const [failedText, setFailedText] = useState('');
   const [confirmation, setConfirmation] = useState(null);
+  const [suggestions, setSuggestions] = useState(CHIPS);
   const [interim, setInterim] = useState('');
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -397,7 +414,11 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
     setBusy(true);
     try {
       const body = await askEve(message);
-      setMessages((current) => [...current, { role: 'eve', text: body.reply, bedrock: body.bedrock === true }]);
+      const done = uiLabel(body.ui);
+      setMessages((current) => [...current, { role: 'eve', text: body.reply, bedrock: body.bedrock === true, done }]);
+      // A UI step only changes what is on screen. The app decides how to show it.
+      if (body.ui) window.dispatchEvent(new CustomEvent('eve:ui', { detail: body.ui }));
+      if (Array.isArray(body.suggestions) && body.suggestions.length) setSuggestions(body.suggestions.slice(0, 4));
       onReply?.(body.reply);
       setConfirmation(body.confirmation ?? null);
       speak(body.confirmation ? `${body.reply} ${body.confirmation.summary}` : body.reply, () => {
@@ -413,33 +434,6 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   async function accept(card) {
     if (!card || busy) return;
-    if (card.ledger) {
-      setBusy(true);
-      setError('');
-      try {
-        prepareLedger();
-        const challenge = await requestAllowanceChallenge(card.proposal);
-        const signature = await signOnLedger(challenge.typedData, {
-          expectedAddress: challenge.approverAddress,
-        });
-        const body = await submitAllowance({
-          signature,
-          message: challenge.typedData.message,
-        });
-        setConfirmation(null);
-        const text = body.note || 'Allowance raised after a Ledger signature. Nothing was paid.';
-        setMessages((current) => [...current, { role: 'eve', text }]);
-        onReply?.(text);
-        speak(text, () => {
-          if (voiceRef.current) startListening();
-        });
-      } catch (err) {
-        setError(err.message || 'The Ledger did not sign that change.');
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
     setBusy(true);
     setError('');
     try {
@@ -447,6 +441,8 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
       setConfirmation(null);
       setMessages((current) => [...current, { role: 'eve', text: body.reply }]);
       onReply?.(body.reply);
+      // The page refreshes now instead of waiting for the next event.
+      window.dispatchEvent(new Event('allowance:changed'));
       speak(body.reply, () => {
         if (voiceRef.current) startListening();
       });
@@ -454,7 +450,15 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
       setError(err.message || 'That confirmation did not go through.');
     } finally {
       setBusy(false);
+      // The card is gone, so focus would fall to the page. Keep it in the chat.
+      window.requestAnimationFrame(() => panelRef.current?.querySelector('#eve-message')?.focus());
     }
+  }
+
+  function cancel() {
+    setConfirmation(null);
+    setMessages((current) => [...current, { role: 'eve', text: 'Cancelled. Nothing changed.' }]);
+    window.requestAnimationFrame(() => panelRef.current?.querySelector('#eve-message')?.focus());
   }
 
   useEffect(() => {
@@ -475,30 +479,33 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
 
   return (
     <div className="eve">
-      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions">
+      {/* Focusable so a keyboard can scroll a long conversation (WCAG 2.1.1). */}
+      <div className="transcript" id={listId} role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation with Eve" tabIndex={0}>
         {messages.map((message, index) => (
           <p key={`${message.role}-${index}`} className={message.role === 'you' ? 'bubble you' : 'bubble eve'}>
             <span className="who">{message.role === 'you' ? 'You' : 'Eve'}</span>
             {message.text}
             {message.bedrock ? <BedrockMark /> : null}
+            {message.done ? <span className="eve-done">{message.done}</span> : null}
           </p>
         ))}
         {interim ? <p className="bubble you interim"><span className="who">You</span>{interim}</p> : null}
         <div ref={bottomRef} />
       </div>
       {confirmation ? (
-        <div className="confirm" role="group" aria-label="Confirmation">
+        <div className="confirm" role="group" aria-label="Eve is asking you to confirm">
+          <p className="confirm-kicker">Needs your OK</p>
           <p>{confirmation.summary}</p>
           <div className="pair">
-            <button type="button" className="btn primary" onClick={() => accept(confirmation)} disabled={busy}>
-              {confirmation.ledger ? 'Sign on Ledger' : 'Confirm'}
+            <button type="button" className={confirmation.action?.type === 'freeze' ? 'btn danger' : 'btn primary'} onClick={() => accept(confirmation)} disabled={busy} aria-busy={busy}>
+              {busy ? 'Working…' : confirmation.action?.type === 'freeze' ? 'Freeze now' : 'Confirm'}
             </button>
-            <button type="button" className="btn" onClick={() => setConfirmation(null)} disabled={busy}>Cancel</button>
+            <button type="button" className="btn" onClick={cancel} disabled={busy}>Cancel</button>
           </div>
         </div>
       ) : null}
       <div className="chips" aria-label="Suggestions">
-        {CHIPS.map((chip) => (
+        {suggestions.map((chip) => (
           <button key={chip} type="button" className="chip" onClick={() => send(chip)} disabled={busy}>{chip}</button>
         ))}
       </div>
@@ -510,8 +517,9 @@ export default function EvePanel({ seed, onSeedHandled, onStatus, onReply }) {
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Ask Eve"
           autoComplete="off"
-          disabled={busy}
+          aria-describedby={busy ? 'eve-busy' : undefined}
         />
+        {busy ? <span id="eve-busy" className="sr-only">Eve is answering. Send is off until she does.</span> : null}
         <button type="submit" className="btn primary" disabled={busy || !draft.trim()}>Send</button>
         {supported ? (
           <button

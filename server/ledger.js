@@ -63,7 +63,7 @@ export async function createApprovalChallenge(id, options = {}) {
   const approver = approverOrError(rules, env);
   if (approver.error) return approver;
   if (!approver.approver) {
-    return httpError(409, 'no_approver', 'Set APPROVER_ADDRESS to the Ledger account that may approve a purchase.');
+    return httpError(409, 'no_approver', 'No approver is set yet. Name your Ledger account on the Security page (or set APPROVER_ADDRESS), then approve this purchase.');
   }
   const found = await readPendingRecord(id);
   if (found.error === 'invalid') return httpError(400, 'invalid', 'That approval id is not valid.');

@@ -19,6 +19,12 @@ export function parseRoute(hash) {
   return NAV.some((item) => item.id === id) ? id : 'home';
 }
 
+/** The browser tab's title for a page (WCAG 2.4.2): the page first, then the product. */
+export function pageTitle(id) {
+  const item = NAV.find((row) => row.id === id);
+  return !item || item.id === 'home' ? 'Agent Allowance' : `${item.label} · Agent Allowance`;
+}
+
 export function routeHash(id) {
   return id === 'home' ? '#/' : `#/${id}`;
 }

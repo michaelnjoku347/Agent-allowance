@@ -177,6 +177,17 @@ export function parseAllowancePatch(body) {
   return { patch };
 }
 
+const AGENT_NAME = /^[\p{L}\p{N}][\p{L}\p{N} .,'’&()_-]{0,39}$/u;
+
+/** An agent's display name: 1 to 40 letters, numbers, spaces, and simple punctuation. */
+export function parseAgentName(value) {
+  if (typeof value !== 'string') return { error: 'Name the agent with text.' };
+  const name = value.replace(/\s+/g, ' ').trim();
+  if (!name) return { error: 'Give the agent a name.' };
+  if (!AGENT_NAME.test(name)) return { error: 'Use up to 40 letters, numbers, spaces, or . , \' & ( ) - _.' };
+  return { value: name };
+}
+
 /** Optional string field: undefined stays undefined, anything else must be a string. */
 export function optionalString(value, max) {
   if (value === undefined || value === null) return { value: '' };

@@ -25,15 +25,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { channelWarning, higherSpent, peekChannel, startChannelRefresh } from '../agent/chain-spend.js';
 import { demonstrateOverCap, latestContractCap } from '../agent/over-cap.js';
-import { describeAllowanceChange, formatRlusd, loadRules, presentRules, toUnits, updateAllowance } from '../agent/rules.js';
+import { describeAllowanceChange, formatRlusd, loadRules, presentRules, setApproverAddress, toUnits, updateAllowance } from '../agent/rules.js';
+import { createSandboxes, paymentsMode, publicDemoEnabled, simulatedAllowanceRaise, simulatedRun } from './public-demo.js';
 import { createQuoteApp } from '../merchant/index.js';
 import { acceptAllowanceChange, createAllowanceChallenge } from './allowance.js';
-import { allowanceProposal, answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext } from './eve.js';
+import { answerEve, confirmationSummary, createConfirmations, executeConfirmed, loadEveContext, safeUi } from './eve.js';
 import { backupChallengeEnv, devSignerEnabled, simulateLedgerApproval } from './backup-demo.js';
 import { anchorDecision } from '../agent/anchor.js';
 import { acceptLedgerApproval, createApprovalChallenge } from './ledger.js';
 import { acceptMandate, createMandateChallenge } from './mandate.js';
-import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, saveAnchor, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
+import { declinePending, listAudit, listPayments, listPending, readFrozen, readPendingRecord, readStore, recordSetupDecision, saveAnchor, saveProfile, setFreeze, setUseCase, spentRlusd, summarize } from './store.js';
 import { readBedrockSettings } from './bedrock.js';
 import { optionalKeyNotices } from '../scripts/start-lib.js';
 import { freezeAgent } from './freeze-channel.js';
@@ -46,6 +47,7 @@ import {
   createRateLimiter,
   logError,
   optionalString,
+  parseAgentName,
   parseAllowancePatch,
   rateLimitSettings,
   requireId,
@@ -54,8 +56,20 @@ import {
 } from './guardrails.js';
 import { merchantOrigin } from '../shared/catalog.js';
 
+/**
+ * Public hostnames a hosted deploy answers on: PUBLIC_HOSTNAME (comma list),
+ * Render's RENDER_EXTERNAL_HOSTNAME, or Fly's <app>.fly.dev. Empty locally.
+ */
+export function publicHosts(env = process.env) {
+  const hosts = String(env.PUBLIC_HOSTNAME ?? '').split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+  if (env.RENDER_EXTERNAL_HOSTNAME) hosts.push(String(env.RENDER_EXTERNAL_HOSTNAME).trim().toLowerCase());
+  if (env.FLY_APP_NAME) hosts.push(`${String(env.FLY_APP_NAME).trim().toLowerCase()}.fly.dev`);
+  return [...new Set(hosts.filter((host) => /^[a-z0-9.-]{1,253}$/.test(host)))];
+}
+
 export function dashboardOrigins(env = process.env) {
   const origins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  for (const host of publicHosts(env)) origins.push(`https://${host}`);
   const port = String(env.PORT || '8787').replace(/[^\d]/g, '') || '8787';
   for (const host of ['127.0.0.1', 'localhost']) {
     const origin = `http://${host}:${port}`;
@@ -73,8 +87,11 @@ export function fromDashboard(req, env = process.env) {
 }
 
 /** DNS rebinding sends a foreign Host with a localhost Origin. Only these hosts are answered. */
-export function allowedHost(host) {
-  return /^(localhost|127\.0\.0\.1)(:\d{1,5})?$/i.test(String(host ?? '').trim());
+export function allowedHost(host, env = process.env) {
+  const text = String(host ?? '').trim().toLowerCase();
+  if (/^(localhost|127\.0\.0\.1)(:\d{1,5})?$/.test(text)) return true;
+  const name = text.replace(/:\d{1,5}$/, '');
+  return publicHosts(env).includes(name);
 }
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,10 +100,13 @@ dotenv.config({ path: join(rootDir, '.env') });
 let agentChild = null;
 const confirmations = createConfirmations();
 
-function stopAgentProcess() {
-  if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
-    agentChild.kill('SIGTERM');
-  }
+function agentRunning() {
+  return Boolean(agentChild && agentChild.exitCode === null && !agentChild.killed);
+}
+
+/** Stop the agent run that belongs to this scope: a demo visitor's freeze never stops another visitor's run. */
+function stopAgentProcess(scope = null) {
+  if (agentRunning() && agentChild.scope === scope) agentChild.kill('SIGTERM');
 }
 
 /** Rules that cannot be read mean nothing may be reported as safe to spend. */
@@ -118,22 +138,29 @@ export function createApp(options = {}) {
   const readLimiter = createRateLimiter({ bucket: 'read', max: limits.reads, now: options.clock });
   const writeLimiter = createRateLimiter({ bucket: 'write', max: limits.writes, now: options.clock });
   const eveLimiter = createRateLimiter({ bucket: 'eve', max: limits.eve, now: options.clock });
+  const env0 = options.env ?? process.env;
+  const publicDemo = publicDemoEnabled(env0);
   app.disable('x-powered-by');
-  app.set('trust proxy', false);
+  // Behind a hosting proxy the client address arrives in X-Forwarded-For; rate limits need it.
+  app.set('trust proxy', publicDemo || env0.TRUST_PROXY === '1' ? 1 : false);
   app.use(securityHeaders({ dashboard: process.env.SERVE_DASHBOARD === '1' }));
   app.use('/api', (req, res, next) => (req.method === 'GET' || req.method === 'HEAD' ? readLimiter : writeLimiter)(req, res, next));
   app.use('/api', requireJsonBody);
   app.use(express.json({ limit: '16kb', strict: true }));
   app.use(bodyErrors);
   app.use('/api', (req, res, next) => {
-    if (!allowedHost(req.headers.host)) {
-      return res.status(403).json({ error: 'This API only answers on localhost.' });
+    if (!allowedHost(req.headers.host, env0)) {
+      return res.status(403).json({ error: 'This API only answers on localhost or its configured public hostname.' });
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !fromDashboard(req)) {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !fromDashboard(req, env0)) {
       return res.status(403).json({ error: 'Open the dashboard to change the allowance.' });
     }
     next();
   });
+
+  // Hosted demo: every visitor works in a private copy of the rules and the store.
+  const sandboxes = options.sandboxes ?? (publicDemo ? createSandboxes() : null);
+  if (sandboxes) app.use('/api', sandboxes.middleware);
 
   app.get('/api/health', async (req, res) => {
     let rules = 'ok';
@@ -199,6 +226,8 @@ export function createApp(options = {}) {
         chainUnavailable,
         simulatedLedger: devSignerEnabled(),
         bedrockConfigured: readBedrockSettings().configured,
+        publicDemo,
+        paymentsMode: paymentsMode(env0),
       });
     } catch (error) {
       next(error);
@@ -214,6 +243,26 @@ export function createApp(options = {}) {
   });
 
   const storeEvents = options.storeEvents ?? createStoreEvents();
+  // One watcher per sandbox that has an open stream, dropped when its last tab closes.
+  const sandboxEvents = new Map();
+  function eventsFor(req) {
+    if (!req.sandbox) return { events: storeEvents, release: () => {} };
+    const id = req.sandbox.id;
+    let row = sandboxEvents.get(id);
+    if (!row) {
+      const storePath = req.sandbox.storePath;
+      row = { events: createStoreEvents({ path: () => storePath }), count: 0 };
+      sandboxEvents.set(id, row);
+    }
+    row.count += 1;
+    return {
+      events: row.events,
+      release: () => {
+        row.count -= 1;
+        if (row.count <= 0) sandboxEvents.delete(id);
+      },
+    };
+  }
 
   app.get('/api/events', (req, res) => {
     res.writeHead(200, {
@@ -226,7 +275,12 @@ export function createApp(options = {}) {
     const send = ({ type, data }) => {
       res.write(`event: ${type}\ndata: ${JSON.stringify(data ?? null)}\n\n`);
     };
-    const unsubscribe = storeEvents.subscribe(send);
+    const stream = eventsFor(req);
+    const unsubscribeEvents = stream.events.subscribe(send);
+    const unsubscribe = () => {
+      unsubscribeEvents();
+      stream.release();
+    };
     const heartbeat = setInterval(() => res.write(': ping\n\n'), options.heartbeatMs ?? 15_000);
     heartbeat.unref?.();
     let closed = false;
@@ -391,6 +445,67 @@ export function createApp(options = {}) {
     }
   });
 
+  app.post('/api/profile', async (req, res, next) => {
+    try {
+      const body = req.body ?? {};
+      const unknown = Object.keys(body).filter((key) => key !== 'agentName' && key !== 'onboarded');
+      if (unknown.length) return res.status(400).json({ error: 'invalid', message: `Unknown field: ${unknown[0]}.` });
+      let agentName;
+      if (body.agentName !== undefined) {
+        const parsed = parseAgentName(body.agentName);
+        if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+        agentName = parsed.value;
+      }
+      if (body.onboarded !== undefined && typeof body.onboarded !== 'boolean') {
+        return res.status(400).json({ error: 'invalid', message: 'onboarded must be true or false.' });
+      }
+      res.json({ ok: true, profile: await saveProfile({ agentName, onboarded: body.onboarded === true }) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // First run only: name the Ledger account that approves exceptions. Once one
+  // is set (here or in APPROVER_ADDRESS) this refuses; changing it is a server edit.
+  app.post('/api/approver', async (req, res, next) => {
+    try {
+      const address = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+        return res.status(400).json({ error: 'invalid', message: 'That is not an 0x address with 40 hex characters.' });
+      }
+      if (!rulesOrRefuse(res)) return;
+      const result = setApproverAddress(address, undefined, ledgerOptions.env ?? process.env);
+      if (result.error) {
+        const status = result.code === 'approver_set' ? 409 : 400;
+        return res.status(status).json({ error: result.code, message: result.error });
+      }
+      await recordSetupDecision({ rule: 'approver', reason: `Approver set to ${result.approverAddress}.` });
+      res.json({ ok: true, approverAddress: result.approverAddress, note: 'Approver saved. Purchases over the cap and raises now need this Ledger.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Backup and hosted demos: raise the allowance with the simulated signer, labeled as such.
+  app.post('/api/demo/simulated-allowance', async (req, res, next) => {
+    try {
+      if (!devSignerEnabled()) return res.status(404).json({ error: 'Not found' });
+      const parsed = parseAllowancePatch(req.body);
+      if (parsed.error) return res.status(400).json({ error: 'invalid', message: parsed.error });
+      if (!rulesOrRefuse(res)) return;
+      sendLedger(res, await simulatedAllowanceRaise(parsed.patch, { env: ledgerOptions.env ?? process.env }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Hosted demo: start this visitor's sandbox over from the sample rows.
+  app.post('/api/demo/reset', (req, res) => {
+    if (!sandboxes || !req.sandbox) return res.status(404).json({ error: 'Not found' });
+    sandboxes.reset(req.sandbox.id);
+    res.json({ ok: true, note: 'Your demo was reset to the sample rows.' });
+  });
+
   app.post('/api/allowance/challenge', async (req, res, next) => {
     try {
       const parsed = parseAllowancePatch(req.body);
@@ -437,34 +552,23 @@ export function createApp(options = {}) {
       const message = parsed.value;
       const context = await loadEveContext();
       const result = await answerEve(message, context);
-      if (result.action?.type === 'freeze') {
-        const frozen = await freezeAgent();
-        stopAgentProcess();
-        const detail = frozen.channelClosed
-          ? 'The payment channel is closed.'
-          : frozen.channelReason;
-        return res.json({
-          reply: `The agent is paused. Signing has stopped. ${detail}`,
-          bedrock: result.source === 'bedrock',
-          confirmation: null,
-          frozen: true,
-          channelClosed: Boolean(frozen.channelClosed),
-        });
-      }
       const payload = {
         reply: result.reply,
         bedrock: result.source === 'bedrock',
+        source: result.source,
         confirmation: null,
+        ui: safeUi(result.ui),
+        suggestions: Array.isArray(result.suggestions) ? result.suggestions.slice(0, 4) : [],
       };
-      if (!result.action) return res.json(payload);
-      const token = confirmations.issue(result.action);
-      payload.confirmation = {
-        token,
-        summary: confirmationSummary(result.action, context),
-        action: result.action,
-        ledger: Boolean(result.action.ledger),
-        proposal: result.action.ledger ? allowanceProposal(result.action, context.rules) : null,
-      };
+      // Freeze and decline are proposals. Nothing runs until the person confirms.
+      if (result.action?.type === 'freeze' || result.action?.type === 'decline') {
+        const token = confirmations.issue(result.action, req.sandbox?.id ?? '');
+        payload.confirmation = {
+          token,
+          summary: confirmationSummary(result.action, context),
+          action: result.action,
+        };
+      }
       res.json(payload);
     } catch (error) {
       next(error);
@@ -474,16 +578,17 @@ export function createApp(options = {}) {
   app.post('/api/eve/confirm', async (req, res, next) => {
     try {
       const token = typeof req.body?.token === 'string' ? req.body.token.slice(0, LIMITS.tokenChars) : '';
-      const action = confirmations.take(token);
+      const action = confirmations.take(token, req.sandbox?.id ?? '');
       if (!action) {
         return res.status(400).json({ error: 'That confirmation expired. Ask Eve again.' });
       }
       const result = await executeConfirmed(action);
+      if (result.frozen) stopAgentProcess(req.sandbox?.id ?? null);
       if (result.error === 'missing') {
         return res.status(404).json({ error: 'That purchase is not waiting for approval.' });
       }
       if (result.error) return res.status(400).json({ error: result.error });
-      res.json({ ok: true, reply: result.reply, payment: result.payment ?? null });
+      res.json({ ok: true, reply: result.reply, payment: result.payment ?? null, frozen: Boolean(result.frozen) });
     } catch (error) {
       next(error);
     }
@@ -554,8 +659,8 @@ export function createApp(options = {}) {
         const state = await setFreeze(false);
         return res.json({ ok: true, signing: true, ...state });
       }
-      const state = await freezeAgent();
-      stopAgentProcess();
+      const state = await freezeAgent({ env: env0 });
+      stopAgentProcess(req.sandbox?.id ?? null);
       res.json(state);
     } catch (error) {
       next(error);
@@ -574,7 +679,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/run-agent', async (req, res, next) => {
-    if (!fromDashboard(req)) {
+    if (!fromDashboard(req, env0)) {
       return res.status(403).json({ ok: false, error: 'Open the dashboard to run the agent.' });
     }
     try {
@@ -583,6 +688,15 @@ export function createApp(options = {}) {
       }
     } catch (error) {
       return next(error);
+    }
+    // Hosted demo: the real rules decide a simulated purchase. Nothing is signed or broadcast.
+    if (publicDemo && paymentsMode(env0) !== 'testnet') {
+      try {
+        if (!rulesOrRefuse(res)) return;
+        return res.json(await simulatedRun({}));
+      } catch (error) {
+        return next(error);
+      }
     }
     const parsed = optionalString(req.body?.task, 2000);
     if (parsed.error) return res.status(400).json({ ok: false, error: 'The task must be text.' });
@@ -602,14 +716,22 @@ export function createApp(options = {}) {
         error: 'Add AGENT_PRIVATE_KEY, TEAM_NAME, and RESOURCE_URL to .env to pay a merchant.',
       });
     }
-    if (agentChild && agentChild.exitCode === null && !agentChild.killed) {
-      return res.status(409).json({ ok: false, error: 'The agent is already running.' });
+    if (agentRunning()) {
+      const theirs = agentChild.scope !== (req.sandbox?.id ?? null);
+      return res.status(409).json({
+        ok: false,
+        error: theirs ? 'Another visitor’s agent run is in progress. Try again in a minute.' : 'The agent is already running.',
+      });
     }
     const child = spawn(process.execPath, ['agent/agent.js', task], {
       cwd: rootDir,
-      env: process.env,
+      // A hosted testnet demo points the agent at this visitor's sandbox files.
+      env: req.sandbox
+        ? { ...process.env, ALLOWANCE_STORE: req.sandbox.storePath, ALLOWANCE_RULES: req.sandbox.rulesPath }
+        : process.env,
       stdio: 'inherit',
     });
+    child.scope = req.sandbox?.id ?? null;
     agentChild = child;
     child.on('exit', () => {
       if (agentChild === child) agentChild = null;
@@ -624,6 +746,7 @@ export function createApp(options = {}) {
   if (process.env.SERVE_DASHBOARD === '1') {
     const dist = join(rootDir, 'dashboard', 'dist');
     if (existsSync(join(dist, 'index.html'))) {
+      if (sandboxes) app.use(sandboxes.pageCookie);
       app.use(express.static(dist));
       app.use((req, res, next) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
@@ -647,13 +770,21 @@ export function createApp(options = {}) {
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = Number(process.env.PORT || 8787);
-  startChannelRefresh();
-  const server = createApp().listen(port, '127.0.0.1', async () => {
+  const publicDemo = publicDemoEnabled();
+  if (publicDemo) {
+    // The hosted demo signs only with the labeled, in-memory simulated signer.
+    process.env.ALLOWANCE_DEV_SIGNER = '1';
+    process.env.SERVE_DASHBOARD ||= '1';
+  }
+  if (!publicDemo || paymentsMode() === 'testnet') startChannelRefresh();
+  const host = process.env.HOST || (publicDemo ? '0.0.0.0' : '127.0.0.1');
+  const server = createApp().listen(port, host, async () => {
     const status = summarize(await readStore(), loadRules());
     const mode = status.agentConnected
       ? 'Serving live agent payments.'
       : 'Serving sample payments until the agent runs.';
-    console.log(`Agent Allowance API at http://127.0.0.1:${port}`);
+    console.log(`Agent Allowance API at http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}${host === '0.0.0.0' ? ' (listening on every interface)' : ''}`);
+    if (publicDemo) console.log(`Public demo: per-visitor sandboxes, simulated Ledger signatures, payments ${paymentsMode()}.`);
     console.log(mode);
     if (process.env.ALLOWANCE_NOTICES_SHOWN !== '1') {
       for (const line of optionalKeyNotices({

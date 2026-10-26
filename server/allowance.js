@@ -57,7 +57,7 @@ export async function createAllowanceChallenge(patch = {}, options = {}) {
   const approver = approverOrError(rules, env);
   if (approver.error) return approver;
   if (!approver.approver) {
-    return httpError(409, 'no_approver', 'Set APPROVER_ADDRESS to the Ledger account that may change the allowance.');
+    return httpError(409, 'no_approver', 'No approver is set yet. Name your Ledger account on the Security page (or set APPROVER_ADDRESS) before raising a limit.');
   }
   const described = describeAllowanceChange(patch);
   if (described.error) return httpError(400, 'invalid', described.error);

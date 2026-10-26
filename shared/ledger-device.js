@@ -23,6 +23,10 @@ export function describeLedgerError(error, interaction = '') {
   const code = String(error?.errorCode ?? error?.statusCode ?? error?.code ?? '');
   const blob = `${tag} ${code} ${error?.message ?? error ?? ''}`.toLowerCase();
 
+  // Chrome shows the device prompt only within a few seconds of a click.
+  if (/user gesture|user activation/.test(blob)) {
+    return { code: 'gesture', message: 'Click Connect again. The browser needs a fresh click to show the Ledger prompt. Nothing was signed.' };
+  }
   if (/6985|6982|5501|userrefused|refusedbyuser|actionrefused|condition not satisfied|canceled by user|cancelled by user|action refused|rejected the/.test(blob)) {
     return { code: 'rejected', message: 'The Ledger rejected the approval. Nothing was paid.' };
   }

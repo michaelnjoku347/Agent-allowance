@@ -68,10 +68,18 @@ export function describeConnection({ connection, preview = false, kind = '', las
         action: 'Retry now',
       };
     }
+    if (preview && kind === 'server') {
+      return {
+        tone: 'warn',
+        title: 'The allowance server hit an error',
+        body: `It answered, but could not load your allowance. You are looking at example rows until it does. Nothing was paid.${retry}`,
+        action: 'Retry now',
+      };
+    }
     if (preview) {
       return {
         tone: 'warn',
-        title: 'Can’t reach the allowance server',
+        title: kind === 'timeout' ? 'The allowance server is not answering' : 'Can’t reach the allowance server',
         body: `You are looking at example rows. Start the server with npm start.${retry}`,
         action: 'Retry now',
       };
@@ -96,7 +104,7 @@ export function describeConnection({ connection, preview = false, kind = '', las
     return {
       tone: 'info',
       title: 'Merchant offline',
-      body: 'The merchant is not answering, so the agent cannot buy right now. Start it with npm run merchant. Your allowance is safe.',
+      body: 'The merchant is not answering, so the agent cannot buy right now. Start again with npm start, which runs it, or run npm run merchant. Your allowance is safe.',
       action: 'Check again',
     };
   }

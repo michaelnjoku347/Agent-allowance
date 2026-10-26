@@ -5,10 +5,11 @@
  */
 
 import { formatRlusd, toUnits } from './rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
 export const RATE_WINDOW_MS = 60 * 60 * 1000;
 export const RATE_MAX_PURCHASES = 3;
-export const RATE_MAX_RLUSD = '5';
+export const RATE_MAX_RLUSD = DEMO_AMOUNTS.hourly;
 
 export function spendRateDecision({ payments = [], amount = '0', now = Date.now() } = {}) {
   const price = toUnits(amount);

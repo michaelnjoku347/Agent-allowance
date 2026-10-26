@@ -5,8 +5,12 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+// A test channel the size of one per-purchase cap, and a voucher one cent past it.
+const CAP_TEST_RLUSD = DEMO_AMOUNTS.cap;
+const STEP_RLUSD = DEMO_AMOUNTS.step;
 const require = createRequire(import.meta.url);
 const { signIn, requestChannel, signVoucher, closeChannel } = require('../agent/ap4m-hackathon-sdk.cjs');
 
@@ -39,10 +43,10 @@ async function main() {
     if (channelId && !/^0x[0-9a-f]{64}$/i.test(channelId)) throw new Error('CAP_TEST_CHANNEL_ID is invalid.');
     let token;
     if (!channelId) {
-      if (!process.argv.includes('--open')) throw new Error('Supply CAP_TEST_CHANNEL_ID, or add --open to create a 5 RLUSD test channel (uses test XRP gas).');
+      if (!process.argv.includes('--open')) throw new Error('Supply CAP_TEST_CHANNEL_ID, or add --open to create a 0.05 RLUSD test channel (uses test XRP gas).');
       if (!process.env.TEAM_NAME) throw new Error('Configure TEAM_NAME.');
       ({ token } = await signIn(api, process.env.TEAM_NAME, wallet));
-      const channel = await requestChannel(api, token, wallet, { capRlusd: '5', merchantId: process.env.MERCHANT_ID || undefined });
+      const channel = await requestChannel(api, token, wallet, { capRlusd: CAP_TEST_RLUSD, merchantId: process.env.MERCHANT_ID || undefined });
       channelId = channel.channel_id;
     }
     console.log('Cap-test channel:', channelId);
@@ -53,10 +57,10 @@ async function main() {
     if (Number(state[11]) !== 1) throw new Error('Cap test needs an open channel. A closed-channel rejection does not count.');
     if (state[9].toLowerCase() !== wallet.address.toLowerCase()) throw new Error('Channel is for another agent.');
     if (!process.env.MERCHANT_PAYOUT_ADDRESS || state[12].toLowerCase() !== process.env.MERCHANT_PAYOUT_ADDRESS.toLowerCase()) throw new Error('Channel payout does not match the configured merchant.');
-    if (state[7] !== ethers.parseUnits('5', 18)) throw new Error('This demo requires a 5 RLUSD channel.');
-    const acceptedAmount = state[8] + ethers.parseUnits('1', 18);
+    if (state[7] !== ethers.parseUnits(CAP_TEST_RLUSD, 18)) throw new Error(`This demo requires a ${CAP_TEST_RLUSD} RLUSD channel.`);
+    const acceptedAmount = state[8] + ethers.parseUnits(STEP_RLUSD, 18);
     if (acceptedAmount > state[7]) throw new Error('No capacity for the positive control; use a fresh channel.');
-    const rejectedAmount = state[7] + ethers.parseUnits('1', 18);
+    const rejectedAmount = state[7] + ethers.parseUnits(STEP_RLUSD, 18);
     const acceptedSignature = await signVoucher(wallet, config.contracts.paymentLedger, channelId, acceptedAmount);
     const rejectedSignature = await signVoucher(wallet, config.contracts.paymentLedger, channelId, rejectedAmount);
     const tokenContract = new ethers.Contract(config.contracts.rlusdToken, ['function balanceOf(address) view returns(uint256)'], provider);
@@ -69,20 +73,20 @@ async function main() {
     const merchantAfter = await tokenContract.balanceOf(state[12]);
     if (after[8] !== state[8] || merchantAfter !== merchantBefore) throw new Error('State changed during the check; inspect concurrent activity before claiming a clean result.');
     const evidence = { channelId, chainId: 1449000, blockNumber: block.number, blockHash: block.hash,
-      method: 'eth_call (simulation, no payment broadcast)', capRlusd: '5',
-      acceptedCumulativeRlusd: ethers.formatUnits(acceptedAmount, 18), rejectedCumulativeRlusd: '6',
+      method: 'eth_call (simulation, no payment broadcast)', capRlusd: CAP_TEST_RLUSD,
+      acceptedCumulativeRlusd: ethers.formatUnits(acceptedAmount, 18), rejectedCumulativeRlusd: ethers.formatUnits(rejectedAmount, 18),
       rejectionData, redeemedBefore: state[8].toString(), redeemedAfter: after[8].toString(),
       merchantBalanceBefore: merchantBefore.toString(), merchantBalanceAfter: merchantAfter.toString() };
     const evidenceDir = join(root, 'agent/receipts');
     mkdirSync(evidenceDir, { recursive: true });
     writeFileSync(join(evidenceDir, 'cap-test-' + channelId + '.json'), JSON.stringify(evidence, null, 2) + '\n');
-    console.log('PASS: in-cap voucher accepted; 6 RLUSD voucher rejected against 5 RLUSD cap at the same block.');
+    console.log(`PASS: in-cap voucher accepted; ${ethers.formatUnits(rejectedAmount, 18)} RLUSD voucher rejected against ${CAP_TEST_RLUSD} RLUSD cap at the same block.`);
     console.log('Redeemed amount and merchant balance unchanged. Evidence saved under agent/receipts/.');
     const openedHere = !process.env.CAP_TEST_CHANNEL_ID;
     if ((openedHere || process.argv.includes('--close')) && !process.argv.includes('--keep')) {
       if (!token) ({ token } = await signIn(api, process.env.TEAM_NAME, wallet));
       const closed = await closeChannel(api, token, wallet, channelId);
-      console.log('Closed the 5 RLUSD test channel so the demo will not reuse it. TX:', closed.tx_hash);
+      console.log(`Closed the ${CAP_TEST_RLUSD} RLUSD test channel so the demo will not reuse it. TX:`, closed.tx_hash);
     } else console.log('Channel remains open. Pass --close to close it, or leave --keep when you passed CAP_TEST_CHANNEL_ID.');
   } finally { provider.destroy(); }
 }

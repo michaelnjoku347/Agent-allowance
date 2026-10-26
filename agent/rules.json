@@ -1,6 +1,6 @@
 {
-  "budget": "20",
-  "maxPerPurchase": "5",
+  "budget": "0.20",
+  "maxPerPurchase": "0.05",
   "expiresAt": "2026-12-31T23:59:59.000Z",
   "summary": "The agent pays on its own only inside this allowance. Anything outside waits for a person.",
   "allowedMerchants": [

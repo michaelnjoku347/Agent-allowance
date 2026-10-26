@@ -1,11 +1,4 @@
-export function money(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return String(value ?? '');
-  return amount.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  });
-}
+export { money } from '../../shared/money.js';
 
 export function when(iso) {
   if (!iso) return '';
@@ -21,19 +14,25 @@ export function when(iso) {
   }).format(date);
 }
 
-/** Short relative time. The exact timestamp belongs in a title attribute. */
-export function relativeTime(iso) {
+/**
+ * Short relative time. The exact timestamp belongs in a title attribute.
+ * A server clock a few minutes ahead still reads "Just now", never "-3 min ago".
+ */
+export function relativeTime(iso, now = Date.now()) {
   if (!iso) return '';
   const date = new Date(iso);
   const then = date.getTime();
   if (Number.isNaN(then)) return '';
-  const minutes = Math.round((Date.now() - then) / 60000);
-  if (Math.abs(minutes) < 1) return 'Just now';
-  if (Math.abs(minutes) < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return `${hours} hour${Math.abs(hours) === 1 ? '' : 's'} ago`;
+  const minutes = Math.round((now - then) / 60000);
+  if (minutes < 1 && minutes > -5) return 'Just now';
+  const ahead = minutes < 0;
+  const span = Math.abs(minutes);
+  const say = (text) => (ahead ? `in ${text}` : `${text} ago`);
+  if (span < 60) return say(`${span} min`);
+  const hours = Math.round(span / 60);
+  if (hours < 24) return say(`${hours} hour${hours === 1 ? '' : 's'}`);
   const days = Math.round(hours / 24);
-  return `${days} day${Math.abs(days) === 1 ? '' : 's'} ago`;
+  return say(`${days} day${days === 1 ? '' : 's'}`);
 }
 
 export function clock(iso) {

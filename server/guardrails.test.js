@@ -15,6 +15,7 @@ const {
   parseAllowancePatch,
   rateLimitSettings,
   redact,
+  securityHeaders,
   validId,
 } = await import('./guardrails.js');
 const { createApp } = await import('./index.js');
@@ -148,32 +149,32 @@ describe('API guardrails', { concurrency: false }, () => {
 
   test('preview says whether a change needs the Ledger, and lower refuses any raise', async () => {
     await serve(createApp(), async (base) => {
-      const lowerPreview = await (await post(base, '/api/allowance/preview', { maxPerPurchase: '3' })).json();
+      const lowerPreview = await (await post(base, '/api/allowance/preview', { maxPerPurchase: '0.03' })).json();
       assert.equal(lowerPreview.needsLedger, false);
-      assert.equal(lowerPreview.next.maxPerPurchase, '3');
-      assert.equal(lowerPreview.current.maxPerPurchase, '5');
+      assert.equal(lowerPreview.next.maxPerPurchase, '0.03');
+      assert.equal(lowerPreview.current.maxPerPurchase, '0.05');
 
-      const raisePreview = await (await post(base, '/api/allowance/preview', { budget: '500' })).json();
+      const raisePreview = await (await post(base, '/api/allowance/preview', { budget: '5' })).json();
       assert.equal(raisePreview.needsLedger, true);
       assert.match(raisePreview.message, /Ledger must sign/);
 
-      const refused = await post(base, '/api/allowance/lower', { budget: '500' });
+      const refused = await post(base, '/api/allowance/lower', { budget: '5' });
       assert.equal(refused.status, 403);
       assert.equal((await refused.json()).error, 'needs_ledger');
-      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).budget, '20');
+      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).budget, '0.20');
 
-      const capOverBudget = await post(base, '/api/allowance/lower', { maxPerPurchase: '19', budget: '10' });
+      const capOverBudget = await post(base, '/api/allowance/lower', { maxPerPurchase: '0.19', budget: '0.1' });
       assert.equal(capOverBudget.status, 400);
 
-      const lowered = await post(base, '/api/allowance/lower', { maxPerPurchase: '3' });
+      const lowered = await post(base, '/api/allowance/lower', { maxPerPurchase: '0.03' });
       assert.equal(lowered.status, 200);
-      assert.equal((await lowered.json()).rules.maxPerPurchase, '3');
-      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).maxPerPurchase, '3');
+      assert.equal((await lowered.json()).rules.maxPerPurchase, '0.03');
+      assert.equal(JSON.parse(readFileSync(rulesCopy, 'utf8')).maxPerPurchase, '0.03');
 
       const noOrigin = await fetch(`${base}/api/allowance/lower`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxPerPurchase: '1' }),
+        body: JSON.stringify({ maxPerPurchase: '0.01' }),
       });
       assert.equal(noOrigin.status, 403);
     });
@@ -207,4 +208,25 @@ describe('API guardrails', { concurrency: false }, () => {
       writeFileSync(rulesCopy, good);
     }
   });
+});
+
+test('the served dashboard gets a strict policy, and the API is never cached', () => {
+  const run = (path, dashboard) => {
+    const headers = {};
+    securityHeaders({ dashboard })({ path }, { setHeader: (key, value) => { headers[key] = value; } }, () => {});
+    return headers;
+  };
+  const page = run('/', true);
+  const csp = page['Content-Security-Policy'];
+  for (const rule of ["default-src 'self'", "script-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "base-uri 'none'"]) {
+    assert.ok(csp.includes(rule), rule);
+  }
+  assert.equal(csp.includes("'unsafe-eval'"), false);
+  assert.equal(/script-src[^;]*unsafe-inline/.test(csp), false, 'no inline scripts');
+  assert.equal(page['X-Frame-Options'], 'DENY');
+  assert.match(page['Permissions-Policy'], /hid=\(self\)/);
+  const api = run('/api/status', true);
+  assert.equal(api['Cache-Control'], 'no-store');
+  assert.equal(api['Content-Security-Policy'], undefined);
+  assert.equal(run('/', false)['Content-Security-Policy'], undefined, 'no policy when the API does not serve the page');
 });

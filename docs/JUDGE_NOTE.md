@@ -2,6 +2,10 @@
 
 Scripted path for a funded XRPL EVM Testnet run. Do not invent transaction hashes. If this environment has no funded wallet, leave the TODO lines below.
 
+## No setup: the hosted demo
+
+If the team has deployed it ([docs/DEPLOY.md](DEPLOY.md)), open the link. You get a private sandbox with the sample rows, so nothing you click reaches another judge. Click **Run agent** three times to watch a 0.01 RLUSD brief paid inside the rules, a 0.08 RLUSD quote held for approval, and an unlisted desk blocked. Approve the held quote with the **simulated Ledger signature** (labeled on every screen; nothing is broadcast), try **Freeze**, ask Eve anything, and use **Reset my demo** to start over.
+
 ## Quickstart
 
 1. Fund the agent wallet and the merchant submitter with test XRP from the [XRPL EVM Testnet faucet](https://faucet.testevm.ripple.com). Fund the team budget in the [participant portal](https://hackathon.ap4m.build/participant).
@@ -17,17 +21,19 @@ npm run dashboard
 npm run demo
 ```
 
+Or, in two terminals: `npm start`, which runs the server, the dashboard, and the merchant when its keys are in `.env`, then `npm run demo`.
+
 4. Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
-5. Under **Needs you**, approve the **8 RLUSD** history row on a Ledger. The panel shows `8 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor.
+5. Under **Needs you**, approve the **0.08 RLUSD** history row on a Ledger. The panel shows `0.08 RLUSD`, the merchant label, and the expiry as a date. The device may show raw fields or a blind-signing prompt, because chain 1449000 has no registered ERC-7730 descriptor.
 6. Click the explorer link on that paid row. The row also keeps the claim id and the receipt URL.
 
-`npm run demo` pays the 1 RLUSD brief, saves the 8 RLUSD history quote for that approval, and saves the unlisted `0x0bad…` desk as decline-only. That desk is a fixed fake payee, not a team merchant, so a Ledger signature cannot pay it. When Bedrock is configured, the demo asks Bedrock to choose instead of running those three steps. The activity row is labeled **Amazon Bedrock** or **Fallback (Bedrock not configured)**. A broadcast that fails returns the 8 RLUSD row to **Needs you** with a fresh challenge. Run `npm run preflight` first. It checks the channel cap against the 20 RLUSD budget, redeemed against local spent, and that both merchant ports answer.
+`npm run demo` pays the 0.01 RLUSD brief, saves the 0.08 RLUSD history quote for that approval, and saves the unlisted `0x0bad…` desk as decline-only. That desk is a fixed fake payee, not a team merchant, so a Ledger signature cannot pay it. When Bedrock is configured, the demo asks Bedrock to choose instead of running those three steps. The activity row is labeled **Amazon Bedrock** or **Fallback (Bedrock not configured)**. A broadcast that fails returns the 0.08 RLUSD row to **Needs you** with a fresh challenge. Run `npm run preflight` first. It checks the channel cap against the 0.20 RLUSD budget, redeemed against local spent, and that both merchant ports answer.
 
 ## Live explorer links
 
 TODO: paste links from a funded run. Do not fill these with sample or guessed hashes.
 
-- 1 RLUSD morning brief redemption: TODO
-- 8 RLUSD history redemption after Ledger approval: TODO
+- 0.01 RLUSD morning brief redemption: TODO
+- 0.08 RLUSD history redemption after Ledger approval: TODO
 - Claim id: TODO
 - Receipt URL: TODO

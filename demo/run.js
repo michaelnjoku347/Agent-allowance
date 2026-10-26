@@ -2,10 +2,10 @@
  * Three purchases, one after another, unless Bedrock is configured.
  * When Bedrock is configured, the demo asks it to choose among the live resources.
  * Otherwise:
- *   1 RLUSD from the allowed merchant → paid
- *   8 RLUSD history resource          → blocked, over per-purchase cap
+ *   0.01 RLUSD from the allowed merchant → paid
+ *   0.08 RLUSD history resource          → blocked, over per-purchase cap
  *                                       (a Ledger approval redeems this one)
- *   1 RLUSD from an outside merchant  → blocked, decline only
+ *   0.01 RLUSD from an outside merchant  → blocked, decline only
  *
  * Start the API, the merchant, and the dashboard first.
  *   npm run server
@@ -18,7 +18,8 @@ import dotenv from 'dotenv';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runOnce } from '../agent/agent.js';
-import { canonicalAddress, loadRules } from '../agent/rules.js';
+import { canonicalAddress, loadRules, toUnits } from '../agent/rules.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 import { readBedrockSettings } from '../server/bedrock.js';
 import { historyResourceUrl } from '../shared/catalog.js';
 
@@ -33,14 +34,14 @@ const steps = [
     task: 'Buy the morning market brief',
     resourceUrl: `${origin}/resource`,
     expect: 'allow',
-    amount: '1',
+    amount: process.env.PRICE_RLUSD?.trim() || DEMO_AMOUNTS.brief,
   },
   {
     task: 'Buy the extended market history',
     resourceUrl: historyResourceUrl(),
     expect: 'needs_approval',
     reason: 'over per-purchase cap',
-    amount: '8',
+    amount: DEMO_AMOUNTS.history,
   },
   {
     task: 'Buy a quote from an outside desk',
@@ -49,6 +50,14 @@ const steps = [
     reason: 'merchant not allowed',
   },
 ];
+
+function sameAmount(left, right) {
+  try {
+    return toUnits(left) === toUnits(right);
+  } catch {
+    return false;
+  }
+}
 
 function explainAllowlist(address) {
   const shown = address || 'your merchant payout';
@@ -97,10 +106,10 @@ async function main() {
   const historyUrl = historyResourceUrl();
   try {
     const history = await fetch(historyUrl, { signal: AbortSignal.timeout(5_000) });
-    if (history.status === 404) throw new Error('The 8 RLUSD history resource is not running.');
+    if (history.status === 404) throw new Error(`The ${DEMO_AMOUNTS.history} RLUSD history resource is not running.`);
   } catch (error) {
     if (String(error.message ?? '').includes('history resource')) throw error;
-    throw new Error('The 8 RLUSD history merchant is not running. Start it with npm run merchant.');
+    throw new Error(`The ${DEMO_AMOUNTS.history} RLUSD history merchant is not running. Start it with npm run merchant.`);
   }
 
   if (readBedrockSettings().configured) {
@@ -120,7 +129,7 @@ async function main() {
       console.log(labelFor(result));
       const wrongDecision = result.decision !== step.expect;
       const wrongReason = step.reason && result.reason !== step.reason;
-      const wrongAmount = step.amount && result.amount !== step.amount;
+      const wrongAmount = step.amount && !sameAmount(result.amount, step.amount);
       if (wrongDecision || wrongReason || wrongAmount) {
         const expected = step.reason ? `${step.expect} (${step.reason})` : step.expect;
         console.error(`Expected ${expected}.`);

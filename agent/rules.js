@@ -9,12 +9,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentSandbox } from '../shared/sandbox-context.js';
 
 const SCALE = 10n ** 18n;
 const RULES_PATH = join(dirname(fileURLToPath(import.meta.url)), 'rules.json');
 
 /** Rules file. Tests point ALLOWANCE_RULES at a copy so the repo file stays put. */
 export function rulesFile() {
+  return currentSandbox()?.rulesPath || process.env.ALLOWANCE_RULES || RULES_PATH;
+}
+
+/** The rules file outside any sandbox: the one a hosted demo copies for each visitor. */
+export function baseRulesFile() {
   return process.env.ALLOWANCE_RULES || RULES_PATH;
 }
 
@@ -247,6 +253,34 @@ export function updateAllowance(patch = {}, file = rulesFile(), options = {}) {
   raw.allowedMerchants = described.next.allowedMerchants;
   writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
   return { ok: true, rules: presentRules(loadRules(file)) };
+}
+
+/**
+ * Name the Ledger account that approves exceptions, once. Refuses when an
+ * approver is already set here or in APPROVER_ADDRESS: changing the key that
+ * guards the allowance is a server-side edit, never a dashboard click.
+ */
+export function setApproverAddress(address, file = rulesFile(), env = process.env) {
+  let next;
+  try {
+    next = canonicalAddress(address);
+  } catch {
+    return { error: 'That is not an 0x address with 40 hex characters.', code: 'invalid' };
+  }
+  const current = loadRules(file);
+  let existing = null;
+  try {
+    existing = activeApprover(current, env);
+  } catch {
+    return { error: 'APPROVER_ADDRESS is not a valid address. Fix it on the server first.', code: 'approver_invalid' };
+  }
+  if (existing) {
+    return { error: 'An approver is already set. Changing it is a server-side edit of APPROVER_ADDRESS or agent/rules.json.', code: 'approver_set' };
+  }
+  const raw = JSON.parse(readFileSync(file, 'utf8'));
+  raw.approverAddress = next;
+  writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
+  return { ok: true, approverAddress: next };
 }
 
 /**

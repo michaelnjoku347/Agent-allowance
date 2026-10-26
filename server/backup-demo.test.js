@@ -44,7 +44,7 @@ describe('backup demo signer', { concurrency: false }, () => {
 
   test('rehearse records an in-rule payment and two blocks, with no transaction hash', async () => {
     const seeded = await rehearseBackupDemo();
-    assert.equal(seeded.paid.amount, '1');
+    assert.equal(seeded.paid.amount, '0.01');
     assert.equal(seeded.paid.task, 'Buy the morning market brief');
     assert.equal(seeded.paid.txHash, null);
     const payments = await listPayments();
@@ -56,11 +56,11 @@ describe('backup demo signer', { concurrency: false }, () => {
     assert.equal(payments[0].simulatedLedger, false);
     const pending = await listPending();
     assert.equal(pending.length, 2);
-    assert.ok(pending.some((item) => item.reason === 'over per-purchase cap' && item.amount === '8'));
-    assert.ok(pending.some((item) => item.reason === 'merchant not allowed' && item.amount === '1'));
+    assert.ok(pending.some((item) => item.reason === 'over per-purchase cap' && item.amount === '0.08'));
+    assert.ok(pending.some((item) => item.reason === 'merchant not allowed' && item.amount === '0.01'));
   });
 
-  test('a simulated Ledger signature pays the 8 RLUSD quote once and leaves the unlisted desk blocked', async () => {
+  test('a simulated Ledger signature pays the 0.08 RLUSD quote once and leaves the unlisted desk blocked', async () => {
     const pending = await listPending();
     const history = pending.find((item) => item.reason === 'over per-purchase cap');
     const unlisted = pending.find((item) => item.reason === 'merchant not allowed');
@@ -101,7 +101,7 @@ describe('backup demo signer', { concurrency: false }, () => {
       const body = await challenge.json();
       assert.equal(challenge.status, 200);
       assert.match(body.approverAddress, /^0x[0-9a-fA-F]{40}$/);
-      assert.equal(body.display.amount, '8 RLUSD');
+      assert.equal(body.display.amount, '0.08 RLUSD');
       assert.equal(body.typedData.domain.chainId, 1449000);
       const signed = await fetch(`http://127.0.0.1:${port}/api/demo/simulated-ledger/${history.id}`, { method: 'POST', headers: { Origin: 'http://127.0.0.1:5173' } });
       const paid = await signed.json();
@@ -127,7 +127,7 @@ describe('backup demo signer', { concurrency: false }, () => {
       assert.equal(JSON.stringify(body).includes('privateKey'), false);
       const status = await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();
       assert.equal(status.simulatedLedger, true);
-      assert.equal(status.spent, '9');
+      assert.equal(status.spent, '0.09');
     } finally {
       await close(server);
       rmSync(dir, { recursive: true, force: true });

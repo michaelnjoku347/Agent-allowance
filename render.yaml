@@ -1,0 +1,34 @@
+# Render Blueprint for the hosted public demo. Dashboard → Blueprints → New
+# Blueprint Instance → pick this repository. See docs/DEPLOY.md.
+#
+# Nothing secret lives in this file. The demo needs no keys: approvals use a
+# labeled simulated Ledger signature and Run agent records simulated payments.
+
+services:
+  - type: web
+    name: agent-allowance-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: false
+    healthCheckPath: /api/health
+    envVars:
+      - key: PUBLIC_DEMO
+        value: "1"
+      - key: SERVE_DASHBOARD
+        value: "1"
+      # simulated (default) never broadcasts. testnet hands Run agent to the real
+      # agent with the keys below. Use testnet only for a supervised demo.
+      - key: PUBLIC_DEMO_PAYMENTS
+        value: simulated
+      # Optional, only for PUBLIC_DEMO_PAYMENTS=testnet. Set them in the Render
+      # dashboard; sync: false keeps them out of this file.
+      - key: AGENT_PRIVATE_KEY
+        sync: false
+      - key: TEAM_NAME
+        sync: false
+      - key: RESOURCE_URL
+        sync: false
+      # A custom domain, comma-separated. Render's own hostname is allowed automatically.
+      - key: PUBLIC_HOSTNAME
+        sync: false

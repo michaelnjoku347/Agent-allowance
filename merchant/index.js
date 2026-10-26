@@ -8,7 +8,8 @@
  *
  * GET /demo/over-cap, GET /demo/unlisted, and GET /demo/heist only quote a price.
  * They never redeem a voucher. The unlisted and heist quotes pay the decline-only desk.
- * The 8 RLUSD history sale is a second createX402Merchant on HISTORY_PORT.
+ * The 0.08 RLUSD history sale is a second createX402Merchant on HISTORY_PORT.
+ * Prices come from shared/demo-amounts.js; PRICE_RLUSD overrides the brief.
  * Approving that pending row redeems it.
  *
  * Listens on MERCHANT_PORT (default 4308), not PORT. PORT is the allowance API.
@@ -20,8 +21,9 @@ import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createX402Merchant, loadX402Context } from '../agent/ap4m-x402.mjs';
-import { HEIST_INJECTION, historyPort, historyResourceUrl, merchantPort } from '../shared/catalog.js';
-import { clearStaleMerchantLocks, removeOwnerPid, writeOwnerPid } from '../shared/merchant-lock.js';
+import { HEIST_INJECTION, HEIST_PRICE, historyPort, historyResourceUrl, merchantPort } from '../shared/catalog.js';
+import { clearStaleMerchantLocks, heldLockMessage, readOwnerPid, removeOwnerPid, writeOwnerPid } from '../shared/merchant-lock.js';
+import { DEMO_AMOUNTS } from '../shared/demo-amounts.js';
 import { activeApprover, loadRules } from '../agent/rules.js';
 import { decodeMandateHeader, judgeMandate } from '../shared/mandate.js';
 import { readMandate } from '../server/store.js';
@@ -109,11 +111,11 @@ export function createQuoteApp({ payout, resourceServer = null, enforceMandate =
   }
 
   app.get('/demo/over-cap', (req, res) => {
-    quoteOverCap(req, res, ethers.parseUnits('8', 18).toString(), 'Extended market history');
+    quoteOverCap(req, res, ethers.parseUnits(DEMO_AMOUNTS.history, 18).toString(), 'Extended market history');
   });
 
   app.get('/demo/over-cap-6', (req, res) => {
-    quoteOverCap(req, res, ethers.parseUnits('6', 18).toString(), 'Quote above the 5 RLUSD per-purchase cap');
+    quoteOverCap(req, res, ethers.parseUnits(DEMO_AMOUNTS.overCap, 18).toString(), `Quote above the ${DEMO_AMOUNTS.cap} RLUSD per-purchase cap`);
   });
 
   app.get('/demo/heist', (req, res) => {
@@ -125,7 +127,7 @@ export function createQuoteApp({ payout, resourceServer = null, enforceMandate =
     sendPaymentRequired(res, {
       url,
       description: `Premium data pack. ${HEIST_INJECTION}`,
-      amount: ethers.parseUnits('50', 18).toString(),
+      amount: ethers.parseUnits(HEIST_PRICE, 18).toString(),
       payTo: UNLISTED_MERCHANT,
       channelId: req.get('x-ap4m-channel-id'),
     });
@@ -140,7 +142,7 @@ export function createQuoteApp({ payout, resourceServer = null, enforceMandate =
     sendPaymentRequired(res, {
       url,
       description: 'Quote from a desk outside the allowance',
-      amount: ethers.parseUnits('1', 18).toString(),
+      amount: ethers.parseUnits(DEMO_AMOUNTS.unlisted, 18).toString(),
       payTo: UNLISTED_MERCHANT,
       channelId: req.get('x-ap4m-channel-id'),
     });
@@ -192,7 +194,18 @@ async function main() {
     }
   }
 
-  const price = process.env.PRICE_RLUSD?.trim() || '1';
+  // Before any network call: say so at once when another merchant is running.
+  const [mainState, historyState] = merchantStateTargets();
+  for (const row of await clearStaleMerchantLocks([mainState, historyState])) {
+    if (row.verdict === 'stale') console.log(`Removed a leftover ${row.stateDirectory}/merchant.lock. No merchant was running.`);
+    if (row.verdict === 'held') {
+      fail(row.error
+        ? `Could not remove the leftover ${row.stateDirectory}/merchant.lock: ${row.error}`
+        : heldLockMessage(row.stateDirectory, readOwnerPid(row.stateDirectory)));
+    }
+  }
+
+  const price = process.env.PRICE_RLUSD?.trim() || DEMO_AMOUNTS.brief;
   const apiUrl = (process.env.AP4M_API_URL?.trim() || 'https://hackathon.ap4m.build').replace(/\/$/, '');
   const context = await loadX402Context(apiUrl);
   const configResponse = await fetch(`${apiUrl}/public/config`, { signal: AbortSignal.timeout(30_000) });
@@ -200,10 +213,6 @@ async function main() {
   if (!configResponse.ok) fail(`Could not read AP4M network config (${configResponse.status}).`);
   const provider = new ethers.JsonRpcProvider(process.env.AP4M_RPC_URL || config.network.rpcUrl);
   const submitter = new ethers.Wallet(submitterKey, provider);
-  const [mainState, historyState] = merchantStateTargets();
-  for (const row of await clearStaleMerchantLocks([mainState, historyState])) {
-    if (row.verdict === 'stale') console.log(`Removed a leftover ${row.stateDirectory}/merchant.lock. No merchant was running.`);
-  }
   const merchant = createX402Merchant({
     context,
     provider,
@@ -239,7 +248,7 @@ async function main() {
     resourceUrl: historyUrl,
     merchantParticipantId: merchantId,
     payout,
-    amount: ethers.parseUnits('8', 18).toString(),
+    amount: ethers.parseUnits(DEMO_AMOUNTS.history, 18).toString(),
     content: {
       type: 'market-data',
       pair: 'XRP/RLUSD',
@@ -276,7 +285,7 @@ async function main() {
   });
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`Merchant selling ${resourceUrl} for ${price} RLUSD`);
-    console.log(`History resource ${historyUrl} for 8 RLUSD`);
+    console.log(`History resource ${historyUrl} for ${DEMO_AMOUNTS.history} RLUSD`);
     console.log(`Payout ${payout}`);
     console.log(`Decline-only quote at http://127.0.0.1:${port}/demo/unlisted`);
     console.log(`Heist quote at http://127.0.0.1:${port}/demo/heist`);

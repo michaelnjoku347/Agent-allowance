@@ -26,7 +26,11 @@ function safeReason(error, key) {
  * Close every open channel for this team.
  * Pass signIn, listChannels, and closeChannel in tests. The default is the AP4M SDK.
  */
+export const SHARED_DEMO = 'Public demo: this sandbox stopped signing. The shared demo channel stays open for other visitors.';
+
 export async function closeOpenChannels(env = process.env, deps = {}) {
+  // One visitor's freeze in the hosted demo must not close the channel every visitor shares.
+  if (env.PUBLIC_DEMO === '1') return { closed: false, attempted: false, txHashes: [], reason: SHARED_DEMO };
   const key = String(env.AGENT_PRIVATE_KEY ?? '').trim();
   const team = String(env.TEAM_NAME ?? '').trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(key) || !team) {

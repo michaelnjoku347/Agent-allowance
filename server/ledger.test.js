@@ -64,7 +64,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       task: 'Buy the extended market history',
       merchant: allowed,
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
       resourceUrl: 'http://127.0.0.1:4308/demo/over-cap',
     });
@@ -93,10 +93,10 @@ describe('Ledger approval', { concurrency: false }, () => {
       assert.equal(challenge.status, 200);
       assert.equal(challenge.body.typedData.primaryType, 'ApprovePurchase');
       assert.equal(challenge.body.typedData.domain.chainId, 1449000);
-      assert.equal(challenge.body.typedData.message.amount, '8 RLUSD');
+      assert.equal(challenge.body.typedData.message.amount, '0.08 RLUSD');
       assert.match(challenge.body.typedData.message.merchant, /Field Weather Co \(0x/);
       assert.match(challenge.body.typedData.message.expiry, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/);
-      assert.equal(challenge.body.display.amount, '8 RLUSD');
+      assert.equal(challenge.body.display.amount, '0.08 RLUSD');
       assert.match(challenge.body.display.merchant, /Field Weather Co/);
       assert.equal(challenge.body.approverAddress, approver.address.toLowerCase());
 
@@ -128,7 +128,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       assert.equal(paid.body.payment.approver, approver.address.toLowerCase());
       assert.match(paid.body.note, /paid once/i);
       assert.equal(calls, 2);
-      assert.equal(await spentRlusd(), '8');
+      assert.equal(await spentRlusd(), '0.08');
       assert.equal((await listPending()).some((item) => item.id === pending.id), false);
 
       const third = await post(base, `/api/approve/${pending.id}`, {
@@ -152,7 +152,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       task: 'Buy the extended market history',
       merchant: allowed,
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
       resourceUrl: 'http://127.0.0.1:4308/demo/over-cap',
     });
@@ -168,7 +168,7 @@ describe('Ledger approval', { concurrency: false }, () => {
     try {
       const challenge = await post(base, `/api/approve/${pending.id}/challenge`);
       const wrongAmount = structuredClone(challenge.body.typedData);
-      wrongAmount.message = { ...wrongAmount.message, amount: '1' };
+      wrongAmount.message = { ...wrongAmount.message, amount: '0.01' };
       const amountSig = await signApprovalForTest(wrongAmount, approver.privateKey);
       const amount = await post(base, `/api/approve/${pending.id}`, {
         signature: amountSig.signature,
@@ -203,7 +203,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       task: 'Buy from an outside desk',
       merchant: '0x0bad0bad0bad0bad0bad0bad0bad0bad0bad0bad',
       merchantLabel: 'Outside',
-      amount: '1',
+      amount: '0.01',
       reason: 'merchant not allowed',
       resourceUrl: 'http://127.0.0.1:4308/demo/unlisted',
     });
@@ -211,7 +211,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       task: 'Buy the extended market history',
       merchant: allowed,
       merchantLabel: 'Field Weather Co',
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
       resourceUrl: 'http://127.0.0.1:4309/resource',
     });
@@ -250,14 +250,14 @@ describe('Ledger approval', { concurrency: false }, () => {
     const pending = await recordPending({
       task: 'Buy the extended market history',
       merchant: allowed,
-      amount: '8',
+      amount: '0.08',
       reason: 'over per-purchase cap',
       resourceUrl: 'http://127.0.0.1:4308/demo/over-cap',
     });
     await recordAgentPayment({
       task: 'Already spent',
       merchant: allowed,
-      amount: '16',
+      amount: '0.16',
       txHash: `0x${'22'.repeat(32)}`,
     });
     const clock = { now: Date.parse('2026-10-24T12:00:00.000Z') };
@@ -292,7 +292,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       assert.equal(expired.status, 409);
       assert.equal(expired.body.error, 'expired');
       assert.equal((await listPending()).some((item) => item.id === pending.id), true);
-      assert.equal(await spentRlusd(), '16');
+      assert.equal(await spentRlusd(), '0.16');
     } finally {
       await close(server);
     }
@@ -308,7 +308,7 @@ describe('Ledger approval', { concurrency: false }, () => {
         task: 'Too late',
         resourceUrl: 'http://127.0.0.1:4308/resource',
         merchant: allowed,
-        amount: '1',
+        amount: '0.01',
         at: '2027-01-02T00:00:00.000Z',
         purchaseId: 'pend_expired',
       }), (error) => error.code === 'HARD_RULE' && error.reason === 'expired');
@@ -317,7 +317,7 @@ describe('Ledger approval', { concurrency: false }, () => {
         task: 'Over the cap',
         resourceUrl: 'http://127.0.0.1:4308/resource',
         merchant: allowed,
-        amount: '8',
+        amount: '0.08',
         at: '2026-10-24T00:00:00.000Z',
         purchaseId: 'pend_cap',
       }), (error) => error.code === 'NOT_CONFIGURED');
@@ -341,16 +341,16 @@ describe('Ledger approval', { concurrency: false }, () => {
     const server = await listen(createApp());
     const base = `http://127.0.0.1:${server.address().port}`;
     try {
-      const bare = await post(base, '/api/allowance', { maxPerPurchase: '8' });
+      const bare = await post(base, '/api/allowance', { maxPerPurchase: '0.08' });
       assert.equal(bare.status, 400);
       assert.match(bare.body.message, /Ledger signature/);
-      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '5');
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '0.05');
 
-      const challenge = await post(base, '/api/allowance/challenge', { maxPerPurchase: '8' });
+      const challenge = await post(base, '/api/allowance/challenge', { maxPerPurchase: '0.08' });
       assert.equal(challenge.status, 200);
       assert.equal(challenge.body.typedData.primaryType, 'SetAllowance');
       assert.equal(challenge.body.typedData.domain.chainId, 1449000);
-      assert.equal(challenge.body.typedData.message.cap, '8 RLUSD');
+      assert.equal(challenge.body.typedData.message.cap, '0.08 RLUSD');
       assert.match(challenge.body.typedData.message.expiry, / UTC$/);
       assert.match(challenge.body.typedData.message.validUntil, / UTC$/);
 
@@ -360,8 +360,8 @@ describe('Ledger approval', { concurrency: false }, () => {
         message: challenge.body.typedData.message,
       });
       assert.equal(raised.status, 200);
-      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '8');
-      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).budget, '20');
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).maxPerPurchase, '0.08');
+      assert.equal(JSON.parse(readFileSync(rulesPath, 'utf8')).budget, '0.2');
 
       const replay = await post(base, '/api/allowance', {
         signature: signed.signature,
@@ -370,7 +370,7 @@ describe('Ledger approval', { concurrency: false }, () => {
       assert.equal(replay.status, 409);
       assert.equal(replay.body.error, 'replay');
 
-      const lower = await post(base, '/api/allowance/challenge', { maxPerPurchase: '4' });
+      const lower = await post(base, '/api/allowance/challenge', { maxPerPurchase: '0.04' });
       assert.equal(lower.status, 400);
       assert.equal(lower.body.error, 'not_a_raise');
     } finally {
@@ -386,6 +386,12 @@ describe('Ledger approval', { concurrency: false }, () => {
     assert.equal(describeLedgerError({ errorCode: '6e00', message: 'CLA not supported' }).code, 'wrong_app');
     assert.equal(describeLedgerError({ _tag: 'EthAppCommandError', errorCode: '6985', message: 'Condition not satisfied' }).code, 'rejected');
     assert.match(describeLedgerError({ message: 'WebHID is unavailable' }).message, /Chrome/);
+    const lateClick = describeLedgerError({
+      name: 'SecurityError',
+      message: "Failed to execute 'requestDevice' on 'HID': Must be handling a user gesture to show a permission request.",
+    });
+    assert.equal(lateClick.code, 'gesture');
+    assert.match(lateClick.message, /Click Connect again/);
     assert.match(
       describeLedgerError({ _tag: 'NoAccessibleDeviceError', originalError: new Error('No selected device') }).message,
       /No Ledger was selected/,

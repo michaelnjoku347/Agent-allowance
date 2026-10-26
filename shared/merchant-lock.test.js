@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   clearStaleMerchantLocks,
+  heldLockMessage,
   lockPaths,
   lockVerdict,
   pidAlive,
+  portAnswers,
   readOwnerPid,
   removeOwnerPid,
   writeOwnerPid,
@@ -105,4 +108,27 @@ test('no lock means nothing to do', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a second merchant is told one is already running, with its process when known', () => {
+  assert.match(heldLockMessage('merchant/state', 4242), /^A merchant is already running for merchant\/state \(process 4242\)\./);
+  assert.match(heldLockMessage('merchant/state'), /^A merchant is already running for merchant\/state\. Keep using it/);
+  assert.match(heldLockMessage('merchant/state'), /npm start runs the merchant for you when its keys are in \.env\./);
+});
+
+test('portAnswers is true for any HTTP answer, even a 404, and false for a closed port', async () => {
+  const server = createServer((req, res) => {
+    res.statusCode = 404;
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    assert.equal(await portAnswers(port), true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  assert.equal(await portAnswers(port), false);
+  assert.equal(await portAnswers(0), false);
+  assert.equal(await portAnswers(undefined), false);
 });

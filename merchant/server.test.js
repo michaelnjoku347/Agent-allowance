@@ -31,25 +31,25 @@ test('demo quotes are 402s the rules block before any payment', async () => {
   try {
     const overUrl = `http://127.0.0.1:${port}/demo/over-cap`;
     const over = await requestQuote(overUrl, channelId);
-    assert.equal(over.amount, '8');
+    assert.equal(over.amount, '0.08');
     assert.equal(over.merchant.toLowerCase(), payout);
     assert.equal(over.resourceUrl, overUrl);
     assert.equal(checkRules({ merchant: over.merchant, amount: over.amount, spent: '0' }, rules).reason, 'over per-purchase cap');
 
     const sixUrl = `http://127.0.0.1:${port}/demo/over-cap-6`;
     const six = await requestQuote(sixUrl, channelId);
-    assert.equal(six.amount, '6');
+    assert.equal(six.amount, '0.06');
     assert.equal(checkRules({ merchant: six.merchant, amount: six.amount, spent: '0' }, rules).reason, 'over per-purchase cap');
 
     const outsideUrl = `http://127.0.0.1:${port}/demo/unlisted`;
     const outside = await requestQuote(outsideUrl, channelId);
-    assert.equal(outside.amount, '1');
+    assert.equal(outside.amount, '0.01');
     assert.equal(outside.merchant.toLowerCase(), UNLISTED_MERCHANT);
     assert.equal(checkRules({ merchant: outside.merchant, amount: outside.amount, spent: '0' }, rules).reason, 'merchant not allowed');
 
     const heistUrl = `http://127.0.0.1:${port}/demo/heist`;
     const heist = await requestQuote(heistUrl, channelId);
-    assert.equal(heist.amount, '50');
+    assert.equal(heist.amount, '0.5');
     assert.equal(heist.merchant.toLowerCase(), UNLISTED_MERCHANT);
     assert.match(heist.description, new RegExp(HEIST_INJECTION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(checkRules({ merchant: heist.merchant, amount: heist.amount, spent: '0' }, rules).reason, 'merchant not allowed');
@@ -75,7 +75,7 @@ test('GET /resource is forwarded to the x402 merchant', async () => {
   const header = paymentRequiredHeader({
     url: resourceUrl,
     description: 'Morning market brief',
-    amount: ethers.parseUnits('1', 18).toString(),
+    amount: ethers.parseUnits('0.01', 18).toString(),
     payTo: payout,
     channelId,
   });
@@ -96,7 +96,7 @@ test('GET /resource is forwarded to the x402 merchant', async () => {
     const quote = await requestQuote(`http://127.0.0.1:${port}/resource`, channelId);
     assert.equal(seenUrl, '/resource');
     assert.equal(sawPayment, false);
-    assert.equal(quote.amount, '1');
+    assert.equal(quote.amount, '0.01');
     assert.equal(checkRules({ merchant: quote.merchant, amount: quote.amount, spent: '0' }, rules).decision, 'allow');
   } finally {
     await close(server);

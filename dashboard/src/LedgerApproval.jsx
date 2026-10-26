@@ -3,6 +3,7 @@ import { fetchApprovalProgress, requestApprovalChallenge, simulateLedgerApproval
 import { ceremonyDate, money } from './format.js';
 import { prepareLedger, signOnLedger } from './ledger.js';
 import { webHidSupported } from '../../shared/ledger-device.js';
+import { APPROVAL_ERROR_TITLES, deviceStatusLine } from './ledgerCopy.js';
 
 const PAY_STAGES = [
   ['signed', 'Signed'],
@@ -28,6 +29,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
   const [challenge, setChallenge] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [errorStage, setErrorStage] = useState('device');
   const [result, setResult] = useState(null);
   const [payStage, setPayStage] = useState('signed');
   const cancelRef = useRef(null);
@@ -64,6 +66,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
         onPaid?.();
         return;
       }
+      setErrorStage('pay');
       setError('That payment did not finish. Check Needs you before trying again.');
       setPhase('error');
       onPaid?.();
@@ -97,6 +100,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
           watchUntilQuiet();
           return;
         }
+        setErrorStage('prepare');
         setError(err.message || 'Could not prepare that approval.');
         setChallenge(null);
         setPhase('error');
@@ -116,6 +120,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
       setPhase('done');
       await onPaid?.();
     } catch (err) {
+      setErrorStage('simulated');
       setError(err.message || 'Could not approve that purchase.');
       setPhase('error');
     }
@@ -154,6 +159,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
     } catch (err) {
       cancelRef.current = null;
       stopPoll();
+      setErrorStage('device');
       setError(err.message || 'The Ledger did not approve this purchase.');
       setChallenge(null);
       setPhase('loading');
@@ -187,6 +193,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
   const canApprove = preview || ((phase === 'ready' || phase === 'error') && (simulated ? Boolean(challenge) : supported && Boolean(challenge)));
 
   const step = ceremonyStep(phase, payStage, preview);
+  const deviceLine = deviceStatusLine({ phase, status, preview, simulated, supported, error });
   const paid = phase === 'done' && !preview && !simulated;
   const explorer = result?.explorerUrl
     || (typeof result?.txHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(result.txHash)
@@ -215,8 +222,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
               <li key={label} className={index < step ? 'is-done' : index === step ? 'is-now' : ''}>{label}</li>
             ))}
           </ol>
-          {step < 2 ? <p className="device-status" role="status">Waiting for your Ledger…</p> : null}
-          {phase === 'paying' ? <p className="device-status" role="status">{status}</p> : null}
+          <p className="device-status" role="status">{deviceLine}</p>
           {simulated && !preview ? (
             <p className="sim-banner" role="status">simulated Ledger signature. This is not a Ledger device.</p>
           ) : null}
@@ -225,7 +231,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
           ) : null}
           {error ? (
             <div className="state-error" role="alert">
-              <p className="state-error-title">{preview ? 'Preview only' : 'The Ledger did not finish'}</p>
+              <p className="state-error-title">{preview ? 'Preview only' : APPROVAL_ERROR_TITLES[errorStage] || APPROVAL_ERROR_TITLES.device}</p>
               <p>{error}</p>
             </div>
           ) : null}
@@ -255,6 +261,7 @@ export default function LedgerApproval({ item, onPaid, simulated = false, previe
 }
 
 const CEREMONY_STEPS = ['Connect', 'Review on device', 'Signed', 'Paid on XRPL'];
+
 
 function ceremonyStep(phase, payStage, preview) {
   if (phase === 'done') return 3;
